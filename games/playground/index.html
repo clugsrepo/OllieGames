@@ -86,6 +86,7 @@
 
 <div id="toolbar">
   <button data-spawn="ragdoll">🙂 Person</button>
+  <button data-spawn="croc">🐊 Croc</button>
   <button data-spawn="ball">⚪ Ball</button>
   <button data-spawn="box">📦 Box</button>
   <button data-spawn="plank">➖ Plank</button>
@@ -128,8 +129,9 @@ let gravityOn = true;
 let slowMo    = false;
 
 // ---- The world ----
-let dots   = [];   // every dot in the world
-let sticks = [];   // every stick joining two dots
+let dots      = [];   // every dot in the world
+let sticks    = [];   // every stick joining two dots
+let creatures = [];   // things that are ALIVE and move by themselves
 
 let W = 0, H = 0, TOP = 0;
 
@@ -161,13 +163,15 @@ function makeStick(a, b, visible, thickness) {
   // The stick's length is however far apart the dots start out.
   const dx = a.x - b.x;
   const dy = a.y - b.y;
-  sticks.push({
+  const stick = {
     a: a,
     b: b,
     length: Math.sqrt(dx * dx + dy * dy),
     visible: visible !== false,
     thickness: thickness || 10
-  });
+  };
+  sticks.push(stick);
+  return stick;
 }
 
 
@@ -176,7 +180,8 @@ function makeStick(a, b, visible, thickness) {
    --------------------------------------------------------------- */
 
 const SKIN_COLOURS = ["#ffb37a", "#f5d0a9", "#c98a5b", "#8d5524", "#ffd1a3"];
-const SHIRT_COLOURS = ["#ff6b6b", "#6bcbff", "#a06bff", "#4ade80", "#ffd93d", "#ff8fd9"];
+// no green shirts - people would blend into the crocodiles!
+const SHIRT_COLOURS = ["#ff6b6b", "#6bcbff", "#a06bff", "#ffd93d", "#ff8fd9", "#ff9f43"];
 
 // Make everything bigger or smaller by changing this one number!
 const SIZE = 1.6;
@@ -187,7 +192,11 @@ function spawnRagdoll(x, y) {
 
   const S = SIZE;
   // little helper so we don't have to write "* S" a hundred times
-  const dot = (dx, dy, r, c) => makeDot(x + dx * S, y + dy * S, r * S, c);
+  const dot = (dx, dy, r, c) => {
+    const d = makeDot(x + dx * S, y + dy * S, r * S, c);
+    d.person = true;      // so crocodiles know who to chase!
+    return d;
+  };
 
   // Build the body out of dots
   const head  = dot(  0, -42, 15, skin);
@@ -270,15 +279,304 @@ function spawnPlank(x, y) {
 
 
 /* ---------------------------------------------------------------
+   THE CROCODILE 🐊
+
+   The croc is built out of dots and sticks just like everything else,
+   but it's ALIVE: every frame it looks around for the nearest person,
+   waddles towards them, and snaps its jaws shut.
+
+   The clever bit is the jaw. There's an invisible stick between the top
+   and bottom of the mouth called the "muscle". We just change how LONG
+   that stick wants to be - long for open, short for shut - and the
+   physics does the rest. That's how you make anything bend or grab.
+   --------------------------------------------------------------- */
+
+const CROC_GREEN = "#3fa34d";
+const CROC_DARK  = "#2d7a38";
+
+function spawnCroc(x, y) {
+  const croc = { body: [], t: Math.random() * 10, facing: 1, turn: 0,
+                 prey: null, holdTimer: 0, cooldown: 0, stuck: 0, lastX: x };
+
+  const S = SIZE;
+  const dir = Math.random() < 0.5 ? 1 : -1;   // facing left or right
+  croc.facing = dir;
+
+  // helper: place a dot using croc-shaped coordinates
+  const dot = (dx, dy, r, c) => {
+    const d = makeDot(x + dx * S * dir, y + dy * S, r * S, c);
+    d.owner = croc;          // so the croc never bites itself
+    croc.body.push(d);
+    return d;
+  };
+
+  // spine, from tail to nose
+  const tail = dot(-92,  0,  5, CROC_DARK);
+  const b3   = dot(-62,  0,  9, CROC_GREEN);
+  const b2   = dot(-32,  0, 11, CROC_GREEN);
+  const b1   = dot(  0,  0, 11, CROC_GREEN);
+  const neck = dot( 26,  0, 10, CROC_GREEN);
+  const hinge= dot( 46,  2,  9, CROC_GREEN);
+
+  // the two jaw tips
+  const upperTip = dot(102, -5, 5, CROC_GREEN);
+  const lowerTip = dot(102, 11, 5, CROC_DARK);
+
+  // stubby little legs
+  const frontFoot = dot(  6, 24, 6, CROC_DARK);
+  const backFoot  = dot(-56, 24, 6, CROC_DARK);
+
+  // ---- the body ----
+  makeStick(tail, b3,  true, 11 * S);
+  makeStick(b3, b2,    true, 19 * S);
+  makeStick(b2, b1,    true, 22 * S);
+  makeStick(b1, neck,  true, 20 * S);
+  makeStick(neck, hinge, true, 17 * S);
+
+  // ---- the jaws ----
+  makeStick(hinge, upperTip, true, 11 * S);   // top of the mouth
+  makeStick(hinge, lowerTip, true,  9 * S);   // bottom of the mouth
+
+  // The TOP jaw is bolted to his body so his snout stays pointing
+  // forwards instead of drooping into the floor. Only the BOTTOM jaw
+  // swings - which is how a real croc does it anyway.
+  makeStick(neck, upperTip, false);
+  makeStick(b1,   upperTip, false);
+
+  // THE MUSCLE - we change this length to open and close the mouth
+  croc.muscle = makeStick(upperTip, lowerTip, false);
+  croc.openLen   = 46 * S;
+  croc.closedLen = 13 * S;
+
+  // ---- legs ----
+  makeStick(b1, frontFoot, true, 9 * S);
+  makeStick(b3, backFoot,  true, 9 * S);
+  makeStick(neck, frontFoot, false);   // stops the legs splaying about
+  makeStick(b2, backFoot,  false);
+
+  // ---- invisible braces to keep him croc-shaped ----
+  makeStick(tail, b2,  false);
+  makeStick(b3, b1,    false);
+  makeStick(b2, neck,  false);
+  makeStick(b1, hinge, false);
+
+  croc.hinge = hinge;
+  croc.neck  = neck;
+  croc.upperTip = upperTip;
+  croc.lowerTip = lowerTip;
+
+  creatures.push(croc);
+  return croc;
+}
+
+
+const CROC_SPEED = 1.1;   // how fast he can waddle (bigger = zoomier croc!)
+
+function updateCreatures() {
+  for (const c of creatures) {
+    const U = c.upperTip, L = c.lowerTip;
+
+    // the middle of his mouth - this is where he grabs things
+    const mouthX = (U.x + L.x) / 2;
+    const mouthY = (U.y + L.y) / 2;
+
+    if (c.cooldown > 0) c.cooldown--;
+
+    // ---- is he already carrying someone? ----
+    if (c.prey) {
+      c.muscle.length = c.closedLen;      // keep the mouth shut!
+      c.prey.x = mouthX;
+      c.prey.y = mouthY;
+
+      c.holdTimer--;
+      if (c.holdTimer <= 0) {
+        // THROW! (in Verlet, moving oldx/oldy is how you set speed)
+        c.prey.oldx = c.prey.x + c.facing * 3;
+        c.prey.oldy = c.prey.y + 10;
+        c.prey = null;
+        c.cooldown = 100;                 // have a little rest first
+      }
+      continue;
+    }
+
+    // ---- look for the nearest bit of a person to chase ----
+    // (any bit will do - a hand or a foot is just as good as a head!)
+    let target = null, bestDist = Infinity;
+    for (const d of dots) {
+      if (!d.person) continue;
+      const dx = d.x - mouthX, dy = d.y - mouthY;
+      const dist = dx * dx + dy * dy;
+      if (dist < bestDist) { bestDist = dist; target = d; }
+    }
+
+    if (!target) {
+      // nobody about - just laze around opening and closing his mouth
+      c.t += 0.015;
+      const yawn = 0.5 + 0.5 * Math.sin(c.t);
+      c.muscle.length = c.closedLen + (c.openLen - c.closedLen) * yawn * 0.45;
+      continue;
+    }
+
+    bestDist = Math.sqrt(bestDist);
+
+    // where's the middle of the croc?
+    let cx = 0;
+    for (const d of c.body) cx += d.x;
+    cx /= c.body.length;
+
+    const bodyDir = c.hinge.x >= cx ? 1 : -1;   // way he's pointing
+    const wantDir = target.x >= cx ? 1 : -1;    // way dinner is
+    if (c.turn > 0) c.turn--;
+
+    // A croc can't walk backwards! If his dinner is behind him he has to
+    // spin right round. We flip every dot to the other side of his middle.
+    if (bodyDir !== wantDir && c.turn <= 0 && Math.abs(target.x - cx) > 40 * SIZE) {
+      for (const d of c.body) {
+        d.x    = 2 * cx - d.x;
+        d.oldx = 2 * cx - d.oldx;   // mirror his speed too, or he'd jolt
+      }
+      c.turn = 45;
+    }
+
+    c.facing = c.hinge.x >= cx ? 1 : -1;
+
+    // ---- waddle forwards ----
+    // We give him a nudge each step, but stop nudging once he's at top
+    // speed - otherwise he'd get faster and faster forever!
+    if (c.facing === wantDir) {
+      for (const d of c.body) {
+        const vx = d.x - d.oldx;
+        if (c.facing > 0 ? vx < CROC_SPEED : vx > -CROC_SPEED) {
+          d.x += c.facing * 0.05;
+        }
+      }
+    }
+
+    // If he's wedged against something, he lifts his HEAD to climb over it.
+    // (We only lift the front of him - lifting all of him made him rear up
+    // like a horse, which was funny but not very crocodile.)
+    if (Math.abs(c.hinge.x - c.lastX) < 0.4) c.stuck++; else c.stuck = 0;
+    c.lastX = c.hinge.x;
+    if (c.stuck > 40) {
+      for (const d of [c.neck, c.hinge, c.upperTip, c.lowerTip]) d.y -= 4.5 * SIZE;
+      c.stuck = 0;
+    }
+
+    // ---- CHOMP ----
+    if (bestDist < 46 * SIZE && c.cooldown <= 0) {
+      c.muscle.length = c.closedLen;
+
+      // did anything end up inside his mouth?
+      const grabR = 40 * SIZE;
+      for (const d of dots) {
+        // never grab another croc - two crocs tugging the same dot
+        // would fight each other forever
+        if (d.owner || d === held || d.controlled) continue;
+        const gx = d.x - mouthX, gy = d.y - mouthY;
+        if (gx * gx + gy * gy < grabR * grabR) {
+          c.prey = d;
+          c.holdTimer = 75;
+          break;
+        }
+      }
+    } else if (bestDist < 150 * SIZE) {
+      c.muscle.length = c.openLen;        // getting close - open wide!
+    } else {
+      c.muscle.length = c.closedLen * 1.6; // still far off - mouth mostly shut
+    }
+  }
+}
+
+
+function drawCroc(c) {
+  const H = c.hinge, N = c.neck, U = c.upperTip, L = c.lowerTip;
+
+  // which way is the head pointing?
+  let hx = H.x - N.x, hy = H.y - N.y;
+  const hlen = Math.hypot(hx, hy) || 1;
+  hx /= hlen; hy /= hlen;
+
+  // A line at right angles to his head. There are two ways it could
+  // point, so we pick the one pointing away from his bottom jaw - that
+  // way it always finds his BACK, even if he's upside down.
+  let px = -hy, py = hx;
+  if ((L.x - U.x) * px + (L.y - U.y) * py > 0) { px = -px; py = -py; }
+
+  // ---- teeth ----
+  ctx.fillStyle = "#fff";
+  const jaw = (from, to, towardX, towardY) => {
+    let jx = to.x - from.x, jy = to.y - from.y;
+    const jlen = Math.hypot(jx, jy) || 1;
+    jx /= jlen; jy /= jlen;
+
+    // teeth stick out sideways from the jaw, pointing into the mouth
+    let qx = -jy, qy = jx;
+    if (qx * towardX + qy * towardY < 0) { qx = -qx; qy = -qy; }
+
+    for (let t = 0.32; t < 0.95; t += 0.17) {
+      const bx = from.x + jx * jlen * t;
+      const by = from.y + jy * jlen * t;
+      const w = 3.2 * SIZE, h = 7 * SIZE;
+      ctx.beginPath();
+      ctx.moveTo(bx - jx * w, by - jy * w);
+      ctx.lineTo(bx + jx * w, by + jy * w);
+      ctx.lineTo(bx + qx * h, by + qy * h);
+      ctx.closePath();
+      ctx.fill();
+    }
+  };
+  jaw(H, U, -px, -py);   // top teeth point down into the mouth
+  jaw(H, L,  px,  py);   // bottom teeth point up into the mouth
+
+  // ---- bumpy scales along his back ----
+  ctx.fillStyle = CROC_DARK;
+  const spine = c.body.slice(0, 5);
+  for (const d of spine) {
+    ctx.beginPath();
+    ctx.arc(d.x + px * d.r * 0.7, d.y + py * d.r * 0.7, d.r * 0.42, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // ---- eye, sitting on top of his head ----
+  const ex = H.x + px * 9 * SIZE - hx * 3 * SIZE;
+  const ey = H.y + py * 9 * SIZE - hy * 3 * SIZE;
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.arc(ex, ey, 6.5 * SIZE, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#1a1a2e";
+  ctx.beginPath();
+  ctx.arc(ex + hx * 1.5 * SIZE, ey + hy * 1.5 * SIZE, 4.2 * SIZE, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ---- nostril on the end of his snout ----
+  ctx.fillStyle = CROC_DARK;
+  ctx.beginPath();
+  ctx.arc(U.x - hx * 5 * SIZE + px * 3 * SIZE, U.y - hy * 5 * SIZE + py * 3 * SIZE,
+          2.4 * SIZE, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+
+/* ---------------------------------------------------------------
    THE PHYSICS
    --------------------------------------------------------------- */
+
+// A dot is "controlled" when something is holding it in place - either
+// your finger, or a crocodile's mouth. Controlled dots ignore gravity and
+// can't be shoved around by sticks or bumps.
+function markControlled() {
+  for (const d of dots) d.controlled = false;
+  if (held) held.controlled = true;
+  for (const c of creatures) if (c.prey) c.prey.controlled = true;
+}
 
 // STEP 1: move every dot
 function moveDots() {
   const g = gravityOn ? GRAVITY : 0;
 
   for (const d of dots) {
-    if (d === held) continue;   // the one you're dragging is controlled by you
+    if (d.controlled) continue;   // being held - we'll place it ourselves
 
     // speed = how far it moved last frame
     let vx = (d.x - d.oldx) * FRICTION;
@@ -304,8 +602,8 @@ function solveSticks() {
     const offx = dx * diff;
     const offy = dy * diff;
 
-    if (s.a !== held) { s.a.x -= offx; s.a.y -= offy; }
-    if (s.b !== held) { s.b.x += offx; s.b.y += offy; }
+    if (!s.a.controlled) { s.a.x -= offx; s.a.y -= offy; }
+    if (!s.b.controlled) { s.b.x += offx; s.b.y += offy; }
   }
 }
 
@@ -330,8 +628,8 @@ function solveCollisions() {
       const offx = dx * push;
       const offy = dy * push;
 
-      if (a !== held) { a.x -= offx; a.y -= offy; }
-      if (b !== held) { b.x += offx; b.y += offy; }
+      if (!a.controlled) { a.x -= offx; a.y -= offy; }
+      if (!b.controlled) { b.x += offx; b.y += offy; }
     }
   }
 }
@@ -483,6 +781,9 @@ function draw() {
     }
   }
 
+  // crocs get eyes, teeth and scales drawn on top
+  for (const c of creatures) drawCroc(c);
+
   // highlight whatever you're holding
   if (held) {
     ctx.strokeStyle = "#fff";
@@ -502,6 +803,8 @@ function loop() {
   const steps = slowMo ? 1 : 2;   // slow-mo just does less physics per frame
 
   for (let i = 0; i < steps; i++) {
+    updateCreatures();   // the crocs decide what they're up to
+    markControlled();
     dragHeld();
     moveDots();
     for (let k = 0; k < ITERATIONS; k++) {
@@ -522,6 +825,7 @@ function loop() {
 
 const spawners = {
   ragdoll: spawnRagdoll,
+  croc:    spawnCroc,
   ball:    spawnBall,
   box:     spawnBox,
   plank:   spawnPlank
@@ -554,6 +858,7 @@ slowmoBtn.addEventListener("click", () => {
 document.getElementById("btn-clear").addEventListener("click", () => {
   dots = [];
   sticks = [];
+  creatures = [];
   held = null;
 });
 
