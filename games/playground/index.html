@@ -87,6 +87,7 @@
 <div id="toolbar">
   <button data-spawn="ragdoll">🙂 Person</button>
   <button data-spawn="croc">🐊 Croc</button>
+  <button data-spawn="crawler">🕷️ Crawler</button>
   <button data-spawn="ball">⚪ Ball</button>
   <button data-spawn="box">📦 Box</button>
   <button data-spawn="plank">➖ Plank</button>
@@ -403,6 +404,16 @@ function spawnCroc(x, y) {
   makeStick(b2, neck,  false);
   makeStick(b1, hinge, false);
 
+  // settings the shared creature brain reads
+  croc.kind      = "croc";
+  croc.speed     = CROC_SPEED;
+  croc.turnGap   = 40 * S;
+  croc.hopLift   = 4.5 * S;
+  croc.biteRange = 46 * S;
+  croc.grabRange = 40 * S;
+  croc.gapeRange = 150 * S;
+  croc.holdFor   = 75;
+
   croc.hinge = hinge;
   croc.neck  = neck;
   croc.upperTip = upperTip;
@@ -413,10 +424,219 @@ function spawnCroc(x, y) {
 }
 
 
-const CROC_SPEED = 1.1;   // how fast he can waddle (bigger = zoomier croc!)
+/* ---------------------------------------------------------------
+   THE CRAWLER 🕷️
+
+   A little grey blocky beast with four long spindly legs and a
+   hunched back. Its knees stick up ABOVE its body, which is what
+   makes it look so creepy.
+
+   It uses exactly the same brain as the crocodile - walk towards a
+   person, snap, carry, throw - just with different numbers. That's why
+   we moved all the croc's settings onto the creature itself. The brain
+   doesn't care what shape you are.
+   --------------------------------------------------------------- */
+
+const CRAWL_DARK  = "#4c525c";
+const CRAWL_MID   = "#666d7a";
+const CRAWL_LIGHT = "#7d8593";
+
+function spawnCrawler(x, y) {
+  const crawler = { body: [], legs: [], t: Math.random() * 10, facing: 1, turn: 0,
+                    prey: null, holdTimer: 0, cooldown: 0, stuck: 0, lastX: x,
+                    hopCool: 0, rest: 0, progressTick: 0, lastCx: x };
+
+  // SMALL! About knee-high next to a person.
+  const S = SIZE * 0.5;
+  const dir = Math.random() < 0.5 ? 1 : -1;
+  crawler.facing = dir;
+
+  const dot = (dx, dy, r, c) => {
+    const d = makeDot(x + dx * S * dir, y + dy * S, r * S, c);
+    d.owner = crawler;
+    crawler.body.push(d);
+    return d;
+  };
+
+  // ---- the hunched spine, from tail to snout ----
+  const tail     = dot(-86,  10, 7, CRAWL_DARK);
+  const hip      = dot(-58,  -6, 13, CRAWL_MID);
+  const backMid  = dot(-26, -18, 15, CRAWL_MID);   // the top of the hunch
+  const shoulder = dot(  4, -12, 14, CRAWL_MID);
+  const neck     = dot( 28,   4, 10, CRAWL_MID);
+  const hinge    = dot( 50,  16,  9, CRAWL_MID);
+
+  // ---- long toothy snout ----
+  const upperTip = dot(94,  10, 5, CRAWL_MID);
+  const lowerTip = dot(94,  26, 5, CRAWL_DARK);
+
+  // ---- spine sticks ----
+  makeStick(tail, hip,        true, 12 * S);
+  makeStick(hip, backMid,     true, 26 * S);
+  makeStick(backMid, shoulder,true, 27 * S);
+  makeStick(shoulder, neck,   true, 20 * S);
+  makeStick(neck, hinge,      true, 16 * S);
+
+  // ---- jaws ----
+  makeStick(hinge, upperTip, true, 10 * S);
+  makeStick(hinge, lowerTip, true,  8 * S);
+  makeStick(neck, upperTip, false);       // snout stays pointing forwards
+  makeStick(shoulder, upperTip, false);
+
+  crawler.muscle    = makeStick(upperTip, lowerTip, false);
+  crawler.openLen   = 40 * S;
+  crawler.closedLen = 11 * S;
+
+  /* ---- the legs ----
+     Each leg is hip -> KNEE -> foot, and the knee sits high above the
+     back. We build four of them, two on each side, and give each one a
+     different "phase" so they don't all move together - that's what
+     makes it scuttle instead of hop. */
+  const makeLeg = (attach, brace, kneeX, kneeY, footX, footY, phase, colour) => {
+    const knee = dot(kneeX, kneeY, 6, colour);
+    const foot = dot(footX, footY, 7, CRAWL_DARK);
+
+    // The knee is bolted to TWO points on the body. Two sticks to two
+    // different places is what makes it rigid - one stick alone would
+    // just let the knee swing, and the leg would fold flat.
+    const thigh = makeStick(attach, knee, true, 7 * S);
+    makeStick(brace,  knee, false);
+
+    const shin = makeStick(knee, foot, true, 6 * S);
+
+    // ...and the foot needs bracing too. Hanging off the knee alone, the
+    // foot was an upside-down pendulum - it just slid out sideways and
+    // the whole beast sat down on the floor.
+    makeStick(attach, foot, false);
+
+    crawler.legs.push({ knee, foot, thigh, shin, phase,
+                        thighRest: thigh.length });
+  };
+
+  /* back pair - the tall inverted-V ones from Ollie's picture.
+     The knee goes WAY up above the back and the foot WAY down below,
+     which is what gives it those long spidery legs. */
+  makeLeg(hip, backMid, -68, -80, -94, 82, 0.0,           CRAWL_DARK);
+  makeLeg(hip, tail,    -46, -72, -62, 82, Math.PI,       CRAWL_MID);
+  // front pair
+  makeLeg(shoulder, backMid, 16, -78, 46, 82, Math.PI * 0.5, CRAWL_DARK);
+  makeLeg(shoulder, neck,    -2, -70,  2, 82, Math.PI * 1.5, CRAWL_MID);
+
+  // ---- braces to hold the hunch together ----
+  makeStick(tail, backMid,     false);
+  makeStick(hip, shoulder,     false);
+  makeStick(backMid, neck,     false);
+  makeStick(shoulder, hinge,   false);
+
+  // ---- settings for the shared creature brain ----
+  crawler.kind      = "crawler";
+  crawler.speed     = 1.9;          // faster and twitchier than a croc
+  crawler.turnGap   = 34 * S;
+  crawler.hopLift   = 5 * S;
+  crawler.biteRange = 44 * S;
+  crawler.grabRange = 36 * S;
+  crawler.gapeRange = 150 * S;
+  crawler.holdFor   = 55;           // lets go sooner than a croc
+
+  crawler.hinge = hinge;
+  crawler.neck  = neck;
+  crawler.upperTip = upperTip;
+  crawler.lowerTip = lowerTip;
+  crawler.scale = S;
+
+  creatures.push(crawler);
+  return crawler;
+}
+
+// make the legs scuttle by stretching and squashing them in turn
+function animateLegs(c) {
+  c.t += 0.13;
+  for (const leg of c.legs) {
+    // Each leg is at a different point in the cycle (its "phase"), so
+    // they take it in turns instead of all twitching together. It's only
+    // a small stretch - the legs have to stay stiff enough to stand on!
+    const step = Math.sin(c.t + leg.phase);
+    leg.thigh.length = leg.thighRest * (1 + step * 0.09);
+  }
+}
+
+
+function drawCrawler(c) {
+  const H = c.hinge, N = c.neck, U = c.upperTip, L = c.lowerTip;
+  const S = c.scale;
+
+  let hx = H.x - N.x, hy = H.y - N.y;
+  const hlen = Math.hypot(hx, hy) || 1;
+  hx /= hlen; hy /= hlen;
+
+  // perpendicular pointing at its BACK (away from the lower jaw)
+  let px = -hy, py = hx;
+  if ((L.x - U.x) * px + (L.y - U.y) * py > 0) { px = -px; py = -py; }
+
+  // ---- teeth ----
+  ctx.fillStyle = "#e8e8e8";
+  const jaw = (from, to, towardX, towardY) => {
+    let jx = to.x - from.x, jy = to.y - from.y;
+    const jlen = Math.hypot(jx, jy) || 1;
+    jx /= jlen; jy /= jlen;
+    let qx = -jy, qy = jx;
+    if (qx * towardX + qy * towardY < 0) { qx = -qx; qy = -qy; }
+    for (let t = 0.25; t < 0.95; t += 0.14) {
+      const bx = from.x + jx * jlen * t;
+      const by = from.y + jy * jlen * t;
+      const w = 2.4 * S, h = 6 * S;
+      ctx.beginPath();
+      ctx.moveTo(bx - jx * w, by - jy * w);
+      ctx.lineTo(bx + jx * w, by + jy * w);
+      ctx.lineTo(bx + qx * h, by + qy * h);
+      ctx.closePath();
+      ctx.fill();
+    }
+  };
+  jaw(H, U, -px, -py);
+  jaw(H, L,  px,  py);
+
+  // ---- blocky plates along its back, like the picture ----
+  ctx.fillStyle = CRAWL_LIGHT;
+  ctx.strokeStyle = "#343841";
+  ctx.lineWidth = 1.5 * S;
+  const spine = c.body.slice(0, 6);
+  for (let i = 1; i < spine.length - 1; i++) {
+    const d = spine[i];
+    const a = spine[i - 1], b2 = spine[i + 1];
+    let sx = b2.x - a.x, sy = b2.y - a.y;
+    const sl = Math.hypot(sx, sy) || 1;
+    sx /= sl; sy /= sl;
+    const qx = -sy, qy = sx;
+    const w = d.r * 1.15, t = d.r * 0.85;
+
+    ctx.beginPath();
+    ctx.moveTo(d.x - sx * w - qx * t, d.y - sy * w - qy * t);
+    ctx.lineTo(d.x + sx * w - qx * t, d.y + sy * w - qy * t);
+    ctx.lineTo(d.x + sx * w + qx * t, d.y + sy * w + qy * t);
+    ctx.lineTo(d.x - sx * w + qx * t, d.y - sy * w + qy * t);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  // ---- two little glowing eyes ----
+  const ex = H.x + px * 7 * S - hx * 2 * S;
+  const ey = H.y + py * 7 * S - hy * 2 * S;
+  ctx.fillStyle = "#ffd93d";
+  for (const off of [-2.5, 2.5]) {
+    ctx.beginPath();
+    ctx.arc(ex + px * off * S, ey + py * off * S, 2.6 * S, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+
+const CROC_SPEED = 1.1;   // how fast the croc waddles (bigger = zoomier croc!)
 
 function updateCreatures() {
   for (const c of creatures) {
+    if (c.legs) animateLegs(c);   // crawlers scuttle
     const U = c.upperTip, L = c.lowerTip;
 
     // the middle of his mouth - this is where he grabs things
@@ -474,7 +694,7 @@ function updateCreatures() {
 
     // A croc can't walk backwards! If his dinner is behind him he has to
     // spin right round. We flip every dot to the other side of his middle.
-    if (bodyDir !== wantDir && c.turn <= 0 && Math.abs(target.x - cx) > 40 * SIZE) {
+    if (bodyDir !== wantDir && c.turn <= 0 && Math.abs(target.x - cx) > c.turnGap) {
       for (const d of c.body) {
         d.x    = 2 * cx - d.x;
         d.oldx = 2 * cx - d.oldx;   // mirror his speed too, or he'd jolt
@@ -508,7 +728,7 @@ function updateCreatures() {
     if (c.facing === wantDir && c.rest <= 0) {
       for (const d of c.body) {
         const vx = d.x - d.oldx;
-        if (c.facing > 0 ? vx < CROC_SPEED : vx > -CROC_SPEED) {
+        if (c.facing > 0 ? vx < c.speed : vx > -c.speed) {
           d.x += c.facing * 0.05;
         }
       }
@@ -530,17 +750,17 @@ function updateCreatures() {
     c.lastX = c.hinge.x;
 
     if (c.stuck > 40 && c.hopCool <= 0) {
-      for (const d of [c.neck, c.hinge, c.upperTip, c.lowerTip]) d.y -= 4.5 * SIZE;
+      for (const d of [c.neck, c.hinge, c.upperTip, c.lowerTip]) d.y -= c.hopLift;
       c.stuck = 0;
       c.hopCool = 110;   // no chaining hops together
     }
 
     // ---- CHOMP ----
-    if (bestDist < 46 * SIZE && c.cooldown <= 0) {
+    if (bestDist < c.biteRange && c.cooldown <= 0) {
       c.muscle.length = c.closedLen;
 
       // did anything end up inside his mouth?
-      const grabR = 40 * SIZE;
+      const grabR = c.grabRange;
       for (const d of dots) {
         // never grab another croc - two crocs tugging the same dot
         // would fight each other forever
@@ -549,12 +769,12 @@ function updateCreatures() {
         if (gx * gx + gy * gy < grabR * grabR) {
           c.prey = d;
           c.prey.heldBy = c;   // see the note in solveCollisions!
-          c.holdTimer = 75;
+          c.holdTimer = c.holdFor;
           if (d.body) hurt(d.body, 14);   // those teeth smart a bit!
           break;
         }
       }
-    } else if (bestDist < 150 * SIZE) {
+    } else if (bestDist < c.gapeRange) {
       c.muscle.length = c.openLen;        // getting close - open wide!
     } else {
       c.muscle.length = c.closedLen * 1.6; // still far off - mouth mostly shut
@@ -1088,8 +1308,10 @@ function draw() {
   // health bars float above everyone's head
   for (const person of people) drawHealthBar(person);
 
-  // crocs get eyes, teeth and scales drawn on top
-  for (const c of creatures) drawCroc(c);
+  // creatures get their own faces, teeth and details drawn on top
+  for (const c of creatures) {
+    if (c.kind === "crawler") drawCrawler(c); else drawCroc(c);
+  }
 
   // highlight whatever you're holding
   if (held) {
@@ -1143,6 +1365,7 @@ function loop() {
 const spawners = {
   ragdoll: spawnRagdoll,
   croc:    spawnCroc,
+  crawler: spawnCrawler,
   ball:    spawnBall,
   box:     spawnBox,
   plank:   spawnPlank
