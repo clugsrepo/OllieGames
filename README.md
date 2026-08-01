@@ -4,9 +4,12 @@ A collection of games made by Ollie, hosted on GitHub Pages.
 
 ## Play
 
-Once GitHub Pages is switched on, the games live at:
+The games are live at:
 
-https://clugsrepo.github.io/olliegames/
+**https://clugsrepo.github.io/OllieGames/**
+
+Note the capital letters — GitHub Pages URLs are case-sensitive, and the
+lowercase version returns a 404.
 
 ## How it's put together
 
