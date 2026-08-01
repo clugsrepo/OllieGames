@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Ollie's Playground</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    font-family: "Trebuchet MS", Verdana, sans-serif;
+    background: #1a1040;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+  }
+
+  #toolbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px;
+    background: rgba(26, 16, 64, 0.92);
+    border-bottom: 2px solid rgba(255, 255, 255, 0.15);
+    z-index: 10;
+    align-items: center;
+  }
+
+  button {
+    font-family: inherit;
+    font-size: 0.95rem;
+    font-weight: bold;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.12);
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    border-radius: 12px;
+    padding: 9px 14px;
+    cursor: pointer;
+    transition: transform 0.1s, background 0.15s;
+  }
+  button:hover  { background: rgba(255, 255, 255, 0.22); }
+  button:active { transform: scale(0.94); }
+
+  button.on {
+    background: #ffd93d;
+    color: #1a1040;
+    border-color: #ffd93d;
+  }
+
+  .home {
+    margin-left: auto;
+    text-decoration: none;
+    font-size: 0.95rem;
+    font-weight: bold;
+    color: #ffd93d;
+    padding: 9px 14px;
+  }
+
+  /* squeeze the buttons up on small phone screens */
+  @media (max-width: 560px) {
+    #toolbar { gap: 5px; padding: 7px; }
+    button   { font-size: 0.82rem; padding: 7px 9px; border-radius: 10px; }
+    .home    { font-size: 0.82rem; padding: 7px 9px; }
+  }
+
+  canvas { display: block; }
+
+  #hint {
+    position: fixed;
+    top: 72px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.9rem;
+    pointer-events: none;
+    text-align: center;
+    transition: opacity 0.8s;
+  }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <button data-spawn="ragdoll">🙂 Person</button>
+  <button data-spawn="ball">⚪ Ball</button>
+  <button data-spawn="box">📦 Box</button>
+  <button data-spawn="plank">➖ Plank</button>
+  <button id="btn-gravity">🌍 Gravity</button>
+  <button id="btn-slowmo">🐌 Slow-mo</button>
+  <button id="btn-clear">🧹 Clear</button>
+  <a class="home" href="../../index.html">← Home</a>
+</div>
+
+<canvas id="c"></canvas>
+<p id="hint">Drag things around and fling them!</p>
+
+<script>
+/* =====================================================================
+   OLLIE'S PLAYGROUND
+   A ragdoll physics sandbox.
+
+   The physics is called "Verlet integration". It sounds fancy but the
+   idea is simple:
+
+     - Everything is made of DOTS and STICKS.
+     - A dot remembers where it was LAST frame. The difference between
+       where it is now and where it was is its speed. Neat trick - we
+       never have to store speed separately!
+     - A stick joins two dots and keeps them the right distance apart.
+
+   Join enough dots with enough sticks and you get a wobbly person.
+   ===================================================================== */
+
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+
+// ---- Settings you can play with! ----
+let GRAVITY  = 0.55;   // how hard things fall
+let BOUNCE   = 0.45;   // how bouncy the floor is
+let FRICTION = 0.995;  // 1 = slippery forever, lower = more drag
+const ITERATIONS = 8;  // higher = stiffer, less stretchy
+
+let gravityOn = true;
+let slowMo    = false;
+
+// ---- The world ----
+let dots   = [];   // every dot in the world
+let sticks = [];   // every stick joining two dots
+
+let W = 0, H = 0, TOP = 0;
+
+function resize() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  TOP = document.getElementById("toolbar").offsetHeight;
+}
+window.addEventListener("resize", resize);
+resize();
+
+
+/* ---------------------------------------------------------------
+   MAKING DOTS AND STICKS
+   --------------------------------------------------------------- */
+
+function makeDot(x, y, radius, colour) {
+  const dot = {
+    x: x, y: y,
+    oldx: x, oldy: y,   // where it was last frame
+    r: radius || 8,
+    colour: colour || "#ffd93d"
+  };
+  dots.push(dot);
+  return dot;
+}
+
+function makeStick(a, b, visible, thickness) {
+  // The stick's length is however far apart the dots start out.
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  sticks.push({
+    a: a,
+    b: b,
+    length: Math.sqrt(dx * dx + dy * dy),
+    visible: visible !== false,
+    thickness: thickness || 10
+  });
+}
+
+
+/* ---------------------------------------------------------------
+   THINGS WE CAN SPAWN
+   --------------------------------------------------------------- */
+
+const SKIN_COLOURS = ["#ffb37a", "#f5d0a9", "#c98a5b", "#8d5524", "#ffd1a3"];
+const SHIRT_COLOURS = ["#ff6b6b", "#6bcbff", "#a06bff", "#4ade80", "#ffd93d", "#ff8fd9"];
+
+// Make everything bigger or smaller by changing this one number!
+const SIZE = 1.6;
+
+function spawnRagdoll(x, y) {
+  const skin  = SKIN_COLOURS[Math.floor(Math.random() * SKIN_COLOURS.length)];
+  const shirt = SHIRT_COLOURS[Math.floor(Math.random() * SHIRT_COLOURS.length)];
+
+  const S = SIZE;
+  // little helper so we don't have to write "* S" a hundred times
+  const dot = (dx, dy, r, c) => makeDot(x + dx * S, y + dy * S, r * S, c);
+
+  // Build the body out of dots
+  const head  = dot(  0, -42, 15, skin);
+  head.face = true;   // only heads get eyes and a smile
+  const neck  = dot(  0, -22,  6, shirt);
+  const chest = dot(  0,  -6,  9, shirt);
+  const hip   = dot(  0,  18,  9, shirt);
+
+  const elbowL = dot(-20,  -2, 6, shirt);
+  const handL  = dot(-32,  16, 7, skin);
+  const elbowR = dot( 20,  -2, 6, shirt);
+  const handR  = dot( 32,  16, 7, skin);
+
+  const kneeL  = dot(-11, 46, 7, "#3b5bdb");
+  const footL  = dot(-13, 72, 8, "#2b2b45");
+  const kneeR  = dot( 11, 46, 7, "#3b5bdb");
+  const footR  = dot( 13, 72, 8, "#2b2b45");
+
+  // Join them with sticks (the bones!)
+  makeStick(head, neck,   true,  9 * S);
+  makeStick(neck, chest,  true, 18 * S);
+  makeStick(chest, hip,   true, 20 * S);
+
+  makeStick(chest, elbowL, true, 9 * S);
+  makeStick(elbowL, handL, true, 8 * S);
+  makeStick(chest, elbowR, true, 9 * S);
+  makeStick(elbowR, handR, true, 8 * S);
+
+  makeStick(hip, kneeL,  true, 11 * S);
+  makeStick(kneeL, footL, true, 10 * S);
+  makeStick(hip, kneeR,  true, 11 * S);
+  makeStick(kneeR, footR, true, 10 * S);
+
+  // Invisible braces so the body doesn't fold up like a deckchair
+  makeStick(head, chest, false);
+  makeStick(neck, hip,   false);
+  makeStick(chest, kneeL, false);
+  makeStick(chest, kneeR, false);
+  makeStick(elbowL, elbowR, false);   // keeps the shoulders apart
+  makeStick(hip, handL, false);       // stops arms folding right through
+  makeStick(hip, handR, false);
+}
+
+function spawnBall(x, y) {
+  const colour = SHIRT_COLOURS[Math.floor(Math.random() * SHIRT_COLOURS.length)];
+  makeDot(x, y, 26 * SIZE, colour);
+}
+
+function spawnBox(x, y) {
+  const s = 30 * SIZE;
+  const c = "#c98a5b";
+  const tl = makeDot(x - s, y - s, 8 * SIZE, c);
+  const tr = makeDot(x + s, y - s, 8 * SIZE, c);
+  const br = makeDot(x + s, y + s, 8 * SIZE, c);
+  const bl = makeDot(x - s, y + s, 8 * SIZE, c);
+
+  makeStick(tl, tr, true, 14 * SIZE);
+  makeStick(tr, br, true, 14 * SIZE);
+  makeStick(br, bl, true, 14 * SIZE);
+  makeStick(bl, tl, true, 14 * SIZE);
+  makeStick(tl, br, false);   // diagonals stop it squashing flat
+  makeStick(tr, bl, false);
+}
+
+function spawnPlank(x, y) {
+  const w = 70 * SIZE, h = 8 * SIZE;
+  const c = "#a06bff";
+  const tl = makeDot(x - w, y - h, 6 * SIZE, c);
+  const tr = makeDot(x + w, y - h, 6 * SIZE, c);
+  const br = makeDot(x + w, y + h, 6 * SIZE, c);
+  const bl = makeDot(x - w, y + h, 6 * SIZE, c);
+
+  makeStick(tl, tr, true, 12 * SIZE);
+  makeStick(tr, br, true, 12 * SIZE);
+  makeStick(br, bl, true, 12 * SIZE);
+  makeStick(bl, tl, true, 12 * SIZE);
+  makeStick(tl, br, false);
+  makeStick(tr, bl, false);
+}
+
+
+/* ---------------------------------------------------------------
+   THE PHYSICS
+   --------------------------------------------------------------- */
+
+// STEP 1: move every dot
+function moveDots() {
+  const g = gravityOn ? GRAVITY : 0;
+
+  for (const d of dots) {
+    if (d === held) continue;   // the one you're dragging is controlled by you
+
+    // speed = how far it moved last frame
+    let vx = (d.x - d.oldx) * FRICTION;
+    let vy = (d.y - d.oldy) * FRICTION;
+
+    d.oldx = d.x;
+    d.oldy = d.y;
+
+    d.x += vx;
+    d.y += vy + g;
+  }
+}
+
+// STEP 2: make sure sticks stay the right length
+function solveSticks() {
+  for (const s of sticks) {
+    const dx = s.b.x - s.a.x;
+    const dy = s.b.y - s.a.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 0.0001;
+
+    // How far off are we? Share the fix between both dots.
+    const diff = (s.length - dist) / dist * 0.5;
+    const offx = dx * diff;
+    const offy = dy * diff;
+
+    if (s.a !== held) { s.a.x -= offx; s.a.y -= offy; }
+    if (s.b !== held) { s.b.x += offx; s.b.y += offy; }
+  }
+}
+
+// STEP 3: stop dots overlapping each other (so stuff piles up)
+function solveCollisions() {
+  for (let i = 0; i < dots.length; i++) {
+    const a = dots[i];
+    for (let j = i + 1; j < dots.length; j++) {
+      const b = dots[j];
+
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const minDist = a.r + b.r;
+
+      // quick reject before doing the expensive square root
+      if (Math.abs(dx) > minDist || Math.abs(dy) > minDist) continue;
+
+      const dist = Math.sqrt(dx * dx + dy * dy) || 0.0001;
+      if (dist >= minDist) continue;
+
+      const push = (minDist - dist) / dist * 0.5;
+      const offx = dx * push;
+      const offy = dy * push;
+
+      if (a !== held) { a.x -= offx; a.y -= offy; }
+      if (b !== held) { b.x += offx; b.y += offy; }
+    }
+  }
+}
+
+// STEP 4: keep everything inside the walls
+function solveWalls() {
+  for (const d of dots) {
+    // floor
+    if (d.y + d.r > H) {
+      const vy = d.y - d.oldy;
+      d.y = H - d.r;
+      d.oldy = d.y + vy * BOUNCE;
+    }
+    // ceiling (just under the toolbar)
+    if (d.y - d.r < TOP) {
+      const vy = d.y - d.oldy;
+      d.y = TOP + d.r;
+      d.oldy = d.y + vy * BOUNCE;
+    }
+    // left wall
+    if (d.x - d.r < 0) {
+      const vx = d.x - d.oldx;
+      d.x = d.r;
+      d.oldx = d.x + vx * BOUNCE;
+    }
+    // right wall
+    if (d.x + d.r > W) {
+      const vx = d.x - d.oldx;
+      d.x = W - d.r;
+      d.oldx = d.x + vx * BOUNCE;
+    }
+  }
+}
+
+
+/* ---------------------------------------------------------------
+   DRAGGING WITH MOUSE OR FINGER
+   --------------------------------------------------------------- */
+
+let held = null;
+let pointer = { x: 0, y: 0 };
+
+function grabAt(x, y) {
+  let best = null;
+  let bestDist = 40 * 40;   // you have to click reasonably close
+
+  for (const d of dots) {
+    const dx = d.x - x;
+    const dy = d.y - y;
+    const dist = dx * dx + dy * dy;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = d;
+    }
+  }
+  return best;
+}
+
+function pointerPos(e) {
+  const t = e.touches ? e.touches[0] : e;
+  return { x: t.clientX, y: t.clientY };
+}
+
+function onDown(e) {
+  const p = pointerPos(e);
+  pointer = p;
+  held = grabAt(p.x, p.y);
+  if (held) e.preventDefault();
+}
+
+function onMove(e) {
+  const p = pointerPos(e);
+  pointer = p;
+  if (held) e.preventDefault();
+}
+
+function onUp() {
+  held = null;
+}
+
+canvas.addEventListener("mousedown", onDown);
+window.addEventListener("mousemove", onMove);
+window.addEventListener("mouseup", onUp);
+
+canvas.addEventListener("touchstart", onDown, { passive: false });
+window.addEventListener("touchmove", onMove, { passive: false });
+window.addEventListener("touchend", onUp);
+
+// While you drag, the dot follows your finger - but we move oldx/oldy
+// too, so when you let go it keeps the speed you were flinging it at.
+function dragHeld() {
+  if (!held) return;
+  held.oldx = held.x;
+  held.oldy = held.y;
+  held.x = pointer.x;
+  held.y = pointer.y;
+}
+
+
+/* ---------------------------------------------------------------
+   DRAWING
+   --------------------------------------------------------------- */
+
+function draw() {
+  // background
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, "#2a1a5e");
+  sky.addColorStop(1, "#123a63");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  // ground stripe
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  ctx.fillRect(0, H - 30, W, 30);
+
+  // sticks first, so dots draw on top
+  ctx.lineCap = "round";
+  for (const s of sticks) {
+    if (!s.visible) continue;
+    ctx.strokeStyle = s.a.colour;
+    ctx.lineWidth = s.thickness;
+    ctx.beginPath();
+    ctx.moveTo(s.a.x, s.a.y);
+    ctx.lineTo(s.b.x, s.b.y);
+    ctx.stroke();
+  }
+
+  // dots
+  for (const d of dots) {
+    ctx.fillStyle = d.colour;
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // heads get eyes and a smile
+    if (d.face) {
+      const eye = d.r * 0.22;
+      ctx.fillStyle = "#2b2b45";
+      ctx.beginPath();
+      ctx.arc(d.x - d.r * 0.33, d.y - d.r * 0.15, eye, 0, Math.PI * 2);
+      ctx.arc(d.x + d.r * 0.33, d.y - d.r * 0.15, eye, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = "#2b2b45";
+      ctx.lineWidth = Math.max(2, d.r * 0.11);
+      ctx.beginPath();
+      ctx.arc(d.x, d.y + d.r * 0.1, d.r * 0.42, 0.25 * Math.PI, 0.75 * Math.PI);
+      ctx.stroke();
+    }
+  }
+
+  // highlight whatever you're holding
+  if (held) {
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(held.x, held.y, held.r + 6, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+
+/* ---------------------------------------------------------------
+   THE MAIN LOOP - this runs about 60 times a second, forever
+   --------------------------------------------------------------- */
+
+function loop() {
+  const steps = slowMo ? 1 : 2;   // slow-mo just does less physics per frame
+
+  for (let i = 0; i < steps; i++) {
+    dragHeld();
+    moveDots();
+    for (let k = 0; k < ITERATIONS; k++) {
+      solveSticks();
+      solveCollisions();
+      solveWalls();
+    }
+  }
+
+  draw();
+  requestAnimationFrame(loop);
+}
+
+
+/* ---------------------------------------------------------------
+   BUTTONS
+   --------------------------------------------------------------- */
+
+const spawners = {
+  ragdoll: spawnRagdoll,
+  ball:    spawnBall,
+  box:     spawnBox,
+  plank:   spawnPlank
+};
+
+document.querySelectorAll("[data-spawn]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const what = btn.getAttribute("data-spawn");
+    // drop it in a random-ish spot near the top middle
+    const x = W / 2 + (Math.random() - 0.5) * Math.min(W * 0.6, 400);
+    const y = TOP + 120;
+    spawners[what](x, y);
+    hideHint();
+  });
+});
+
+const gravityBtn = document.getElementById("btn-gravity");
+gravityBtn.classList.add("on");
+gravityBtn.addEventListener("click", () => {
+  gravityOn = !gravityOn;
+  gravityBtn.classList.toggle("on", gravityOn);
+});
+
+const slowmoBtn = document.getElementById("btn-slowmo");
+slowmoBtn.addEventListener("click", () => {
+  slowMo = !slowMo;
+  slowmoBtn.classList.toggle("on", slowMo);
+});
+
+document.getElementById("btn-clear").addEventListener("click", () => {
+  dots = [];
+  sticks = [];
+  held = null;
+});
+
+let hintTimer = null;
+function hideHint() {
+  const hint = document.getElementById("hint");
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => { hint.style.opacity = "0"; }, 5000);
+}
+
+
+// ---- Start with a couple of people so it isn't empty ----
+spawnRagdoll(W / 2 - 120, TOP + 160);
+spawnRagdoll(W / 2 + 120, TOP + 160);
+hideHint();
+
+loop();
+</script>
+
+</body>
+</html>
