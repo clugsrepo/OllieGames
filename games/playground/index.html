@@ -92,6 +92,9 @@
   <button data-spawn="plank">➖ Plank</button>
   <button id="btn-gravity">🌍 Gravity</button>
   <button id="btn-slowmo">🐌 Slow-mo</button>
+  <button id="btn-zoom">🔍 Normal</button>
+  <button id="btn-full">⛶ Fullscreen</button>
+  <button id="btn-heal">❤️ Heal all</button>
   <button id="btn-clear">🧹 Clear</button>
   <a class="home" href="../../index.html">← Home</a>
 </div>
@@ -132,13 +135,33 @@ let slowMo    = false;
 let dots      = [];   // every dot in the world
 let sticks    = [];   // every stick joining two dots
 let creatures = [];   // things that are ALIVE and move by themselves
+let people    = [];   // everyone, and how healthy they are
 
-let W = 0, H = 0, TOP = 0;
+/* The screen and the WORLD are two different sizes!
+
+   W and H are how many pixels the screen has.
+   WW and WH are how big the world is INSIDE the game.
+
+   If we zoom out to 0.5, everything is drawn half as big, so the world
+   becomes twice as wide and twice as tall - loads more room to play in.
+   All the physics uses the world sizes; only the drawing uses the zoom. */
+
+let W = 0, H = 0, TOP = 0;          // the real screen, in pixels
+let WW = 0, WH = 0, WTOP = 0;       // the world, in game units
+
+const ZOOMS = [1, 0.62, 0.4];       // normal, big, huge
+let zoomStep = 0;
+let zoom = ZOOMS[0];
 
 function resize() {
   W = canvas.width  = window.innerWidth;
   H = canvas.height = window.innerHeight;
   TOP = document.getElementById("toolbar").offsetHeight;
+
+  zoom = ZOOMS[zoomStep];
+  WW   = W / zoom;
+  WH   = H / zoom;
+  WTOP = TOP / zoom;
 }
 window.addEventListener("resize", resize);
 resize();
@@ -163,10 +186,12 @@ function makeStick(a, b, visible, thickness) {
   // The stick's length is however far apart the dots start out.
   const dx = a.x - b.x;
   const dy = a.y - b.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
   const stick = {
     a: a,
     b: b,
-    length: Math.sqrt(dx * dx + dy * dy),
+    length: len,
+    restLength: len,        // the length it always wants to go back to
     visible: visible !== false,
     thickness: thickness || 10
   };
@@ -190,12 +215,25 @@ function spawnRagdoll(x, y) {
   const skin  = SKIN_COLOURS[Math.floor(Math.random() * SKIN_COLOURS.length)];
   const shirt = SHIRT_COLOURS[Math.floor(Math.random() * SHIRT_COLOURS.length)];
 
+  // Every person keeps track of how they're feeling.
+  const person = { health: 100, ouch: 0, ko: false, dizzy: 0, safe: 10 };
+  people.push(person);
+
   const S = SIZE;
   // little helper so we don't have to write "* S" a hundred times
   const dot = (dx, dy, r, c) => {
     const d = makeDot(x + dx * S, y + dy * S, r * S, c);
     d.person = true;      // so crocodiles know who to chase!
+    d.body = person;      // which person this bit belongs to
     return d;
+  };
+
+  // same idea for sticks - "bone" just makes a stick and remembers
+  // which person it belongs to
+  const bone = (a, b, visible, thickness) => {
+    const s = makeStick(a, b, visible, thickness);
+    s.body = person;
+    return s;
   };
 
   // Build the body out of dots
@@ -216,28 +254,33 @@ function spawnRagdoll(x, y) {
   const footR  = dot( 13, 72, 8, "#2b2b45");
 
   // Join them with sticks (the bones!)
-  makeStick(head, neck,   true,  9 * S);
-  makeStick(neck, chest,  true, 18 * S);
-  makeStick(chest, hip,   true, 20 * S);
+  bone(head, neck,   true,  9 * S);
+  bone(neck, chest,  true, 18 * S);
+  bone(chest, hip,   true, 20 * S);
 
-  makeStick(chest, elbowL, true, 9 * S);
-  makeStick(elbowL, handL, true, 8 * S);
-  makeStick(chest, elbowR, true, 9 * S);
-  makeStick(elbowR, handR, true, 8 * S);
+  bone(chest, elbowL, true, 9 * S);
+  bone(elbowL, handL, true, 8 * S);
+  bone(chest, elbowR, true, 9 * S);
+  bone(elbowR, handR, true, 8 * S);
 
-  makeStick(hip, kneeL,  true, 11 * S);
-  makeStick(kneeL, footL, true, 10 * S);
-  makeStick(hip, kneeR,  true, 11 * S);
-  makeStick(kneeR, footR, true, 10 * S);
+  bone(hip, kneeL,  true, 11 * S);
+  bone(kneeL, footL, true, 10 * S);
+  bone(hip, kneeR,  true, 11 * S);
+  bone(kneeR, footR, true, 10 * S);
 
-  // Invisible braces so the body doesn't fold up like a deckchair
-  makeStick(head, chest, false);
-  makeStick(neck, hip,   false);
-  makeStick(chest, kneeL, false);
-  makeStick(chest, kneeR, false);
-  makeStick(elbowL, elbowR, false);   // keeps the shoulders apart
-  makeStick(hip, handL, false);       // stops arms folding right through
-  makeStick(hip, handR, false);
+  // Invisible braces so the body doesn't fold up like a deckchair.
+  // These are also the "muscles" - when someone is knocked out we switch
+  // them off, and they go completely floppy.
+  bone(head, chest, false);
+  bone(neck, hip,   false);
+  bone(chest, kneeL, false);
+  bone(chest, kneeR, false);
+  bone(elbowL, elbowR, false);   // keeps the shoulders apart
+  bone(hip, handL, false);       // stops arms folding right through
+  bone(hip, handR, false);
+
+  person.head = head;
+  return person;
 }
 
 function spawnBall(x, y) {
@@ -296,7 +339,7 @@ const CROC_DARK  = "#2d7a38";
 
 function spawnCroc(x, y) {
   const croc = { body: [], t: Math.random() * 10, facing: 1, turn: 0,
-                 prey: null, holdTimer: 0, cooldown: 0, stuck: 0, lastX: x };
+                 prey: null, holdTimer: 0, cooldown: 0, stuck: 0, lastX: x, hopCool: 0, rest: 0, progressTick: 0, lastCx: x };
 
   const S = SIZE;
   const dir = Math.random() < 0.5 ? 1 : -1;   // facing left or right
@@ -393,6 +436,7 @@ function updateCreatures() {
         // THROW! (in Verlet, moving oldx/oldy is how you set speed)
         c.prey.oldx = c.prey.x + c.facing * 3;
         c.prey.oldy = c.prey.y + 10;
+        c.prey.heldBy = null;
         c.prey = null;
         c.cooldown = 100;                 // have a little rest first
       }
@@ -440,10 +484,28 @@ function updateCreatures() {
 
     c.facing = c.hinge.x >= cx ? 1 : -1;
 
+    /* ---- is he actually getting anywhere? ----
+
+       If a croc shoves someone up against a wall, he can't go forward,
+       but he keeps pushing anyway. All that squashing has to go
+       somewhere, and the only way left is UP - so he'd get squirted
+       into the sky like a wet bar of soap. (He really did. He ended up
+       500 pixels in the air.)
+
+       So every so often we check whether he's actually moved. If he
+       hasn't, he gives up and has a rest instead of pushing harder. */
+    c.progressTick++;
+    if (c.progressTick >= 40) {
+      if (Math.abs(cx - c.lastCx) < 6) c.rest = 160;
+      c.lastCx = cx;
+      c.progressTick = 0;
+    }
+    if (c.rest > 0) c.rest--;
+
     // ---- waddle forwards ----
     // We give him a nudge each step, but stop nudging once he's at top
     // speed - otherwise he'd get faster and faster forever!
-    if (c.facing === wantDir) {
+    if (c.facing === wantDir && c.rest <= 0) {
       for (const d of c.body) {
         const vx = d.x - d.oldx;
         if (c.facing > 0 ? vx < CROC_SPEED : vx > -CROC_SPEED) {
@@ -455,11 +517,22 @@ function updateCreatures() {
     // If he's wedged against something, he lifts his HEAD to climb over it.
     // (We only lift the front of him - lifting all of him made him rear up
     // like a horse, which was funny but not very crocodile.)
-    if (Math.abs(c.hinge.x - c.lastX) < 0.4) c.stuck++; else c.stuck = 0;
+    //
+    // He's only allowed to do this if he's actually STANDING on something.
+    // Without that check he'd hop while in mid-air, and since his x stops
+    // changing up there he'd count as stuck and hop again... and again...
+    // and fly off into space. Which he did!
+    if (c.hopCool > 0) c.hopCool--;
+    const crocVY = Math.abs(c.hinge.y - c.hinge.oldy);
+    const onGround = crocVY < 1.2;
+
+    if (Math.abs(c.hinge.x - c.lastX) < 0.4 && onGround) c.stuck++; else c.stuck = 0;
     c.lastX = c.hinge.x;
-    if (c.stuck > 40) {
+
+    if (c.stuck > 40 && c.hopCool <= 0) {
       for (const d of [c.neck, c.hinge, c.upperTip, c.lowerTip]) d.y -= 4.5 * SIZE;
       c.stuck = 0;
+      c.hopCool = 110;   // no chaining hops together
     }
 
     // ---- CHOMP ----
@@ -475,7 +548,9 @@ function updateCreatures() {
         const gx = d.x - mouthX, gy = d.y - mouthY;
         if (gx * gx + gy * gy < grabR * grabR) {
           c.prey = d;
+          c.prey.heldBy = c;   // see the note in solveCollisions!
           c.holdTimer = 75;
+          if (d.body) hurt(d.body, 14);   // those teeth smart a bit!
           break;
         }
       }
@@ -559,6 +634,119 @@ function drawCroc(c) {
 
 
 /* ---------------------------------------------------------------
+   OUCH! - getting hurt
+
+   How do we know someone got hurt? We watch their SPEED.
+
+   If a dot is zooming along at speed 20 and then suddenly it's only
+   doing speed 2, it must have smacked into something hard. The bigger
+   that sudden drop, the bigger the bump. A gentle landing barely
+   changes their speed, so it doesn't hurt at all.
+   --------------------------------------------------------------- */
+
+const HURT_AT   = 7;     // bumps smaller than this don't hurt at all
+const HURT_MULT = 1.6;   // how much damage a big bump does
+
+// remember how fast everyone was going BEFORE we sort the collisions out
+function rememberSpeeds() {
+  for (const d of dots) {
+    if (!d.body) continue;
+    d.speedBefore = Math.hypot(d.x - d.oldx, d.y - d.oldy);
+  }
+}
+
+// ...then see who got stopped suddenly.
+//
+// Careful! A person is made of 12 dots, and in a big crash ALL of them
+// stop at once. If we hurt them once per dot they'd take 12 times too
+// much damage. So we find each person's WORST bump and only count that.
+function checkForBumps() {
+  for (const person of people) person.worstBump = 0;
+
+  for (const d of dots) {
+    const person = d.body;
+    if (!person || person.ko) continue;
+
+    const speedAfter = Math.hypot(d.x - d.oldx, d.y - d.oldy);
+    const bump = d.speedBefore - speedAfter;
+
+    if (bump > person.worstBump) person.worstBump = bump;
+  }
+
+  for (const person of people) {
+    if (person.safe > 0) { person.safe--; continue; }   // just been healed
+    if (person.gettingUp) continue;                     // still unfolding
+    if (person.worstBump > HURT_AT) {
+      hurt(person, (person.worstBump - HURT_AT) * HURT_MULT);
+    }
+  }
+}
+
+function hurt(person, amount) {
+  if (person.ko) return;
+
+  person.health -= amount;
+  person.ouch = 12;               // flash red for a moment
+
+  if (person.health <= 0) {
+    person.health = 0;
+    person.ko = true;
+    person.dizzy = 0;
+
+    // Knocked out! Switch off all their invisible braces so they go
+    // completely floppy, like a proper rag doll.
+    for (const s of sticks) {
+      if (s.body === person && !s.visible) s.disabled = true;
+    }
+  }
+}
+
+function healEveryone() {
+  for (const person of people) {
+    person.health = 100;
+    person.ko = false;
+    person.ouch = 0;
+    person.safe = 30;
+  }
+
+  /* Getting up gently.
+
+     If we just switched the braces back on, a folded-up body would whip
+     straight in a fraction of a second - hard enough that our bump
+     detector thought it was a car crash and hurt them all over again.
+     Healing someone injured them!
+
+     So instead each brace starts at whatever length it is RIGHT NOW,
+     and creeps back to its proper length over the next second. The
+     person unfolds smoothly and stands up, instead of snapping. */
+  for (const s of sticks) {
+    if (!s.disabled) continue;
+    s.disabled = false;
+    s.length = Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y);
+    s.easing = true;
+  }
+}
+
+// creep every easing stick back towards its proper length
+function easeSticks() {
+  for (const person of people) person.gettingUp = false;
+
+  for (const s of sticks) {
+    if (!s.easing) continue;
+    s.length += (s.restLength - s.length) * 0.06;
+
+    if (Math.abs(s.restLength - s.length) < 0.5) {
+      s.length = s.restLength;
+      s.easing = false;
+    } else if (s.body) {
+      // this person is still unfolding - don't let the unfolding hurt them
+      s.body.gettingUp = true;
+    }
+  }
+}
+
+
+/* ---------------------------------------------------------------
    THE PHYSICS
    --------------------------------------------------------------- */
 
@@ -593,6 +781,7 @@ function moveDots() {
 // STEP 2: make sure sticks stay the right length
 function solveSticks() {
   for (const s of sticks) {
+    if (s.disabled) continue;   // switched off - this person is floppy!
     const dx = s.b.x - s.a.x;
     const dy = s.b.y - s.a.y;
     const dist = Math.sqrt(dx * dx + dy * dy) || 0.0001;
@@ -613,6 +802,13 @@ function solveCollisions() {
     const a = dots[i];
     for (let j = i + 1; j < dots.length; j++) {
       const b = dots[j];
+
+      /* A croc holds its dinner right inside its own mouth. The dinner
+         can't be pushed (we're holding it there on purpose), so the
+         collision below shoved the CROC away instead - 16 times every
+         frame. That launched him into orbit. So: a croc and the thing
+         it's biting simply don't bump into each other. */
+      if (a.heldBy === b.owner || b.heldBy === a.owner) continue;
 
       const dx = b.x - a.x;
       const dy = b.y - a.y;
@@ -638,15 +834,15 @@ function solveCollisions() {
 function solveWalls() {
   for (const d of dots) {
     // floor
-    if (d.y + d.r > H) {
+    if (d.y + d.r > WH) {
       const vy = d.y - d.oldy;
-      d.y = H - d.r;
+      d.y = WH - d.r;
       d.oldy = d.y + vy * BOUNCE;
     }
     // ceiling (just under the toolbar)
-    if (d.y - d.r < TOP) {
+    if (d.y - d.r < WTOP) {
       const vy = d.y - d.oldy;
-      d.y = TOP + d.r;
+      d.y = WTOP + d.r;
       d.oldy = d.y + vy * BOUNCE;
     }
     // left wall
@@ -656,9 +852,9 @@ function solveWalls() {
       d.oldx = d.x + vx * BOUNCE;
     }
     // right wall
-    if (d.x + d.r > W) {
+    if (d.x + d.r > WW) {
       const vx = d.x - d.oldx;
-      d.x = W - d.r;
+      d.x = WW - d.r;
       d.oldx = d.x + vx * BOUNCE;
     }
   }
@@ -690,7 +886,8 @@ function grabAt(x, y) {
 
 function pointerPos(e) {
   const t = e.touches ? e.touches[0] : e;
-  return { x: t.clientX, y: t.clientY };
+  // screen pixels -> world units, so dragging still lines up when zoomed
+  return { x: t.clientX / zoom, y: t.clientY / zoom };
 }
 
 function onDown(e) {
@@ -733,17 +930,130 @@ function dragHeld() {
    DRAWING
    --------------------------------------------------------------- */
 
+/* Faces! The face someone pulls depends on how they're feeling:
+
+     happy  100 - 70     :)
+     wobbly  70 - 35     :|
+     ouch    35 -  1     :(
+     knocked out    0    X X  with stars spinning round their head    */
+
+function drawFace(d) {
+  const person = d.body;
+  const health = person ? person.health : 100;
+  const ko     = person ? person.ko : false;
+  const r = d.r;
+
+  ctx.fillStyle = "#2b2b45";
+  ctx.strokeStyle = "#2b2b45";
+  ctx.lineWidth = Math.max(2, r * 0.11);
+  ctx.lineCap = "round";
+
+  const eyeY = d.y - r * 0.15;
+  const eyeL = d.x - r * 0.33;
+  const eyeR = d.x + r * 0.33;
+
+  if (ko) {
+    // X X eyes - draw two little crosses
+    const k = r * 0.17;
+    ctx.beginPath();
+    for (const ex of [eyeL, eyeR]) {
+      ctx.moveTo(ex - k, eyeY - k); ctx.lineTo(ex + k, eyeY + k);
+      ctx.moveTo(ex + k, eyeY - k); ctx.lineTo(ex - k, eyeY + k);
+    }
+    ctx.stroke();
+
+    // little "o" mouth
+    ctx.beginPath();
+    ctx.arc(d.x, d.y + r * 0.38, r * 0.16, 0, Math.PI * 2);
+    ctx.fill();
+
+    // stars spinning round their head
+    for (let i = 0; i < 3; i++) {
+      const a = person.dizzy + i * (Math.PI * 2 / 3);
+      drawStar(d.x + Math.cos(a) * r * 1.5,
+               d.y - r * 1.25 + Math.sin(a) * r * 0.32, r * 0.3);
+    }
+    return;
+  }
+
+  // ---- eyes ----
+  if (health < 35) {
+    // squinting in pain - two little lines
+    ctx.beginPath();
+    ctx.moveTo(eyeL - r * 0.16, eyeY); ctx.lineTo(eyeL + r * 0.16, eyeY);
+    ctx.moveTo(eyeR - r * 0.16, eyeY); ctx.lineTo(eyeR + r * 0.16, eyeY);
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    ctx.arc(eyeL, eyeY, r * 0.22, 0, Math.PI * 2);
+    ctx.arc(eyeR, eyeY, r * 0.22, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // ---- mouth ----
+  ctx.beginPath();
+  if (health >= 70) {
+    // big smile
+    ctx.arc(d.x, d.y + r * 0.1, r * 0.42, 0.25 * Math.PI, 0.75 * Math.PI);
+  } else if (health >= 35) {
+    // straight "hmm" line
+    ctx.moveTo(d.x - r * 0.3, d.y + r * 0.42);
+    ctx.lineTo(d.x + r * 0.3, d.y + r * 0.42);
+  } else {
+    // upside-down smile = frown
+    ctx.arc(d.x, d.y + r * 0.75, r * 0.42, 1.25 * Math.PI, 1.75 * Math.PI);
+  }
+  ctx.stroke();
+}
+
+function drawStar(x, y, size) {
+  ctx.fillStyle = "#ffd93d";
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2 - Math.PI / 2;
+    const rad = i % 2 === 0 ? size : size * 0.45;
+    const px = x + Math.cos(a) * rad;
+    const py = y + Math.sin(a) * rad;
+    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawHealthBar(person) {
+  const head = person.head;
+  if (!head) return;
+  if (person.health >= 100) return;   // full health? no need for a bar
+
+  const w = head.r * 2.4;
+  const h = head.r * 0.34;
+  const x = head.x - w / 2;
+  const y = head.y - head.r * 2.1;
+
+  ctx.fillStyle = "rgba(0,0,0,0.45)";
+  ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
+
+  const frac = Math.max(0, person.health) / 100;
+  ctx.fillStyle = frac > 0.6 ? "#4ade80" : frac > 0.3 ? "#ffd93d" : "#ff5b5b";
+  ctx.fillRect(x, y, w * frac, h);
+}
+
+
 function draw() {
+  // Zoom! Everything after this line is drawn in world units and the
+  // canvas shrinks it down to fit the screen for us.
+  ctx.setTransform(zoom, 0, 0, zoom, 0, 0);
+
   // background
-  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  const sky = ctx.createLinearGradient(0, 0, 0, WH);
   sky.addColorStop(0, "#2a1a5e");
   sky.addColorStop(1, "#123a63");
   ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(0, 0, WW, WH);
 
   // ground stripe
   ctx.fillStyle = "rgba(255,255,255,0.06)";
-  ctx.fillRect(0, H - 30, W, 30);
+  ctx.fillRect(0, WH - 30, WW, 30);
 
   // sticks first, so dots draw on top
   ctx.lineCap = "round";
@@ -764,22 +1074,19 @@ function draw() {
     ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
     ctx.fill();
 
-    // heads get eyes and a smile
-    if (d.face) {
-      const eye = d.r * 0.22;
-      ctx.fillStyle = "#2b2b45";
+    // someone who just got a bump flashes red
+    if (d.body && d.body.ouch > 0) {
+      ctx.fillStyle = "rgba(255, 70, 70, " + (d.body.ouch / 24) + ")";
       ctx.beginPath();
-      ctx.arc(d.x - d.r * 0.33, d.y - d.r * 0.15, eye, 0, Math.PI * 2);
-      ctx.arc(d.x + d.r * 0.33, d.y - d.r * 0.15, eye, 0, Math.PI * 2);
+      ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
       ctx.fill();
-
-      ctx.strokeStyle = "#2b2b45";
-      ctx.lineWidth = Math.max(2, d.r * 0.11);
-      ctx.beginPath();
-      ctx.arc(d.x, d.y + d.r * 0.1, d.r * 0.42, 0.25 * Math.PI, 0.75 * Math.PI);
-      ctx.stroke();
     }
+
+    if (d.face) drawFace(d);
   }
+
+  // health bars float above everyone's head
+  for (const person of people) drawHealthBar(person);
 
   // crocs get eyes, teeth and scales drawn on top
   for (const c of creatures) drawCroc(c);
@@ -807,11 +1114,21 @@ function loop() {
     markControlled();
     dragHeld();
     moveDots();
+    rememberSpeeds();    // how fast was everyone going?
     for (let k = 0; k < ITERATIONS; k++) {
       solveSticks();
       solveCollisions();
       solveWalls();
     }
+    checkForBumps();     // ...and who got stopped in a hurry? OUCH.
+  }
+
+  easeSticks();
+
+  // tick down the "just got hurt" flashes
+  for (const person of people) {
+    if (person.ouch > 0) person.ouch--;
+    if (person.ko) person.dizzy += 0.09;
   }
 
   draw();
@@ -835,8 +1152,8 @@ document.querySelectorAll("[data-spawn]").forEach(btn => {
   btn.addEventListener("click", () => {
     const what = btn.getAttribute("data-spawn");
     // drop it in a random-ish spot near the top middle
-    const x = W / 2 + (Math.random() - 0.5) * Math.min(W * 0.6, 400);
-    const y = TOP + 120;
+    const x = WW / 2 + (Math.random() - 0.5) * Math.min(WW * 0.6, 500);
+    const y = WTOP + 120;
     spawners[what](x, y);
     hideHint();
   });
@@ -855,10 +1172,40 @@ slowmoBtn.addEventListener("click", () => {
   slowmoBtn.classList.toggle("on", slowMo);
 });
 
+// ---- zoom out for a MUCH bigger world ----
+const ZOOM_NAMES = ["🔍 Normal", "🔍 Big", "🔍 Huge"];
+const zoomBtn = document.getElementById("btn-zoom");
+zoomBtn.addEventListener("click", () => {
+  zoomStep = (zoomStep + 1) % ZOOMS.length;
+  resize();
+  zoomBtn.textContent = ZOOM_NAMES[zoomStep];
+  zoomBtn.classList.toggle("on", zoomStep !== 0);
+});
+
+// ---- proper fullscreen ----
+const fullBtn = document.getElementById("btn-full");
+fullBtn.addEventListener("click", () => {
+  if (document.fullscreenElement) {
+    document.exitFullscreen();
+  } else if (document.documentElement.requestFullscreen) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  }
+});
+document.addEventListener("fullscreenchange", () => {
+  const on = !!document.fullscreenElement;
+  fullBtn.textContent = on ? "⛶ Exit full" : "⛶ Fullscreen";
+  fullBtn.classList.toggle("on", on);
+  setTimeout(resize, 120);   // give the browser a moment to settle
+});
+
+// ---- patch everyone up ----
+document.getElementById("btn-heal").addEventListener("click", healEveryone);
+
 document.getElementById("btn-clear").addEventListener("click", () => {
   dots = [];
   sticks = [];
   creatures = [];
+  people = [];
   held = null;
 });
 
@@ -871,8 +1218,8 @@ function hideHint() {
 
 
 // ---- Start with a couple of people so it isn't empty ----
-spawnRagdoll(W / 2 - 120, TOP + 160);
-spawnRagdoll(W / 2 + 120, TOP + 160);
+spawnRagdoll(WW / 2 - 120, WTOP + 160);
+spawnRagdoll(WW / 2 + 120, WTOP + 160);
 hideHint();
 
 loop();
