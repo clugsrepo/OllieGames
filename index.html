@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ollie's Games</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: "Trebuchet MS", Verdana, sans-serif;
+    background: #1a1040;
+    background-image:
+      radial-gradient(circle at 20% 20%, #3b1d7a 0%, transparent 45%),
+      radial-gradient(circle at 80% 70%, #0f4c81 0%, transparent 45%);
+    color: #fff;
+    min-height: 100vh;
+    padding: 24px 16px 60px;
+  }
+
+  /* --- little twinkly stars in the background --- */
+  .star {
+    position: fixed;
+    width: 3px;
+    height: 3px;
+    background: #fff;
+    border-radius: 50%;
+    opacity: 0.7;
+    animation: twinkle 3s infinite ease-in-out;
+    pointer-events: none;
+  }
+  @keyframes twinkle {
+    0%, 100% { opacity: 0.15; }
+    50%      { opacity: 0.9; }
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 40px;
+    position: relative;
+    z-index: 1;
+  }
+
+  h1 {
+    font-size: clamp(2.5rem, 9vw, 4.5rem);
+    letter-spacing: 2px;
+    background: linear-gradient(90deg, #ffd93d, #ff6b6b, #6bcBff, #a06bff, #ffd93d);
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: rainbow 8s linear infinite;
+    text-shadow: 0 0 30px rgba(255, 217, 61, 0.25);
+  }
+  @keyframes rainbow {
+    to { background-position: 300% 0; }
+  }
+
+  .tagline {
+    margin-top: 10px;
+    font-size: 1.1rem;
+    color: #c9c2ff;
+  }
+
+  main {
+    max-width: 1000px;
+    margin: 0 auto;
+    position: relative;
+    z-index: 1;
+  }
+
+  #game-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 22px;
+    list-style: none;
+  }
+
+  .game-card {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    background: rgba(255, 255, 255, 0.08);
+    border: 2px solid rgba(255, 255, 255, 0.18);
+    border-radius: 18px;
+    padding: 26px 20px;
+    text-align: center;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  }
+
+  .game-card:hover,
+  .game-card:focus {
+    transform: translateY(-6px) scale(1.03);
+    background: rgba(255, 255, 255, 0.16);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+    outline: none;
+    border-color: #ffd93d;
+  }
+
+  .game-emoji {
+    font-size: 3.5rem;
+    display: block;
+    margin-bottom: 12px;
+  }
+
+  .game-name {
+    font-size: 1.4rem;
+    font-weight: bold;
+    margin-bottom: 6px;
+  }
+
+  .game-blurb {
+    font-size: 0.95rem;
+    color: #cfc9f5;
+    line-height: 1.4;
+  }
+
+  /* games that aren't built yet */
+  .game-card.soon {
+    opacity: 0.55;
+    border-style: dashed;
+    cursor: default;
+  }
+  .game-card.soon:hover {
+    transform: none;
+    box-shadow: none;
+    border-color: rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .badge {
+    display: inline-block;
+    margin-top: 10px;
+    font-size: 0.75rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    background: #ffd93d;
+    color: #1a1040;
+    border-radius: 999px;
+    padding: 3px 12px;
+    font-weight: bold;
+  }
+
+  footer {
+    text-align: center;
+    margin-top: 50px;
+    color: #9d95cc;
+    font-size: 0.9rem;
+    position: relative;
+    z-index: 1;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Ollie's Games</h1>
+  <p class="tagline">Made by Ollie &mdash; pick a game and play!</p>
+</header>
+
+<main>
+  <ul id="game-list"></ul>
+</main>
+
+<footer>
+  <p>Built with code, snacks and big ideas.</p>
+</footer>
+
+<script>
+  /* ==========================================================
+     ADD A NEW GAME HERE!
+     Copy one of the blocks below, change the words, and save.
+     Set "ready" to true once the game actually works.
+     ========================================================== */
+  const games = [
+    {
+      name: "Game 1",
+      emoji: "🎮",
+      blurb: "Our first game together. Coming very soon!",
+      link: "games/game1/index.html",
+      ready: false
+    }
+  ];
+
+  // ---- This bit draws the cards. You don't need to change it. ----
+  const list = document.getElementById("game-list");
+
+  games.forEach(game => {
+    const li = document.createElement("li");
+    const card = document.createElement(game.ready ? "a" : "div");
+
+    card.className = "game-card" + (game.ready ? "" : " soon");
+    if (game.ready) card.href = game.link;
+
+    card.innerHTML =
+      '<span class="game-emoji">' + game.emoji + '</span>' +
+      '<div class="game-name"></div>' +
+      '<p class="game-blurb"></p>' +
+      (game.ready ? '' : '<span class="badge">Coming soon</span>');
+
+    card.querySelector(".game-name").textContent = game.name;
+    card.querySelector(".game-blurb").textContent = game.blurb;
+
+    li.appendChild(card);
+    list.appendChild(li);
+  });
+
+  // ---- Sprinkle some twinkly stars about ----
+  for (let i = 0; i < 60; i++) {
+    const star = document.createElement("div");
+    star.className = "star";
+    star.style.left = Math.random() * 100 + "vw";
+    star.style.top = Math.random() * 100 + "vh";
+    star.style.animationDelay = Math.random() * 3 + "s";
+    document.body.appendChild(star);
+  }
+</script>
+
+</body>
+</html>
