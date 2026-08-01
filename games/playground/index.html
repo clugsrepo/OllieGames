@@ -60,11 +60,17 @@
     padding: 9px 14px;
   }
 
-  /* squeeze the buttons up on small phone screens */
-  @media (max-width: 560px) {
-    #toolbar { gap: 5px; padding: 7px; }
-    button   { font-size: 0.82rem; padding: 7px 9px; border-radius: 10px; }
-    .home    { font-size: 0.82rem; padding: 7px 9px; }
+  /* squeeze the buttons up on small phone screens - there are a lot of
+     them now, and every row costs us play area */
+  @media (max-width: 700px) {
+    #toolbar { gap: 4px; padding: 6px; }
+    button   { font-size: 0.74rem; padding: 6px 7px; border-radius: 9px; }
+    .home    { font-size: 0.74rem; padding: 6px 7px; }
+  }
+  @media (max-width: 430px) {
+    #toolbar { gap: 3px; padding: 5px; }
+    button   { font-size: 0.66rem; padding: 5px 6px; border-radius: 8px; }
+    .home    { font-size: 0.66rem; padding: 5px 6px; }
   }
 
   canvas { display: block; }
@@ -88,6 +94,7 @@
   <button data-spawn="ragdoll">🙂 Person</button>
   <button data-spawn="croc">🐊 Croc</button>
   <button data-spawn="crawler">🕷️ Crawler</button>
+  <button data-spawn="gulper">🐙 Gulper</button>
   <button data-spawn="ball">⚪ Ball</button>
   <button data-spawn="box">📦 Box</button>
   <button data-spawn="plank">➖ Plank</button>
@@ -95,6 +102,7 @@
   <button id="btn-slowmo">🐌 Slow-mo</button>
   <button id="btn-zoom">🔍 Normal</button>
   <button id="btn-full">⛶ Fullscreen</button>
+  <button id="btn-fight">🥊 Fight!</button>
   <button id="btn-heal">❤️ Heal all</button>
   <button id="btn-clear">🧹 Clear</button>
   <a class="home" href="../../index.html">← Home</a>
@@ -217,7 +225,11 @@ function spawnRagdoll(x, y) {
   const shirt = SHIRT_COLOURS[Math.floor(Math.random() * SHIRT_COLOURS.length)];
 
   // Every person keeps track of how they're feeling.
-  const person = { health: 100, ouch: 0, ko: false, dizzy: 0, safe: 10 };
+  const person = { health: 100, ouch: 0, ko: false, dizzy: 0, safe: 10,
+                   // these MUST start at 0 - if they started undefined,
+                   // then `punchCool <= 0` would be false forever and
+                   // nobody would ever throw a punch!
+                   punchCool: 0, punchNext: 0 };
   people.push(person);
 
   const S = SIZE;
@@ -280,7 +292,14 @@ function spawnRagdoll(x, y) {
   bone(hip, handL, false);       // stops arms folding right through
   bone(hip, handR, false);
 
-  person.head = head;
+  person.head  = head;
+  person.chest = chest;
+  person.hip   = hip;
+  person.feet  = [footL, footR];
+  person.hands = [handL, handR];
+  person.dots  = [head, neck, chest, hip, elbowL, handL, elbowR, handR,
+                  kneeL, footL, kneeR, footR];
+  person.standHeight = Math.abs(head.y - hip.y);
   return person;
 }
 
@@ -632,10 +651,234 @@ function drawCrawler(c) {
 }
 
 
+/* ---------------------------------------------------------------
+   THE GULPER 🐙   (this one is all mine!)
+
+   A floating one-eyed blob with dangly tentacles. It doesn't walk -
+   it FLIES. It drifts over to whoever is nearest, sinks down, gulps
+   them up, carries them right up to the top of the sky and then...
+   lets go.
+
+   The trick to making it float: its body dots have `floaty = true`,
+   which means gravity is switched off just for them. Then it steers
+   itself by nudging towards wherever it wants to be.
+
+   Its tentacles are NOT floaty, so they still feel gravity and dangle
+   underneath it - which is what makes it look like it's hanging in
+   the air rather than just sitting there.
+   --------------------------------------------------------------- */
+
+const GULP_DARK  = "#6d28a8";
+const GULP_MID   = "#9d4edd";
+const GULP_LIGHT = "#c77dff";
+
+function spawnGulper(x, y) {
+  const g = { kind: "gulper", body: [], floaters: [], t: Math.random() * 10,
+              prey: null, holdTimer: 0, cooldown: 0, facing: 1 };
+
+  const S = SIZE * 0.8;
+  g.scale = S;
+
+  const dot = (dx, dy, r, c, floaty) => {
+    const d = makeDot(x + dx * S, y + dy * S, r * S, c);
+    d.owner = g;
+    g.body.push(d);
+    if (floaty) { d.grav = 0; g.floaters.push(d); }   // no gravity at all
+    else d.grav = 0.5;                                // tentacles: half
+    return d;
+  };
+
+  // ---- the dome, an arc of dots over the top ----
+  const core = dot(0, 0, 17, GULP_MID, true);
+  const rim = [];
+  const rimLocal = [];
+  const N = 7;
+  for (let i = 0; i < N; i++) {
+    const a = Math.PI + (i / (N - 1)) * Math.PI;
+    const rx = Math.cos(a) * 40;
+    const ry = Math.sin(a) * 32;
+    rimLocal.push([rx, ry]);
+    rim.push(dot(rx, ry, 9, GULP_MID, true));
+  }
+  for (let i = 0; i < N - 1; i++) makeStick(rim[i], rim[i + 1], true, 17 * S);
+  for (let i = 0; i < N; i++) makeStick(rim[i], core, false);   // spokes
+
+  // ---- the mouth underneath ----
+  const maw = dot(0, 30, 14, GULP_DARK, true);
+  makeStick(maw, core, true, 22 * S);
+  makeStick(maw, rim[0], false);
+  makeStick(maw, rim[N - 1], false);
+
+  // ---- dangly tentacles (these DO feel gravity) ----
+  for (const i of [1, 2, 4, 5]) {
+    let prev = rim[i];
+    const [ox] = rimLocal[i];
+    for (let k = 0; k < 3; k++) {
+      const seg = dot(ox * 0.8, 34 + k * 20, 5 - k * 0.9,
+                      k < 2 ? GULP_MID : GULP_LIGHT, false);
+      makeStick(prev, seg, true, (8 - k * 1.8) * S);
+      prev = seg;
+    }
+  }
+
+  g.core = core;
+  g.maw  = maw;
+  g.rim  = rim;
+  g.grabRange = 38 * S;
+
+  creatures.push(g);
+  return g;
+}
+
+
+const GULP_SPEED = 1.25;
+
+function updateGulper(c) {
+  c.t += 0.02;
+  const maw = c.maw;
+  if (c.cooldown > 0) c.cooldown--;
+
+  // ---- where does it want to be? ----
+  let wantX, wantY;
+
+  if (c.prey) {
+    // Got someone! Carry them right up to the top.
+    c.prey.x = maw.x;
+    c.prey.y = maw.y + 16 * c.scale;
+    wantX = maw.x;
+    wantY = WTOP + 130;
+
+    /* Don't let go until we've actually got them up high! The first
+       version just counted down from the moment it grabbed, so it kept
+       dropping people halfway up the climb. Now the countdown only
+       starts once we've reached the top. */
+    const atTheTop = maw.y < WTOP + 230;
+    if (atTheTop) c.holdTimer--;
+    c.maxHold--;                          // ...but never hang on forever
+
+    if (c.holdTimer <= 0 || c.maxHold <= 0) {
+      // let go - no throw, just... drop. The ground does the rest.
+      c.prey.oldx = c.prey.x;
+      c.prey.oldy = c.prey.y;
+      c.prey.heldBy = null;
+      c.prey = null;
+      c.cooldown = 150;
+    }
+  } else {
+    // ---- hunt for the nearest person ----
+    let target = null, best = Infinity;
+    for (const d of dots) {
+      if (!d.person) continue;
+      const dx = d.x - maw.x, dy = d.y - maw.y;
+      const dist = dx * dx + dy * dy;
+      if (dist < best) { best = dist; target = d; }
+    }
+
+    if (target) {
+      c.facing = target.x >= maw.x ? 1 : -1;
+      wantX = target.x;
+      // Hover above them, but swoop down once we're overhead.
+      const overhead = Math.abs(target.x - maw.x) < 50 * c.scale;
+      wantY = overhead && c.cooldown <= 0
+            ? target.y - 14 * c.scale
+            : target.y - 150 * c.scale;
+
+      // ---- GULP ----
+      if (c.cooldown <= 0) {
+        for (const d of dots) {
+          if (d.owner || d === held || d.controlled) continue;
+          const gx = d.x - maw.x, gy = d.y - maw.y;
+          if (gx * gx + gy * gy < c.grabRange * c.grabRange) {
+            c.prey = d;
+            d.heldBy = c;
+            c.holdTimer = 70;      // how long it hovers at the top before dropping
+            c.maxHold   = 900;     // safety net so nobody gets carried forever
+            if (d.body) hurt(d.body, 4);
+            break;
+          }
+        }
+      }
+    } else {
+      wantX = maw.x;
+      wantY = WTOP + 260;      // nobody about - just drift
+    }
+  }
+
+  // gentle bobbing so it never looks frozen
+  wantY += Math.sin(c.t * 3) * 9;
+
+  // ---- steer towards where it wants to be ----
+  const dirX = wantX > maw.x ? 1 : -1;
+  const dirY = wantY > maw.y ? 1 : -1;
+  const closeX = Math.abs(wantX - maw.x) < 8;
+  const closeY = Math.abs(wantY - maw.y) < 8;
+
+  for (const d of c.floaters) {
+    const vx = d.x - d.oldx;
+    const vy = d.y - d.oldy;
+    if (!closeX && (dirX > 0 ? vx < GULP_SPEED : vx > -GULP_SPEED)) d.x += dirX * 0.4;
+    if (!closeY && (dirY > 0 ? vy < GULP_SPEED : vy > -GULP_SPEED)) d.y += dirY * 0.4;
+  }
+}
+
+
+function drawGulper(c) {
+  const rim = c.rim, maw = c.maw, core = c.core;
+
+  // ---- the dome, as one smooth blob ----
+  ctx.fillStyle = GULP_MID;
+  ctx.beginPath();
+  ctx.moveTo(rim[0].x, rim[0].y);
+  for (let i = 1; i < rim.length; i++) ctx.lineTo(rim[i].x, rim[i].y);
+  ctx.lineTo(maw.x, maw.y);
+  ctx.closePath();
+  ctx.fill();
+
+  // a lighter stripe along the top
+  ctx.strokeStyle = GULP_LIGHT;
+  ctx.lineWidth = 6 * c.scale;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(rim[0].x, rim[0].y);
+  for (let i = 1; i < rim.length; i++) ctx.lineTo(rim[i].x, rim[i].y);
+  ctx.stroke();
+
+  // ---- the mouth ----
+  ctx.fillStyle = GULP_DARK;
+  ctx.beginPath();
+  ctx.arc(maw.x, maw.y, maw.r * 1.15, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ---- one big eye, which looks where it's going ----
+  const eyeR = 13 * c.scale;
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.arc(core.x, core.y - 4 * c.scale, eyeR, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#241033";
+  ctx.beginPath();
+  ctx.arc(core.x + c.facing * eyeR * 0.34, core.y - 3 * c.scale,
+          eyeR * 0.52, 0, Math.PI * 2);
+  ctx.fill();
+
+  // a little shine, so it looks wet
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.beginPath();
+  ctx.arc(core.x + c.facing * eyeR * 0.15, core.y - eyeR * 0.5,
+          eyeR * 0.22, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+
 const CROC_SPEED = 1.1;   // how fast the croc waddles (bigger = zoomier croc!)
 
 function updateCreatures() {
   for (const c of creatures) {
+    // the gulper flies, so it gets its own brain instead of the
+    // walk-and-snap one the croc and crawler share
+    if (c.kind === "gulper") { updateGulper(c); continue; }
+
     if (c.legs) animateLegs(c);   // crawlers scuttle
     const U = c.upperTip, L = c.lowerTip;
 
@@ -896,6 +1139,13 @@ function checkForBumps() {
   for (const person of people) {
     if (person.safe > 0) { person.safe--; continue; }   // just been healed
     if (person.gettingUp) continue;                     // still unfolding
+
+    /* Never hurt someone you're holding! When you drag a person we put
+       them wherever your finger is, which the bump detector reads as
+       enormous speed - so letting go used to injure them. Picking
+       someone up is not allowed to hurt them. Throwing them still does,
+       once you've let go. */
+    if (held && held.body === person) continue;
     if (person.worstBump > HURT_AT) {
       hurt(person, (person.worstBump - HURT_AT) * HURT_MULT);
     }
@@ -967,6 +1217,90 @@ function easeSticks() {
 
 
 /* ---------------------------------------------------------------
+   FIGHT MODE! 🥊
+
+   Normally people are pure rag dolls - they just flop. To make them
+   fight we have to give them a little bit of get-up-and-go:
+
+     1. STAND UP. Every frame we tug their hips up over their feet, and
+        their head up over their hips. It's a gentle tug, not a snap, so
+        they wobble about like someone on an ice rink.
+     2. WALK. Nudge them towards whoever is nearest.
+     3. PUNCH. Fling a hand at the other person's chest.
+
+   They're still rag dolls underneath, which is why it looks so daft.
+   --------------------------------------------------------------- */
+
+let fightMode = false;
+
+const PUNCH_REACH = 52 * SIZE;
+const PUNCH_POWER = 13;
+const WALK_SPEED  = 1.25;
+
+// tug a dot gently towards a spot (this also gives it speed, for free)
+function tugTowards(d, tx, ty, strength) {
+  d.x += (tx - d.x) * strength;
+  d.y += (ty - d.y) * strength;
+}
+
+function updateFights() {
+  for (const p of people) {
+    if (p.ko || p.gettingUp) continue;
+    if (p.punchCool > 0) p.punchCool--;
+
+    // ---- find someone to squabble with ----
+    let foe = null, bestDist = Infinity;
+    for (const other of people) {
+      if (other === p || other.ko) continue;
+      const dx = other.chest.x - p.chest.x;
+      const dy = other.chest.y - p.chest.y;
+      const dist = dx * dx + dy * dy;
+      if (dist < bestDist) { bestDist = dist; foe = other; }
+    }
+    if (!foe) continue;
+    bestDist = Math.sqrt(bestDist);
+
+    // ---- 1. stand up ----
+    const feetX = (p.feet[0].x + p.feet[1].x) / 2;
+    const feetY = (p.feet[0].y + p.feet[1].y) / 2;
+    tugTowards(p.hip,  feetX,   feetY - p.standHeight * 0.55, 0.035);
+    tugTowards(p.head, p.hip.x, p.hip.y - p.standHeight,      0.045);
+
+    // ---- 2. walk towards them ----
+    if (bestDist > PUNCH_REACH * 0.8) {
+      const dir = foe.chest.x > p.chest.x ? 1 : -1;
+      for (const d of p.dots) {
+        const vx = d.x - d.oldx;
+        if (dir > 0 ? vx < WALK_SPEED : vx > -WALK_SPEED) d.x += dir * 0.05;
+      }
+    }
+
+    // ---- 3. PUNCH! ----
+    if (bestDist < PUNCH_REACH && p.punchCool <= 0) {
+      p.punchNext = (p.punchNext || 0) + 1;
+      const hand = p.hands[p.punchNext % 2];
+
+      const dx = foe.chest.x - hand.x;
+      const dy = foe.chest.y - hand.y;
+      const len = Math.hypot(dx, dy) || 1;
+
+      // shove the hand at them (moving oldx/oldy IS setting speed)
+      hand.oldx = hand.x - (dx / len) * PUNCH_POWER;
+      hand.oldy = hand.y - (dy / len) * PUNCH_POWER;
+
+      // and knock the other one backwards
+      const shove = foe.chest;
+      shove.oldx = shove.x - (dx / len) * 3.5;
+      shove.oldy = shove.y - (dy / len) * 2.5;
+
+      hurt(foe, 5);
+      p.punchCool = 70;   // a breather between swings
+    }
+  }
+}
+
+
+/* ---------------------------------------------------------------
    THE PHYSICS
    --------------------------------------------------------------- */
 
@@ -993,8 +1327,14 @@ function moveDots() {
     d.oldx = d.x;
     d.oldy = d.y;
 
+    // Most things feel full gravity. A gulper's body feels none (it
+    // floats), and its tentacles feel only half - otherwise twelve
+    // dangling tentacle dots outweighed the whole creature and pinned
+    // it to the floor.
+    const pull = d.grav === undefined ? 1 : d.grav;
+
     d.x += vx;
-    d.y += vy + g;
+    d.y += vy + g * pull;
   }
 }
 
@@ -1310,7 +1650,9 @@ function draw() {
 
   // creatures get their own faces, teeth and details drawn on top
   for (const c of creatures) {
-    if (c.kind === "crawler") drawCrawler(c); else drawCroc(c);
+    if (c.kind === "crawler")      drawCrawler(c);
+    else if (c.kind === "gulper")  drawGulper(c);
+    else                           drawCroc(c);
   }
 
   // highlight whatever you're holding
@@ -1332,7 +1674,8 @@ function loop() {
   const steps = slowMo ? 1 : 2;   // slow-mo just does less physics per frame
 
   for (let i = 0; i < steps; i++) {
-    updateCreatures();   // the crocs decide what they're up to
+    if (fightMode) updateFights();   // people square up to each other
+    updateCreatures();   // the monsters decide what they're up to
     markControlled();
     dragHeld();
     moveDots();
@@ -1366,6 +1709,7 @@ const spawners = {
   ragdoll: spawnRagdoll,
   croc:    spawnCroc,
   crawler: spawnCrawler,
+  gulper:  spawnGulper,
   ball:    spawnBall,
   box:     spawnBox,
   plank:   spawnPlank
@@ -1419,6 +1763,13 @@ document.addEventListener("fullscreenchange", () => {
   fullBtn.textContent = on ? "⛶ Exit full" : "⛶ Fullscreen";
   fullBtn.classList.toggle("on", on);
   setTimeout(resize, 120);   // give the browser a moment to settle
+});
+
+// ---- everyone squares up ----
+const fightBtn = document.getElementById("btn-fight");
+fightBtn.addEventListener("click", () => {
+  fightMode = !fightMode;
+  fightBtn.classList.toggle("on", fightMode);
 });
 
 // ---- patch everyone up ----
