@@ -281,14 +281,15 @@
 <div id="start">
   <div>
     <h1>Star Arena</h1>
-    <p><strong>Beat the robots!</strong> Three hits knocks one out.</p>
+    <p><strong>Beat the robots!</strong> Three hits knocks one out.<br>
+       You get a few seconds to look around before they wake up.</p>
     <p id="how-desktop">
       <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to move &nbsp;·&nbsp;
       mouse to look &nbsp;·&nbsp; <kbd>Space</kbd> to jump<br>
       Click to shoot &nbsp;·&nbsp; <kbd>Esc</kbd> to stop
     </p>
     <p id="how-touch">
-      Left stick to move &nbsp;·&nbsp; right stick to look<br>
+      Left stick to move &nbsp;·&nbsp; <strong>swipe the screen to look</strong><br>
       💥 to shoot &nbsp;·&nbsp; ⬆ to jump
     </p>
     <button id="play">PLAY</button>
@@ -639,6 +640,43 @@ function clampPitch() {
   player.pitch = Math.max(-limit, Math.min(limit, player.pitch));
 }
 
+/* ---- SWIPE TO LOOK ----
+
+   Drag a finger anywhere on the view and the camera turns, exactly like
+   a proper phone shooter. The joystick still works too - use whichever
+   you prefer.
+
+   We only do this for `pointerType === "touch"`, so a mouse still
+   behaves normally and doesn't drag the camera about by accident. */
+
+const DRAG_LOOK = 0.0038;      // how far the camera turns per pixel dragged
+
+let lookPointer = null;
+let lastLookX = 0, lastLookY = 0;
+
+canvas.addEventListener("pointerdown", e => {
+  if (e.pointerType !== "touch" || lookPointer !== null) return;
+  lookPointer = e.pointerId;
+  lastLookX = e.clientX;
+  lastLookY = e.clientY;
+  canvas.setPointerCapture(e.pointerId);
+});
+
+canvas.addEventListener("pointermove", e => {
+  if (e.pointerId !== lookPointer) return;
+  player.yaw   -= (e.clientX - lastLookX) * DRAG_LOOK;
+  player.pitch -= (e.clientY - lastLookY) * DRAG_LOOK;
+  lastLookX = e.clientX;
+  lastLookY = e.clientY;
+  clampPitch();
+});
+
+["pointerup", "pointercancel"].forEach(type => {
+  canvas.addEventListener(type, e => {
+    if (e.pointerId === lookPointer) lookPointer = null;
+  });
+});
+
 // ---- on-screen joysticks ----
 function makeStick(id) {
   const el = document.getElementById(id);
@@ -744,6 +782,16 @@ function flash() {
 // ---------------------------------------------------------------
 // START SCREEN
 // ---------------------------------------------------------------
+/* ---- A CALM START ----
+
+   Nobody wants to be shot at the instant they press PLAY, before
+   they've even worked out which way is up. The robots wander about
+   harmlessly for a few seconds first. */
+
+const PEACE_TIME = 8;      // seconds of calm before anyone attacks
+let peaceLeft = PEACE_TIME;
+let lastCountShown = -1;
+
 let playing = false;
 const startScreen = document.getElementById("start");
 const touchLayer  = document.getElementById("touch");
@@ -778,6 +826,7 @@ function tick() {
   last = now;
 
   if (playing) {
+    updatePeace(dt);
     updatePlayer(dt);
     updateRobots(dt);
     updateBolts(dt);
@@ -791,6 +840,26 @@ function tick() {
   camera.rotateX(player.pitch);
 
   renderer.render(scene, camera);
+}
+
+function updatePeace(dt) {
+  if (peaceLeft <= 0) return;
+
+  peaceLeft -= dt;
+
+  if (peaceLeft <= 0) {
+    say("FIGHT! 💥", 1.6);
+    return;
+  }
+
+  // only redraw when the number actually changes
+  const secondsLeft = Math.ceil(peaceLeft);
+  if (secondsLeft !== lastCountShown) {
+    lastCountShown = secondsLeft;
+    messageEl.textContent = "Have a look round! Robots wake up in " + secondsLeft;
+    messageEl.style.opacity = "1";
+    clearTimeout(messageTimer);
+  }
 }
 
 function updatePlayer(dt) {
@@ -903,7 +972,7 @@ function updateRobots(dt) {
 
     let wantX = 0, wantZ = 0;
 
-    if (distance < 20 && !player.dead) {
+    if (distance < 20 && !player.dead && peaceLeft <= 0) {
       // chase, but stop and shoot once fairly close
       toPlayer.normalize();
       const keepAway = distance < 6 ? -0.5 : 1;
