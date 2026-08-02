@@ -415,53 +415,147 @@
     white-space: nowrap;
   }
 
+  /* ---- the panel: a command list you can search, like the admin
+         gamepasses in Roblox ---- */
   #adminpanel {
     position: fixed;
     top: 50%; left: 50%;
     transform: translate(-50%, -50%);
     z-index: 40;                  /* above everything, including the HUD */
-    background: rgba(20,16,48,0.96);
+    display: flex;
+    flex-direction: column;
+    width: min(430px, 94vw);
+    max-height: min(560px, 84vh);
+    background: rgba(16,13,38,0.97);
     border: 2px solid #ffd93d;
-    border-radius: 16px;
-    padding: 16px 18px;
-    min-width: 240px;
-    max-height: 88vh;
-    overflow-y: auto;
-    box-shadow: 0 16px 40px rgba(0,0,0,0.6);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 18px 46px rgba(0,0,0,0.65);
   }
-  #adminpanel h2 {
-    margin: 0 0 10px;
-    font-size: 1rem; color: #ffd93d; letter-spacing: 1px;
+  #admintop {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px;
+    background: linear-gradient(90deg, rgba(255,217,61,0.22), rgba(255,217,61,0.05));
+    border-bottom: 1px solid rgba(255,217,61,0.35);
   }
-  .adm {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 12px;
-    width: 100%;
-    font-family: inherit; font-size: 0.9rem;
-    margin-bottom: 7px;
-    padding: 9px 12px;
-    border-radius: 10px;
-    cursor: pointer;
+  #admintitle {
+    font-size: 0.9rem; font-weight: bold; color: #ffd93d; letter-spacing: 1px;
+    white-space: nowrap;
+  }
+  #adminsearch {
+    flex: 1;
+    font-family: inherit; font-size: 0.85rem;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.25);
+    background: rgba(0,0,0,0.4);
     color: #fff;
-    background: rgba(255,255,255,0.08);
-    border: 2px solid rgba(255,255,255,0.25);
-  }
-  .adm.on { background: rgba(255,217,61,0.28); border-color: #ffd93d; }
-  .adm .state { font-weight: bold; color: #ffd93d; }
-  .adm .keyhint {
-    font-size: 0.7rem; color: #c9c2ff; opacity: 0.8;
   }
   #admin-close {
-    width: 100%;
     font-family: inherit; font-size: 0.9rem; font-weight: bold;
-    margin-top: 6px; padding: 9px;
-    border-radius: 10px; cursor: pointer;
+    width: 30px; height: 30px;
+    border-radius: 8px; cursor: pointer;
     color: #1a1a2e; background: #ffd93d; border: none;
   }
-  #adminnote {
-    margin: 8px 0 0;
-    font-size: 0.7rem; color: #c9c2ff; line-height: 1.4;
+  #admincmds { overflow-y: auto; padding: 8px; flex: 1; }
+  .cmd {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; text-align: left;
+    font-family: inherit; font-size: 0.85rem;
+    margin-bottom: 5px;
+    padding: 8px 10px;
+    border-radius: 9px;
+    cursor: pointer;
+    color: #fff;
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.15);
   }
+  .cmd:hover { background: rgba(255,255,255,0.14); }
+  .cmd.on { background: rgba(255,217,61,0.24); border-color: #ffd93d; }
+  .cmd .cname { font-weight: bold; color: #ffd93d; white-space: nowrap; }
+  .cmd .cargs { color: #9fb4ff; font-size: 0.75rem; white-space: nowrap; }
+  .cmd .chelp {
+    flex: 1; color: #d8d4ff; font-size: 0.75rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .cmd .cstate {
+    font-size: 0.7rem; font-weight: bold; color: #ffd93d;
+  }
+  #adminfoot {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    border-top: 1px solid rgba(255,255,255,0.15);
+    font-size: 0.7rem; color: #c9c2ff; line-height: 1.35;
+  }
+  #btn-cmdbar {
+    font-family: inherit; font-size: 0.75rem; font-weight: bold;
+    padding: 7px 10px; border-radius: 8px; cursor: pointer;
+    white-space: nowrap;
+    color: #1a1a2e; background: #ffd93d; border: none;
+  }
+
+  /* ---- the command bar you type into ---- */
+  #cmdbar {
+    position: fixed;
+    left: 50%; bottom: max(90px, calc(env(safe-area-inset-bottom) + 80px));
+    transform: translateX(-50%);
+    z-index: 41;
+    width: min(520px, 94vw);
+  }
+  #cmdline {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px;
+    background: rgba(16,13,38,0.97);
+    border: 2px solid #ffd93d;
+    border-radius: 12px;
+  }
+  #cmdprefix { color: #ffd93d; font-weight: bold; }
+  #cmdinput {
+    flex: 1;
+    font-family: inherit; font-size: 0.95rem;
+    background: none; border: none; outline: none;
+    color: #fff;
+  }
+  #cmdinput::placeholder { color: rgba(255,255,255,0.35); }
+  #cmdsuggest {
+    margin-bottom: 6px;
+    background: rgba(16,13,38,0.97);
+    border: 1px solid rgba(255,217,61,0.5);
+    border-radius: 12px;
+    overflow: hidden;
+    max-height: 190px; overflow-y: auto;
+  }
+  #cmdsuggest:empty { display: none; }
+  .sug {
+    display: flex; gap: 8px; align-items: baseline;
+    padding: 7px 12px;
+    font-size: 0.82rem;
+    cursor: pointer;
+  }
+  .sug .cname { color: #ffd93d; font-weight: bold; }
+  .sug .chelp { color: #c9c2ff; font-size: 0.74rem; }
+  .sug.pick { background: rgba(255,217,61,0.25); }
+
+  /* ---- what just happened, bottom left ---- */
+  #adminlog {
+    position: fixed;
+    right: max(12px, env(safe-area-inset-right));
+    top: max(84px, calc(env(safe-area-inset-top) + 76px));
+    z-index: 20;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+    pointer-events: none;
+    max-width: min(60vw, 300px);
+    text-align: right;
+  }
+  .logline {
+    font-size: 0.75rem;
+    padding: 5px 10px;
+    border-radius: 8px;
+    background: rgba(16,13,38,0.85);
+    border-left: 3px solid #ffd93d;
+    color: #fff;
+  }
+  .logline.bad { border-left-color: #ff6b6b; color: #ffd0d0; }
 
   /* the spanner and the fly-down button only exist for an admin */
   #btn-admin, #btn-down { display: none; }
@@ -617,11 +711,29 @@
 </div>
 
 <div id="adminpanel" hidden>
-  <h2>🛠 ADMIN PANEL</h2>
-  <div id="adminbuttons"></div>
-  <button id="admin-close">Close (P)</button>
-  <p id="adminnote">Only changes YOUR game. Press <strong>P</strong> any time.</p>
+  <div id="admintop">
+    <span id="admintitle">🛠 ADMIN</span>
+    <input id="adminsearch" placeholder="Search commands…" autocomplete="off"
+           spellcheck="false">
+    <button id="admin-close" type="button">✕</button>
+  </div>
+  <div id="admincmds"></div>
+  <div id="adminfoot">
+    <button id="btn-cmdbar" type="button">⌨ Command bar</button>
+    <span>Tap a command to run it &mdash; or press <strong>;</strong> to type one</span>
+  </div>
 </div>
+
+<div id="cmdbar" hidden>
+  <div id="cmdsuggest"></div>
+  <div id="cmdline">
+    <span id="cmdprefix">;</span>
+    <input id="cmdinput" autocomplete="off" spellcheck="false"
+           placeholder="fly me    ·    kill bots    ·    speed 30">
+  </div>
+</div>
+
+<div id="adminlog"></div>
 
 <div id="start">
   <div>
@@ -1699,6 +1811,8 @@ let jumpHeld    = false;    // HELD down, for rising while you're flying
 let flyDownHeld = false;    // the admin's ⬇ button
 const keys = {};
 addEventListener("keydown", e => {
+  // typing ";speed 30" shouldn't send you strafing across the arena
+  if (typingSomewhere()) return;
   keys[e.code] = true;
   if (e.code === "Space") {
     e.preventDefault();
@@ -1712,6 +1826,7 @@ addEventListener("keyup", e => { keys[e.code] = false; });
 
 // press 1, 2 or 3 to change gun (or Q to flick through them)
 addEventListener("keydown", e => {
+  if (typingSomewhere()) return;              // ...or building blocks
   if (e.code === "Digit1") requestWeapon(0);
   if (e.code === "Digit2") requestWeapon(1);
   if (e.code === "Digit3") requestWeapon(2);
@@ -1736,12 +1851,17 @@ document.addEventListener("pointerlockchange", () => {
   // On a computer the mouse is captured by the game, so clicks can't
   // reach the Leave button until you press Esc. Say so, rather than
   // leaving people stuck wondering why the button does nothing.
-  // ...but not while the admin panel is open - that lets go of the
-  // mouse on purpose, so the hint would just be in the way.
-  const showHint = playing && !pointerLocked && !HAS_TOUCH
-                   && document.getElementById("adminpanel").hidden;
-  pauseHint.style.opacity = showHint ? "1" : "0";
+  updatePauseHint();
 });
+
+/* The admin panel and the command bar let go of the mouse on purpose,
+   so the hint would only be in the way while either is open. */
+function updatePauseHint() {
+  const busy = !document.getElementById("adminpanel").hidden
+            || !document.getElementById("cmdbar").hidden;
+  const showHint = playing && !pointerLocked && !HAS_TOUCH && !busy;
+  pauseHint.style.opacity = showHint ? "1" : "0";
+}
 
 addEventListener("mousemove", e => {
   if (!pointerLocked) return;
@@ -1930,74 +2050,348 @@ document.getElementById("how-touch").style.display   = HAS_TOUCH ? "block" : "no
 touchLayer.style.display = HAS_TOUCH ? "block" : "none";
 
 /* =====================================================================
-   ADMIN POWERS
+   ADMIN POWERS  -  a proper admin panel, Roblox style
 
    Put OLLIE as your name and the secret code box appears. Get the code
-   right and you unlock the spanner: flying, no damage, freezing the
-   robots, and as many blocks as you like.
+   right and you unlock the panel: a searchable list of commands, and a
+   command bar you type into (press ; like Roblox admin scripts).
 
    Two things worth being straight about:
 
    1. This is a SECRET, not a lock. Everything a web page does is inside
       the page, so anyone who really goes looking can find the code.
       It's here for fun.
-   2. Every power only changes YOUR OWN game. Nothing here reaches into
-      a friend's game, kicks anybody out, or changes their score.
+   2. Every command only changes YOUR OWN game. Nothing here reaches
+      into a friend's game, kicks anybody out, or changes their score -
+      a command aimed at a friend says so instead of pretending.
    ===================================================================== */
 
 const ADMIN_NAME  = "ollie";
 const ADMIN_CODE  = "1233";
 const FLY_SPEED   = 9;
 const FLY_CEILING = 34;
+const VOID_FLOOR  = -25;      // fall past this and you come back, like Roblox
 
 const admin = {
   unlocked:   false,
   flying:     false,
   invincible: false,
   frozen:     false,
-  endless:    false
+  endless:    false,
+  noclip:     false,
+  day:        false,
+  speed:      1,              // multipliers, 1 = the normal game
+  jump:       1,
+  gravity:    1
 };
-
-// switches you can turn on and off
-const ADMIN_POWERS = [
-  { id: "flying",     label: "🕊 Flying",         code: "KeyF", hint: "F" },
-  { id: "invincible", label: "🛡 No damage",      code: "KeyG", hint: "G" },
-  { id: "frozen",     label: "🧊 Freeze robots",  code: "KeyK", hint: "K" },
-  { id: "endless",    label: "🧱 Endless blocks", code: "KeyL", hint: "L" }
-];
-
-// things that just happen once when you press them
-const ADMIN_ACTIONS = [
-  { id: "heal", label: "❤️ Full health", code: "KeyH", hint: "H", run() {
-      player.dead = false; player.respawnIn = 0; player.health = 100;
-      player.safeFor = 1.6;
-      updateHud();
-      say("Full health!", 1.2);
-    } },
-  { id: "wake", label: "🤖 Wake robots up", code: "KeyJ", hint: "J", run() {
-      robots.forEach(r => {
-        r.alive = true; r.health = 100; r.respawnIn = 0;
-        r.group.visible = true;
-      });
-      say("All robots back up!", 1.2);
-    } },
-  { id: "tidy", label: "🧹 Clear the blocks", code: "KeyM", hint: "M", run() {
-      blocks.slice().forEach(b => {
-        removeBlock(b);
-        netSend({ t: "unbuild", x: b.x, y: b.y, z: b.z });
-      });
-      say("Blocks cleared", 1.2);
-    } }
-];
 
 // how many blocks may stand at once - a lot more with endless on
 function blockLimit() { return admin.endless ? MAX_BLOCKS * 10 : MAX_BLOCKS; }
 
+/* ---------------------------------------------------------------
+   WHO A COMMAND IS AIMED AT
+
+   "me", "bots", "all", "bot3"... anything else that names a friend
+   gets a straight answer instead of quietly doing nothing.
+   --------------------------------------------------------------- */
+function resolveTarget(word) {
+  const w = String(word || "").toLowerCase().replace(/\s+/g, "");
+  if (!w) return null;
+
+  if (w === "me" || w === "self")            return { me: true,  bots: [] };
+  if (w === "all" || w === "everyone")       return { me: true,  bots: livingBots() };
+  if (w === "bots" || w === "robots" || w === "others")
+                                             return { me: false, bots: livingBots() };
+  if (w === "random") {
+    const pool = livingBots();
+    if (!pool.length) return { me: false, bots: [] };
+    return { me: false, bots: [pool[Math.floor(Math.random() * pool.length)]] };
+  }
+
+  const number = w.match(/^b(?:ot)?(\d+)$/);
+  if (number) {
+    const bot = robots[Number(number[1]) - 1];
+    if (bot) return { me: false, bots: [bot] };
+  }
+
+  // is it one of your friends? say why we can't
+  for (const other of net.others.values()) {
+    if (other.name.toLowerCase().replace(/\s+/g, "") === w) return { friend: other.name };
+  }
+  return null;
+}
+
+function livingBots() { return robots.filter(r => r.alive); }
+
+function targetNames(t) {
+  const bits = [];
+  if (t.me) bits.push("you");
+  if (t.bots.length === robots.length) bits.push("all the bots");
+  else if (t.bots.length) bits.push(t.bots.map(b => b.name).join(", "));
+  return bits.join(" and ") || "nobody";
+}
+
+/* ---------------------------------------------------------------
+   THE COMMANDS
+   --------------------------------------------------------------- */
+function setFlag(flag, on) {
+  admin[flag] = on === undefined ? !admin[flag] : !!on;
+  refreshAdmin();
+  return admin[flag];
+}
+
+// "fly", "fly on", "fly off" - all sensible
+function wantsOn(word, flag) {
+  const w = String(word || "").toLowerCase();
+  if (w === "on"  || w === "yes" || w === "true")  return true;
+  if (w === "off" || w === "no"  || w === "false") return false;
+  return !admin[flag];
+}
+
+function number(value, fallback, low, high) {
+  const n = parseFloat(value);
+  if (!isFinite(n)) return fallback;
+  return Math.max(low, Math.min(high, n));
+}
+
+// "Speed set to 20 (that's as fast as it goes)" beats a silent clamp
+function clampNote(asked, got) {
+  const n = parseFloat(asked);
+  if (!isFinite(n) || n === got) return "";
+  return n > got ? " (that's as high as it goes)" : " (that's as low as it goes)";
+}
+
+function knockOut(t, bang) {
+  t.bots.forEach(bot => {
+    if (bang) sparkle(new THREE.Vector3(bot.pos.x, 1.2, bot.pos.z), 0xffa76b);
+    bot.alive = false;
+    bot.group.visible = false;
+    bot.respawnIn = 3;
+  });
+  if (t.me) {
+    if (bang) sparkle(new THREE.Vector3(player.pos.x, 1.2, player.pos.z), 0xffa76b);
+    player.health = 0;
+    player.dead = true;
+    player.respawnIn = 2.2;
+    updateHud();
+  }
+}
+
+const ADMIN_COMMANDS = [
+  // ---- you ----
+  { name: "fly", args: "[on/off]", flag: "flying", key: "KeyF",
+    help: "Fly about with no gravity",
+    run: c => `Flying ${setFlag("flying", wantsOn(c.words[0], "flying")) ? "on" : "off"}` },
+
+  { name: "noclip", alias: ["clip"], args: "[on/off]", flag: "noclip", key: "KeyN",
+    help: "Walk straight through walls",
+    run: c => {
+      /* On its own, noclip means the floor stops holding you up and you
+         drop into the void straight away. Switching flying on with it
+         is what makes it usable - turn flying off after if you want
+         the long drop. */
+      const on = setFlag("noclip", wantsOn(c.words[0], "noclip"));
+      if (on && !admin.flying) { setFlag("flying", true); return "Noclip on (and flying, so you don't drop)"; }
+      return "Noclip " + (on ? "on" : "off");
+    } },
+
+  { name: "god", alias: ["ungod"], args: "[on/off]", flag: "invincible", key: "KeyG",
+    help: "Nothing can hurt you",
+    run: c => `God mode ${setFlag("invincible", wantsOn(c.words[0], "invincible")) ? "on" : "off"}` },
+
+  { name: "speed", args: "<number>",
+    help: "How fast you run (normal is 1)",
+    run: c => { admin.speed = number(c.words[0], 1, 0.1, 20); refreshAdmin();
+                return "Speed set to " + admin.speed
+                       + clampNote(c.words[0], admin.speed); } },
+
+  { name: "jumppower", alias: ["jp", "jumpheight"], args: "<number>",
+    help: "How high you jump (normal is 1)",
+    run: c => { admin.jump = number(c.words[0], 1, 0, 8); refreshAdmin();
+                return "Jump power set to " + admin.jump
+                       + clampNote(c.words[0], admin.jump); } },
+
+  { name: "jump", args: "",
+    help: "Jump right now",
+    run: () => { player.vel.y = JUMP_SPEED * Math.max(1, admin.jump);
+                 player.onGround = false; return "Boing!"; } },
+
+  { name: "heal", args: "[who]", target: "me",
+    help: "Back to full health",
+    run: c => { if (c.target.me) { player.dead = false; player.respawnIn = 0;
+                                   player.health = 100; player.safeFor = 1.6; updateHud(); }
+                c.target.bots.forEach(b => { b.health = 100; });
+                return "Healed " + targetNames(c.target); } },
+
+  { name: "kill", args: "[who]", target: "bots",
+    help: "Knock somebody out",
+    run: c => { knockOut(c.target, false); return "Knocked out " + targetNames(c.target); } },
+
+  { name: "explode", args: "[who]", target: "bots",
+    help: "Knock them out with a bang",
+    run: c => { knockOut(c.target, true); return "💥 " + targetNames(c.target); } },
+
+  { name: "respawn", alias: ["reset", "re"], args: "",
+    help: "Start again from the spawn point",
+    run: () => { player.pos.set(0, PLAYER_HEIGHT, 16); player.vel.set(0, 0, 0);
+                 player.health = 100; player.dead = false; player.safeFor = 1.6;
+                 updateHud(); return "Respawned"; } },
+
+  { name: "tp", alias: ["goto", "teleport"], args: "<who>", target: "random",
+    help: "Teleport yourself to somebody",
+    run: c => { const to = c.target.bots[0];
+                if (!to) return { bad: "Nobody to teleport to" };
+                player.pos.set(to.pos.x, PLAYER_HEIGHT + 0.4, to.pos.z + 2.2);
+                player.vel.set(0, 0, 0);
+                return "Teleported to " + to.name; } },
+
+  { name: "bring", args: "[who]", target: "bots",
+    help: "Bring them to you",
+    run: c => { c.target.bots.forEach((bot, i) => {
+                  const angle = (i / Math.max(1, c.target.bots.length)) * Math.PI * 2;
+                  bot.pos.set(player.pos.x + Math.sin(angle) * 3, 0,
+                              player.pos.z + Math.cos(angle) * 3);
+                });
+                return "Brought " + targetNames(c.target); } },
+
+  // ---- the robots ----
+  { name: "freeze", alias: ["thaw", "unfreeze"], args: "[on/off]", flag: "frozen", key: "KeyK",
+    help: "Stop the robots where they stand",
+    run: c => `Robots ${setFlag("frozen", wantsOn(c.words[0], "frozen")) ? "frozen" : "moving again"}` },
+
+  { name: "wake", alias: ["revive"], args: "", key: "KeyJ",
+    help: "Bring every robot back at once",
+    run: () => { robots.forEach(r => { r.alive = true; r.health = 100;
+                                       r.respawnIn = 0; r.group.visible = true; });
+                 return "All robots back up"; } },
+
+  { name: "peace", args: "<seconds>",
+    help: "Stop all the fighting for a bit",
+    run: c => { peaceLeft = number(c.words[0], 10, 0, 600);
+                return "Peace for " + peaceLeft + "s"; } },
+
+  // ---- the world ----
+  { name: "gravity", args: "<number>",
+    help: "How hard you fall (normal is 1)",
+    run: c => { admin.gravity = number(c.words[0], 1, 0, 5); refreshAdmin();
+                return "Gravity set to " + admin.gravity
+                       + clampNote(c.words[0], admin.gravity); } },
+
+  { name: "blocks", alias: ["endless"], args: "[on/off]", flag: "endless", key: "KeyL",
+    help: "Build far more blocks than usual",
+    run: c => `Endless blocks ${setFlag("endless", wantsOn(c.words[0], "endless")) ? "on" : "off"}` },
+
+  { name: "clearblocks", alias: ["cb"], args: "",
+    help: "Take every block away",
+    run: () => { const many = blocks.length;
+                 blocks.slice().forEach(b => { removeBlock(b);
+                   netSend({ t: "unbuild", x: b.x, y: b.y, z: b.z }); });
+                 return "Cleared " + many + " blocks"; } },
+
+  { name: "day", alias: ["night"], args: "[on/off]", flag: "day",
+    help: "Turn the sky light or dark",
+    run: c => { setSky(wantsOn(c.words[0], "day"));
+                return admin.day ? "Daytime ☀️" : "Night time 🌙"; } },
+
+  // ---- odds and ends ----
+  { name: "m", alias: ["msg", "announce"], args: "<message>",
+    help: "Put a big message on your screen",
+    run: c => { const text = c.words.join(" ");
+                if (!text) return { bad: "Say what? Try  ;m hello" };
+                say(text, 4); return "Announced"; } },
+
+  { name: "score", args: "<number>",
+    help: "Set your score to whatever you like",
+    run: c => { player.score = Math.round(number(c.words[0], 0, 0, 999999));
+                updateHud(); return "Score set to " + player.score; } },
+
+  { name: "gun", args: "<1-3>",
+    help: "Switch straight to a gun",
+    run: c => { const pick = Math.round(number(c.words[0], 1, 1, WEAPONS.length)) - 1;
+                requestWeapon(pick);
+                return "Getting out the " + WEAPONS[pick].name; } },
+
+  { name: "cmds", alias: ["commands", "panel"], args: "",
+    help: "Show this list of commands",
+    run: () => { toggleAdminPanel(true); return "Here you go"; } },
+
+  { name: "normal", alias: ["default", "off"], args: "",
+    help: "Put everything back to normal",
+    run: () => { admin.flying = admin.invincible = admin.frozen =
+                   admin.endless = admin.noclip = false;
+                 admin.speed = admin.jump = admin.gravity = 1;
+                 setSky(false);
+                 refreshAdmin();
+                 return "Everything back to normal"; } }
+];
+
+function findCommand(word) {
+  const w = String(word || "").toLowerCase();
+  return ADMIN_COMMANDS.find(c => c.name === w || (c.alias || []).includes(w));
+}
+
+function setSky(day) {
+  admin.day = !!day;
+  const colour = admin.day ? 0x86b7ff : 0x0b1020;
+  scene.background.set(colour);
+  if (scene.fog) scene.fog.color.set(colour);
+  refreshAdmin();
+}
+
+/* Run one typed line. Returns true if it did something. */
+function runCommand(line) {
+  if (!admin.unlocked) return false;
+
+  const raw = String(line == null ? "" : line).trim().replace(/^[;:/]+/, "");
+  if (!raw) return false;
+
+  const words = raw.split(/\s+/);
+  const cmd = findCommand(words.shift());
+  if (!cmd) { adminLog("No command called \"" + raw.split(/\s+/)[0] + "\"", true); return false; }
+
+  // who is it aimed at?
+  let target = null;
+  if (cmd.target) {
+    const guess = resolveTarget(words[0]);
+    if (guess && guess.friend) {
+      adminLog("Can't reach " + guess.friend + "'s game - your powers only "
+               + "change your own", true);
+      return false;
+    }
+    if (guess) words.shift();
+    target = guess || resolveTarget(cmd.target);
+  }
+
+  const result = cmd.run({ words, target, raw });
+  if (result && result.bad) { adminLog(result.bad, true); return false; }
+  adminLog(typeof result === "string" ? result : cmd.name, false);
+  refreshAdmin();
+  return true;
+}
+
+/* ---------------------------------------------------------------
+   THE SCREEN BITS
+   --------------------------------------------------------------- */
 const adminRow    = document.getElementById("adminrow");
 const adminBadge  = document.getElementById("adminbadge");
 const adminPanel  = document.getElementById("adminpanel");
 const adminState  = document.getElementById("adminstate");
+const adminLogBox = document.getElementById("adminlog");
+const adminSearch = document.getElementById("adminsearch");
 const codeBox     = document.getElementById("admincode");
+const cmdBar      = document.getElementById("cmdbar");
+const cmdInput    = document.getElementById("cmdinput");
+const cmdSuggest  = document.getElementById("cmdsuggest");
+
+// a little note of what just happened, bottom of the screen
+function adminLog(text, bad) {
+  const line = document.createElement("div");
+  line.className = "logline" + (bad ? " bad" : "");
+  line.textContent = text;                       // never innerHTML
+  adminLogBox.appendChild(line);
+  while (adminLogBox.children.length > 5) adminLogBox.removeChild(adminLogBox.firstChild);
+  setTimeout(() => { if (line.parentNode) line.parentNode.removeChild(line); }, 4200);
+}
 
 function nameIsAdmin() {
   const box = document.getElementById("nickname");
@@ -2022,107 +2416,246 @@ function unlockAdmin() {
   adminState.textContent = "✅ Admin powers on!";
   codeBox.value = "";
   document.body.classList.add("admin");
-  refreshAdminBadge();
+  refreshAdmin();
   return true;
 }
 
-// turn everything off again and put it all back to normal
+// everything off, everything back to normal
 function lockAdmin(why) {
   admin.unlocked = admin.flying = admin.invincible =
-    admin.frozen = admin.endless = false;
+    admin.frozen = admin.endless = admin.noclip = false;
+  admin.speed = admin.jump = admin.gravity = 1;
+  setSky(false);
   adminPanel.hidden = true;
+  cmdBar.hidden = true;
   document.body.classList.remove("admin", "flying");
   adminState.textContent = why || "";
-  refreshAdminBadge();
+  refreshAdmin();
 }
 
-function refreshAdminBadge() {
-  const on = ADMIN_POWERS.filter(p => admin[p.id]);
+// keep the badge and the command list showing the truth
+function refreshAdmin() {
+  const on = ADMIN_COMMANDS.filter(c => c.flag && admin[c.flag]);
   adminBadge.hidden = !admin.unlocked;
   adminBadge.textContent = "🛠 ADMIN"
-    + (on.length ? " · " + on.map(p => p.label.slice(2)).join(" · ") : "");
+    + (on.length ? " · " + on.map(c => c.name).join(" · ") : "");
   document.body.classList.toggle("flying", admin.flying);
 
-  // the buttons in the panel show which way each switch is
-  ADMIN_POWERS.forEach(p => {
-    const button = document.getElementById("adm-" + p.id);
-    if (!button) return;
-    button.classList.toggle("on", !!admin[p.id]);
-    button.querySelector(".state").textContent = admin[p.id] ? "ON" : "off";
+  ADMIN_COMMANDS.forEach(c => {
+    const row = document.getElementById("cmd-" + c.name);
+    if (!row) return;
+    const state = row.querySelector(".cstate");
+    if (c.flag) {
+      row.classList.toggle("on", !!admin[c.flag]);
+      state.textContent = admin[c.flag] ? "ON" : "off";
+    } else if (c.name === "speed")    state.textContent = "×" + admin.speed;
+    else if (c.name === "jumppower")  state.textContent = "×" + admin.jump;
+    else if (c.name === "gravity")    state.textContent = "×" + admin.gravity;
   });
 }
 
-function setPower(id, on) {
-  if (!admin.unlocked) return;
-  admin[id] = on === undefined ? !admin[id] : !!on;
-
-  // stepping off the accelerator shouldn't leave you frozen mid-air
-  if (id === "flying" && !admin.flying) player.onGround = false;
-
-  refreshAdminBadge();
-}
-
-function runAdminAction(id) {
-  if (!admin.unlocked) return;
-  const action = ADMIN_ACTIONS.find(a => a.id === id);
-  if (action) action.run();
-}
-
+// build a row for every command, once
 function buildAdminPanel() {
-  const holder = document.getElementById("adminbuttons");
+  const holder = document.getElementById("admincmds");
 
-  ADMIN_POWERS.forEach(p => {
-    const button = document.createElement("button");
-    button.className = "adm";
-    button.type = "button";
-    button.id = "adm-" + p.id;
-    button.innerHTML = "";                       // built from real elements
+  ADMIN_COMMANDS.forEach(c => {
+    const row = document.createElement("button");
+    row.className = "cmd";
+    row.type = "button";
+    row.id = "cmd-" + c.name;
+    row.dataset.name = c.name;
+    row.dataset.words = (c.name + " " + (c.alias || []).join(" ") + " " + c.help)
+                          .toLowerCase();
+
     const name = document.createElement("span");
-    name.textContent = p.label;
-    const right = document.createElement("span");
-    const key = document.createElement("span");
-    key.className = "keyhint";
-    key.textContent = p.hint + " ";
+    name.className = "cname";
+    name.textContent = ";" + c.name;
+
+    const args = document.createElement("span");
+    args.className = "cargs";
+    args.textContent = c.args;
+
+    const help = document.createElement("span");
+    help.className = "chelp";
+    help.textContent = c.help;
+
     const state = document.createElement("span");
-    state.className = "state";
-    state.textContent = "off";
-    right.appendChild(key); right.appendChild(state);
-    button.appendChild(name); button.appendChild(right);
-    button.addEventListener("click", () => setPower(p.id));
-    holder.appendChild(button);
-  });
+    state.className = "cstate";
+    state.textContent = c.key ? c.key.replace("Key", "") : "";
 
-  ADMIN_ACTIONS.forEach(a => {
-    const button = document.createElement("button");
-    button.className = "adm";
-    button.type = "button";
-    button.id = "adm-" + a.id;
-    const name = document.createElement("span");
-    name.textContent = a.label;
-    const key = document.createElement("span");
-    key.className = "keyhint";
-    key.textContent = a.hint;
-    button.appendChild(name); button.appendChild(key);
-    button.addEventListener("click", () => runAdminAction(a.id));
-    holder.appendChild(button);
+    row.appendChild(name); row.appendChild(args);
+    row.appendChild(help); row.appendChild(state);
+
+    row.addEventListener("click", () => {
+      // a command that needs you to type something opens the bar
+      // ready to go, instead of guessing what you meant
+      if (c.args.indexOf("<") === 0) { openCmdBar(c.name + " "); return; }
+      runCommand(c.name);
+    });
+    holder.appendChild(row);
   });
+  refreshAdmin();
 }
 buildAdminPanel();
 
+function filterPanel(text) {
+  const want = String(text || "").toLowerCase().trim();
+  document.querySelectorAll("#admincmds .cmd").forEach(row => {
+    row.hidden = want !== "" && row.dataset.words.indexOf(want) < 0;
+  });
+}
+adminSearch.addEventListener("input", () => filterPanel(adminSearch.value));
+
 /* Opening the panel lets go of the mouse, the same as pressing Esc -
-   otherwise the game has hold of it and none of the buttons can be
-   clicked. */
+   otherwise the game has hold of it and nothing can be clicked. */
 function toggleAdminPanel(show) {
   if (!admin.unlocked) { adminPanel.hidden = true; return; }
   const open = show === undefined ? adminPanel.hidden : !!show;
   adminPanel.hidden = !open;
   if (open) {
     if (pointerLocked) document.exitPointerLock();
-    pauseHint.style.opacity = "0";
-    refreshAdminBadge();
+    adminSearch.value = "";
+    filterPanel("");
+    refreshAdmin();
   }
+  updatePauseHint();
 }
 
+/* ---------------------------------------------------------------
+   THE COMMAND BAR  -  type ; then a command, like Roblox
+   --------------------------------------------------------------- */
+let cmdHistory = [];
+let historyAt = -1;
+let suggestions = [];
+let suggestAt = 0;
+let cmdOpenId = 0;          // bumped every time the bar opens
+
+function openCmdBar(startWith) {
+  if (!admin.unlocked) return;
+  cmdOpenId++;
+  cmdBar.hidden = false;
+  cmdInput.value = startWith || "";
+  historyAt = -1;
+  if (pointerLocked) document.exitPointerLock();
+  cmdInput.focus();
+  showSuggestions();
+  updatePauseHint();
+}
+
+function closeCmdBar() {
+  cmdBar.hidden = true;
+  cmdInput.value = "";
+  cmdSuggest.textContent = "";
+  suggestions = [];
+  // hand the keyboard back to the game - while the box still has the
+  // focus every key counts as "typing", so P and F would do nothing
+  if (document.activeElement === cmdInput) cmdInput.blur();
+  updatePauseHint();
+}
+
+function showSuggestions() {
+  const typed = cmdInput.value.trim().toLowerCase();
+  const word = typed.split(/\s+/)[0] || "";
+
+  // once you've typed the whole command and moved on, stop nagging
+  suggestions = (typed.indexOf(" ") >= 0 && findCommand(word))
+    ? []
+    : ADMIN_COMMANDS.filter(c =>
+        c.name.indexOf(word) === 0 ||
+        (c.alias || []).some(a => a.indexOf(word) === 0)).slice(0, 6);
+
+  suggestAt = Math.min(suggestAt, Math.max(0, suggestions.length - 1));
+  cmdSuggest.textContent = "";
+
+  suggestions.forEach((c, i) => {
+    const row = document.createElement("div");
+    row.className = "sug" + (i === suggestAt ? " pick" : "");
+
+    const name = document.createElement("span");
+    name.className = "cname";
+    name.textContent = ";" + c.name + (c.args ? " " + c.args : "");
+
+    const help = document.createElement("span");
+    help.className = "chelp";
+    help.textContent = c.help;
+
+    row.appendChild(name); row.appendChild(help);
+    row.addEventListener("mousedown", e => {          // before the blur
+      e.preventDefault();
+      cmdInput.value = c.name + (c.args ? " " : "");
+      cmdInput.focus();
+      showSuggestions();
+    });
+    cmdSuggest.appendChild(row);
+  });
+}
+
+cmdInput.addEventListener("input", () => { suggestAt = 0; showSuggestions(); });
+
+cmdInput.addEventListener("keydown", e => {
+  if (e.key === "Escape") { e.preventDefault(); closeCmdBar(); return; }
+
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if (suggestions.length) {
+      suggestAt = (suggestAt + (e.key === "ArrowDown" ? 1 : suggestions.length - 1))
+                  % suggestions.length;
+      showSuggestions();
+    } else if (e.key === "ArrowUp" && cmdHistory.length) {
+      historyAt = Math.min(historyAt + 1, cmdHistory.length - 1);
+      cmdInput.value = cmdHistory[historyAt];
+    } else if (e.key === "ArrowDown" && historyAt > 0) {
+      historyAt--;
+      cmdInput.value = cmdHistory[historyAt];
+    }
+    return;
+  }
+
+  if (e.key === "Tab") {                       // finish the word for me
+    e.preventDefault();
+    if (suggestions.length) {
+      cmdInput.value = suggestions[suggestAt].name
+                     + (suggestions[suggestAt].args ? " " : "");
+      showSuggestions();
+    }
+    return;
+  }
+
+  if (e.key === "Enter") {
+    e.preventDefault();
+    let line = cmdInput.value.trim();
+    if (!line) { closeCmdBar(); return; }
+
+    /* Typing "fl" and pressing enter should give you FLY, not "there's
+       no command called fl". If the word isn't a command but there's a
+       suggestion sitting there highlighted, that's what you meant. */
+    const bits = line.split(/\s+/);
+    if (!findCommand(bits[0].replace(/^[;:/]+/, "")) && suggestions.length) {
+      bits[0] = suggestions[suggestAt].name;
+      line = bits.join(" ");
+    }
+
+    cmdHistory.unshift(line);
+    cmdHistory = cmdHistory.slice(0, 20);
+    runCommand(line);
+    closeCmdBar();
+  }
+});
+
+/* Clicking away closes it, so you can get back to playing. The wait is
+   for taps that land on a suggestion - but a delayed close must not
+   slam shut a bar you have opened again in the meantime, which is
+   exactly what happened when ; was pressed straight afterwards. */
+cmdInput.addEventListener("blur", () => {
+  const openedAs = cmdOpenId;
+  setTimeout(() => {
+    if (openedAs === cmdOpenId && document.activeElement !== cmdInput) closeCmdBar();
+  }, 120);
+});
+
+/* ---------------------------------------------------------------
+   BUTTONS AND KEYS
+   --------------------------------------------------------------- */
 document.getElementById("btn-unlock").addEventListener("click", unlockAdmin);
 codeBox.addEventListener("keydown", e => {
   if (e.key === "Enter") { e.preventDefault(); unlockAdmin(); }
@@ -2130,6 +2663,10 @@ codeBox.addEventListener("keydown", e => {
 document.getElementById("nickname").addEventListener("input", refreshAdminRow);
 document.getElementById("admin-close").addEventListener("click",
   () => toggleAdminPanel(false));
+document.getElementById("btn-cmdbar").addEventListener("click", () => {
+  toggleAdminPanel(false);
+  openCmdBar("");
+});
 
 document.getElementById("btn-admin").addEventListener("pointerdown", e => {
   e.preventDefault();
@@ -2140,19 +2677,29 @@ downBtn.addEventListener("pointerdown", e => { e.preventDefault(); flyDownHeld =
 downBtn.addEventListener("pointerup",   e => { e.preventDefault(); flyDownHeld = false; });
 downBtn.addEventListener("pointerleave",()  => { flyDownHeld = false; });
 
+// are we typing rather than playing?
+function typingSomewhere() {
+  const el = document.activeElement;
+  return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
+}
+
 addEventListener("keydown", e => {
-  if (!admin.unlocked || !playing) return;
+  if (!admin.unlocked || !playing || typingSomewhere()) return;
 
+  if (e.key === ";" || e.key === "/" || e.key === ":") {
+    e.preventDefault();
+    openCmdBar("");
+    return;
+  }
   if (e.code === "KeyP") { e.preventDefault(); toggleAdminPanel(); return; }
+  if (e.code === "KeyH") { e.preventDefault(); runCommand("heal"); return; }
 
-  const power = ADMIN_POWERS.find(p => p.code === e.code);
-  if (power) { e.preventDefault(); setPower(power.id); return; }
-
-  const action = ADMIN_ACTIONS.find(a => a.code === e.code);
-  if (action) { e.preventDefault(); action.run(); }
+  const quick = ADMIN_COMMANDS.find(c => c.key === e.code);
+  if (quick) { e.preventDefault(); runCommand(quick.name); }
 });
 
 refreshAdminRow();
+
 
 function beginGame() {
   startScreen.style.display = "none";
@@ -2269,8 +2816,9 @@ function updatePlayer(dt) {
   const len = Math.hypot(moveX, moveZ);
   if (len > 1) { moveX /= len; moveZ /= len; }   // no speed boost diagonally
 
-  player.vel.x = (forward.x * moveZ + right.x * moveX) * MOVE_SPEED;
-  player.vel.z = (forward.z * moveZ + right.z * moveX) * MOVE_SPEED;
+  const runSpeed = MOVE_SPEED * admin.speed;
+  player.vel.x = (forward.x * moveZ + right.x * moveX) * runSpeed;
+  player.vel.z = (forward.z * moveZ + right.z * moveX) * runSpeed;
 
   // ---- jumping and falling, or flying if you're the boss ----
   if (admin.flying) {
@@ -2286,10 +2834,10 @@ function updatePlayer(dt) {
     player.onGround = false;
   } else {
     if ((keys.Space || jumpPressed) && player.onGround) {
-      player.vel.y = JUMP_SPEED;
+      player.vel.y = JUMP_SPEED * admin.jump;
       player.onGround = false;
     }
-    player.vel.y -= GRAVITY * dt;
+    player.vel.y -= GRAVITY * admin.gravity * dt;
   }
   jumpPressed = false;
 
@@ -2304,20 +2852,35 @@ function updatePlayer(dt) {
   }
 
   // ---- floor and walls ----
-  if (player.pos.y - PLAYER_HEIGHT < 0) {
-    player.pos.y = PLAYER_HEIGHT;
-    player.vel.y = 0;
-    player.onGround = true;
-  }
-  if (collide(player.pos, PLAYER_RADIUS, PLAYER_HEIGHT)) {
-    player.vel.y = 0;
-    player.onGround = true;
-  }
+  if (admin.noclip) {
+    /* Nothing is solid - walls, crates, the floor, the lot. Wander too
+       far and you'd be lost for good, so there's a soft boundary well
+       outside the arena, and falling into the void puts you back at
+       the spawn point the way Roblox does. */
+    const far = ARENA * 4;
+    player.pos.x = Math.max(-far, Math.min(far, player.pos.x));
+    player.pos.z = Math.max(-far, Math.min(far, player.pos.z));
+    if (player.pos.y < VOID_FLOOR) {
+      player.pos.set(0, PLAYER_HEIGHT, 16);
+      player.vel.set(0, 0, 0);
+      adminLog("You fell out of the world - back you come");
+    }
+  } else {
+    if (player.pos.y - PLAYER_HEIGHT < 0) {
+      player.pos.y = PLAYER_HEIGHT;
+      player.vel.y = 0;
+      player.onGround = true;
+    }
+    if (collide(player.pos, PLAYER_RADIUS, PLAYER_HEIGHT)) {
+      player.vel.y = 0;
+      player.onGround = true;
+    }
 
-  // don't let anyone escape the arena
-  const edge = ARENA - 1.2;
-  player.pos.x = Math.max(-edge, Math.min(edge, player.pos.x));
-  player.pos.z = Math.max(-edge, Math.min(edge, player.pos.z));
+    // don't let anyone escape the arena
+    const edge = ARENA - 1.2;
+    player.pos.x = Math.max(-edge, Math.min(edge, player.pos.x));
+    player.pos.z = Math.max(-edge, Math.min(edge, player.pos.z));
+  }
 
   // ---- shooting ----
   updateSwap(dt);
