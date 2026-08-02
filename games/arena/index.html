@@ -663,6 +663,9 @@ function makeRobot() {
     cooldown: Math.random() * 2,
     wanderAngle: Math.random() * Math.PI * 2,
     wanderTimer: 0,
+    grudge: null,        // another robot it's fallen out with
+    grudgeTimer: 0,
+    moodTimer: Math.random() * 6,
     alive: true,
     respawnIn: 0
   };
@@ -700,14 +703,16 @@ for (let i = 0; i < ROBOT_COUNT; i++) makeRobot();
 const bolts = [];
 const boltGeo = new THREE.SphereGeometry(0.16, 8, 8);
 
-function shoot(from, dir, fromPlayer) {
+// `owner` is the robot that fired it, so a bolt can't hit the robot that
+// shot it - and so a robot knows who to blame when it gets hit.
+function shoot(from, dir, fromPlayer, owner) {
   const mesh = new THREE.Mesh(boltGeo, new THREE.MeshBasicMaterial({
     color: fromPlayer ? 0xffe680 : 0xff5b5b
   }));
   mesh.position.copy(from);
   scene.add(mesh);
 
-  bolts.push({ mesh, dir: dir.clone().normalize(), fromPlayer, life: BOLT_LIFE });
+  bolts.push({ mesh, dir: dir.clone().normalize(), fromPlayer, owner, life: BOLT_LIFE });
 }
 
 function removeBolt(i) {
@@ -735,10 +740,17 @@ function sparkle(at, colour) {
 // ---------------------------------------------------------------
 // CONTROLS
 // ---------------------------------------------------------------
+let jumpPressed = false;    // declared up here so the key handler can set it
 const keys = {};
 addEventListener("keydown", e => {
   keys[e.code] = true;
-  if (e.code === "Space") e.preventDefault();
+  if (e.code === "Space") {
+    e.preventDefault();
+    // Latch it, the same as the touch jump button. A quick tap can start
+    // AND finish between two frames, and then the loop only ever sees
+    // "not pressed" - so you'd press jump and simply not jump.
+    jumpPressed = true;
+  }
 });
 addEventListener("keyup", e => { keys[e.code] = false; });
 
@@ -866,7 +878,6 @@ const stickLook = makeStick("stick-look");
    ever sees "not pressed" and you never fire. */
 let firePressed = false;
 let fireQueued  = false;
-let jumpPressed = false;
 
 const fireBtn = document.getElementById("btn-fire");
 const jumpBtn = document.getElementById("btn-jump");
@@ -1093,6 +1104,12 @@ function updatePlayer(dt) {
   fireQueued = false;
 }
 
+function startGrudge(robot, enemy) {
+  if (!enemy || enemy === robot || !enemy.alive) return;
+  robot.grudge = enemy;
+  robot.grudgeTimer = 6 + Math.random() * 8;
+}
+
 function updateRobots(dt) {
   for (const r of robots) {
     // ---- knocked out? come back shortly ----
@@ -1107,36 +1124,69 @@ function updateRobots(dt) {
       continue;
     }
 
-    const toPlayer = tmp.copy(player.pos).sub(r.pos);
-    toPlayer.y = 0;
-    const distance = toPlayer.length();
+    /* ---- ROBOTS FALLING OUT WITH EACH OTHER ----
+
+       Every so often a robot takes against ANOTHER robot instead of
+       you, and goes after them. It also happens by accident: if a
+       robot's stray shot clips another robot, the one that got hit
+       turns on whoever shot it. Stand back and watch it kick off. */
+    r.moodTimer -= dt;
+    if (r.moodTimer <= 0) {
+      r.moodTimer = 5 + Math.random() * 7;
+
+      // roughly a 1 in 4 chance of picking a fight with a neighbour
+      if (!r.grudge && Math.random() < 0.25) {
+        const others = robots.filter(o => o !== r && o.alive);
+        if (others.length) startGrudge(r, others[Math.floor(Math.random() * others.length)]);
+      }
+    }
+
+    // forget about it after a while, or if they're knocked out
+    if (r.grudge) {
+      r.grudgeTimer -= dt;
+      if (r.grudgeTimer <= 0 || !r.grudge.alive) r.grudge = null;
+    }
+
+    // who are we going for?
+    const fightingRobot = !!r.grudge;
+    const targetPos = fightingRobot ? r.grudge.pos : player.pos;
+
+    const toTarget = tmp.copy(targetPos).sub(r.pos);
+    toTarget.y = 0;
+    const distance = toTarget.length();
 
     let wantX = 0, wantZ = 0;
 
-    if (distance < 20 && !player.dead && peaceLeft <= 0) {
+    // Nobody fights during the countdown - not even each other. The
+    // screen says "robots wake up in 5", so shots whizzing past while
+    // you're still finding your feet makes a liar of it.
+    const canFight = peaceLeft <= 0 && (fightingRobot || !player.dead);
+
+    if (distance < 20 && canFight) {
       // chase, but stop and shoot once fairly close
-      toPlayer.normalize();
+      toTarget.normalize();
       const keepAway = distance < 6 ? -0.5 : 1;
-      wantX = toPlayer.x * keepAway;
-      wantZ = toPlayer.z * keepAway;
+      wantX = toTarget.x * keepAway;
+      wantZ = toTarget.z * keepAway;
 
-      // face the player
-      r.group.rotation.y = Math.atan2(toPlayer.x, toPlayer.z);
+      // face whoever we're after
+      r.group.rotation.y = Math.atan2(toTarget.x, toTarget.z);
 
-      // ---- shoot at you ----
+      // ---- shoot ----
       r.cooldown -= dt;
       if (r.cooldown <= 0 && distance < 17) {
         r.cooldown = 1.3 + Math.random() * 1.2;
 
         const from = new THREE.Vector3(r.pos.x, 1.5, r.pos.z);
-        const at = new THREE.Vector3().copy(player.pos).sub(from);
+        const at = new THREE.Vector3(targetPos.x, fightingRobot ? 1.4 : targetPos.y,
+                                     targetPos.z).sub(from);
 
         // robots aren't perfect shots, or the game would be impossible
         at.x += (Math.random() - 0.5) * 1.6;
         at.y += (Math.random() - 0.5) * 1.0;
         at.z += (Math.random() - 0.5) * 1.6;
 
-        shoot(from, at, false);
+        shoot(from, at, false, r);
       }
     } else {
       // ---- nobody about: wander ----
@@ -1241,7 +1291,41 @@ function updateBolts(dt) {
         }
         continue;
       }
-    } else if (!player.dead && !b.visual) {
+    } else if (!b.visual) {
+      /* ---- a robot's shot ---- */
+
+      // Did it hit a DIFFERENT robot? A robot can't shoot itself.
+      let struck = null;
+      for (const r of robots) {
+        if (!r.alive || r === b.owner) continue;
+        const dx = p.x - r.pos.x, dz = p.z - r.pos.z;
+        if (Math.abs(dx) < 0.55 && Math.abs(dz) < 0.5 && p.y > 0 && p.y < 2.0) {
+          struck = r; break;
+        }
+      }
+
+      if (struck) {
+        struck.health -= ROBOT_DAMAGE * 2;   // they hurt each other properly
+        sparkle(p, 0xff9f43);
+        removeBolt(i);
+
+        // "Oi! That was YOU!" - turn on whoever shot you
+        if (b.owner && b.owner.alive) startGrudge(struck, b.owner);
+
+        if (struck.health <= 0) {
+          struck.alive = false;
+          struck.respawnIn = 3;
+          struck.group.visible = false;
+          struck.grudge = null;
+          sparkle(new THREE.Vector3(struck.pos.x, 1, struck.pos.z), 0xffffff);
+          // no point for you - you didn't do it!
+          say("The robots are fighting each other! 🤖💥", 1.6);
+        }
+        continue;
+      }
+
+      if (player.dead) continue;
+
       // did it hit you?
       // (visual bolts are just your friend's shots being drawn on your
       //  screen - their computer decides whether they hit, not ours)
