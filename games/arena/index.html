@@ -188,6 +188,14 @@
     background: rgba(160,107,255,0.25);
     border-color: #a06bff;
   }
+  #btn-build {
+    left: max(100px, calc(env(safe-area-inset-left) + 100px));
+    bottom: max(212px, calc(env(safe-area-inset-bottom) + 186px));
+    width: 62px; height: 62px;
+    font-size: 1.2rem;
+    background: rgba(107,203,255,0.25);
+    border-color: #6bcbff;
+  }
   .tbtn:active { transform: scale(0.92); }
 
   /* On a narrow phone - especially held upright - the default sizes
@@ -215,6 +223,12 @@
       left: max(28px, calc(env(safe-area-inset-left) + 28px));
       bottom: max(142px, calc(env(safe-area-inset-bottom) + 120px));
       width: 56px; height: 56px;
+      font-size: 1rem;
+    }
+    #btn-build {
+      left: max(35px, calc(env(safe-area-inset-left) + 35px));
+      bottom: max(222px, calc(env(safe-area-inset-bottom) + 200px));
+      width: 54px; height: 54px;
       font-size: 1rem;
     }
   }
@@ -284,6 +298,41 @@
   [hidden] { display: none !important; }
 
   #menu { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+
+  /* ---------- skin maker ---------- */
+  #skinmaker {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  #preview {
+    width: 150px; height: 198px;
+    border-radius: 14px;
+    background: rgba(0,0,0,0.35);
+    border: 2px solid rgba(255,255,255,0.2);
+  }
+  #swatches { display: flex; flex-direction: column; gap: 8px; }
+  .swrow { display: flex; align-items: center; gap: 8px; }
+  .swlabel {
+    width: 62px; text-align: right;
+    font-size: 0.78rem; color: #c9c2ff;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .sw {
+    width: 26px; height: 26px;
+    border-radius: 7px;
+    border: 2px solid rgba(255,255,255,0.3);
+    cursor: pointer;
+    padding: 0;
+  }
+  .sw.picked {
+    border-color: #fff;
+    transform: scale(1.18);
+    box-shadow: 0 0 10px rgba(255,255,255,0.6);
+  }
 
   .namerow { display: flex; align-items: center; gap: 10px; margin: 14px 0 4px; }
   #nickname {
@@ -427,6 +476,7 @@
   <button class="tbtn" id="btn-fire">💥</button>
   <button class="tbtn" id="btn-jump">⬆</button>
   <button class="tbtn" id="btn-gun">🔫</button>
+  <button class="tbtn" id="btn-build">🧱</button>
 </div>
 
 <div id="start">
@@ -439,12 +489,19 @@
       mouse to look &nbsp;·&nbsp; <kbd>Space</kbd> to jump<br>
       Click to shoot &nbsp;·&nbsp; <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> to change gun
       (takes a moment!)<br>
+      <kbd>B</kbd> to build a block &mdash; hide behind it or climb it<br>
       <kbd>Esc</kbd> to free the mouse, then Leave
     </p>
     <p id="how-touch">
       Left stick to move &nbsp;·&nbsp; <strong>swipe the screen to look</strong><br>
-      💥 to shoot &nbsp;·&nbsp; ⬆ to jump &nbsp;·&nbsp; 🔫 to change gun
+      💥 to shoot &nbsp;·&nbsp; ⬆ to jump<br>
+      🔫 to change gun &nbsp;·&nbsp; 🧱 to build
     </p>
+    <div id="skinmaker">
+      <canvas id="preview" width="190" height="250"></canvas>
+      <div id="swatches"></div>
+    </div>
+
     <p class="namerow">
       <label for="nickname">Your name:</label>
       <input id="nickname" maxlength="12" autocomplete="off" spellcheck="false"
@@ -565,6 +622,10 @@ const camera = new THREE.PerspectiveCamera(
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
+
+// Name it. There's a second canvas on the page now (the little model in
+// the skin maker), so "the canvas" is no longer unambiguous.
+renderer.domElement.id = "game";
 document.body.appendChild(renderer.domElement);
 
 window.addEventListener("resize", () => {
@@ -891,6 +952,103 @@ function collide(pos, radius, height) {
   return landed;
 }
 
+/* =====================================================================
+   BUILDING
+
+   Press the build key and a block appears a few steps in front of you,
+   snapped to a grid so they stack neatly. Blocks are properly solid -
+   you can hide behind them, climb them, and stand on top.
+
+   They aren't permanent though: a few shots knock one down, yours or
+   anybody else's. So a wall buys you time, not safety.
+   ===================================================================== */
+
+const BLOCK = 2;             // how big each block is
+const BUILD_REACH = 4.5;     // how far in front of you it lands
+const BLOCK_HEALTH = 3;      // shots to knock one down
+const MAX_BLOCKS = 40;       // oldest one vanishes past this
+
+const blocks = [];
+
+// snap a number to the middle of a grid square
+function snap(v) { return Math.round(v / BLOCK) * BLOCK; }
+
+function blockAt(x, y, z) {
+  return blocks.find(b => b.x === x && b.y === y && b.z === z);
+}
+
+function addBlock(x, y, z, mine) {
+  if (blockAt(x, y, z)) return null;
+  if (Math.abs(x) > ARENA - 1 || Math.abs(z) > ARENA - 1) return null;
+
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(BLOCK * 0.98, BLOCK * 0.98, BLOCK * 0.98),
+    new THREE.MeshLambertMaterial({ color: mine ? 0x6bcbff : 0xc9a227 })
+  );
+  mesh.position.set(x, y, z);
+  scene.add(mesh);
+
+  const solid = {
+    minX: x - BLOCK / 2, maxX: x + BLOCK / 2,
+    minY: y - BLOCK / 2, maxY: y + BLOCK / 2,
+    minZ: z - BLOCK / 2, maxZ: z + BLOCK / 2,
+    mesh: mesh
+  };
+  solids.push(solid);
+
+  const block = { x, y, z, mesh, solid, health: BLOCK_HEALTH };
+  blocks.push(block);
+
+  // don't let the arena fill up forever
+  if (blocks.length > MAX_BLOCKS) removeBlock(blocks[0]);
+  return block;
+}
+
+function removeBlock(block) {
+  if (!block) return;
+  scene.remove(block.mesh);
+  block.mesh.geometry.dispose();
+  block.mesh.material.dispose();
+
+  const bi = blocks.indexOf(block);
+  if (bi >= 0) blocks.splice(bi, 1);
+
+  // IMPORTANT: take it out of `solids` too, or you'd still bump into a
+  // block that isn't there any more
+  const si = solids.indexOf(block.solid);
+  if (si >= 0) solids.splice(si, 1);
+}
+
+/* Work out where a new block should go: a few steps ahead of you,
+   snapped to the grid, and stacked on top of anything already there. */
+function buildSpot() {
+  const dir = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+  const x = snap(player.pos.x + dir.x * BUILD_REACH);
+  const z = snap(player.pos.z + dir.z * BUILD_REACH);
+
+  for (let level = 0; level < 5; level++) {
+    const y = BLOCK / 2 + level * BLOCK;
+    if (!blockAt(x, y, z)) return { x, y, z };
+  }
+  return null;                       // stacked as high as we allow
+}
+
+function tryBuild() {
+  if (!playing) return false;
+  const spot = buildSpot();
+  if (!spot) return false;
+
+  // never wall yourself inside a block
+  const dx = Math.abs(spot.x - player.pos.x);
+  const dz = Math.abs(spot.z - player.pos.z);
+  if (dx < BLOCK / 2 + PLAYER_RADIUS && dz < BLOCK / 2 + PLAYER_RADIUS &&
+      Math.abs(spot.y - (player.pos.y - PLAYER_HEIGHT / 2)) < BLOCK) return false;
+
+  const made = addBlock(spot.x, spot.y, spot.z, true);
+  if (made) netSend({ t: "build", x: spot.x, y: spot.y, z: spot.z });
+  return !!made;
+}
+
 // ---------------------------------------------------------------
 // ROBOTS - the ones you're fighting
 // ---------------------------------------------------------------
@@ -1192,6 +1350,7 @@ addEventListener("keydown", e => {
   if (e.code === "Digit2") requestWeapon(1);
   if (e.code === "Digit3") requestWeapon(2);
   if (e.code === "KeyQ")   requestWeapon(currentWeapon + 1);
+  if (e.code === "KeyB" || e.code === "KeyE") { e.preventDefault(); tryBuild(); }
 });
 
 let pointerLocked = false;
@@ -1335,6 +1494,11 @@ document.getElementById("btn-gun").addEventListener("pointerdown", e => {
   requestWeapon(currentWeapon + 1);
 });
 
+document.getElementById("btn-build").addEventListener("pointerdown", e => {
+  e.preventDefault();
+  tryBuild();
+});
+
 addEventListener("mousedown", () => {
   if (pointerLocked) { firePressed = true; fireQueued = true; }
 });
@@ -1436,6 +1600,12 @@ function tick() {
   camera.rotateX(player.pitch);
 
   renderer.render(scene, camera);
+
+  // the little model on the start screen turns slowly
+  if (!playing && previewModel) {
+    previewModel.rotation.y += dt * 0.9;
+    previewRenderer.render(previewScene, previewCamera);
+  }
 }
 
 function updatePeace(dt) {
@@ -1727,6 +1897,26 @@ function updateBolts(dt) {
     if (p.y < 0 || Math.abs(p.x) > ARENA || Math.abs(p.z) > ARENA) hitWall = true;
 
     if (hitWall) {
+      // was it one of OUR blocks? they can be knocked down
+      const hitBlock = blocks.find(bl =>
+        p.x > bl.solid.minX && p.x < bl.solid.maxX &&
+        p.y > bl.solid.minY && p.y < bl.solid.maxY &&
+        p.z > bl.solid.minZ && p.z < bl.solid.maxZ);
+
+      if (hitBlock) {
+        hitBlock.health--;
+        if (hitBlock.health <= 0) {
+          sparkle(new THREE.Vector3(hitBlock.x, hitBlock.y, hitBlock.z), 0x6bcbff);
+          if (b.fromPlayer) netSend({ t: "unbuild", x: hitBlock.x,
+                                      y: hitBlock.y, z: hitBlock.z });
+          removeBlock(hitBlock);
+        } else {
+          // show the damage by fading it
+          hitBlock.mesh.material.opacity = hitBlock.health / BLOCK_HEALTH;
+          hitBlock.mesh.material.transparent = true;
+        }
+      }
+
       sparkle(p, b.fromPlayer ? 0xffe680 : 0xff5b5b);
       removeBolt(i);
       continue;
@@ -1874,6 +2064,114 @@ function updateSparks(dt) {
    not just two.
    ===================================================================== */
 
+/* =====================================================================
+   THE SKIN MAKER
+
+   Pick your colours before you go in, and see them on a little spinning
+   model. Your choices are saved, and your friends see them on you.
+   ===================================================================== */
+
+const LOOK_KEY = "ollie-star-arena-look";
+
+const PALETTES = {
+  shirt:    [0xff6b6b, 0x6bcbff, 0xa06bff, 0xffd93d, 0xff8fd9, 0x4ade80,
+             0xff9f43, 0xffffff, 0x2b2b45],
+  skin:     [0xffd1a3, 0xf0c8a0, 0xd9a066, 0xa9713e, 0x7a4b24, 0xb8c4d4],
+  hair:     [0x3a2a1c, 0x1a1a1a, 0xc9a227, 0xa03c1e, 0xffffff, 0x6bcbff],
+  trousers: [0x2f3350, 0x3b5bdb, 0x1e2033, 0x6b4a2f, 0x4a4e55, 0x7a2f4a]
+};
+
+const DEFAULT_LOOK = { shirt: 0x6bcbff, skin: 0xf0c8a0,
+                       hair: 0x3a2a1c, trousers: 0x2f3350 };
+
+let myLook = Object.assign({}, DEFAULT_LOOK);
+
+function cleanLook(raw) {
+  const out = Object.assign({}, DEFAULT_LOOK);
+  if (!raw || typeof raw !== "object") return out;
+
+  // Only accept colours that are actually IN our palettes. A saved file
+  // could say anything, and a friend's computer certainly could.
+  for (const part of Object.keys(PALETTES)) {
+    const value = Number(raw[part]);
+    if (PALETTES[part].includes(value)) out[part] = value;
+  }
+  return out;
+}
+
+try {
+  myLook = cleanLook(JSON.parse(localStorage.getItem(LOOK_KEY)));
+} catch (e) { /* no saved look - use the default */ }
+
+function saveLook() {
+  try { localStorage.setItem(LOOK_KEY, JSON.stringify(myLook)); } catch (e) {}
+}
+
+// ---- the little spinning model ----
+const previewCanvas = document.getElementById("preview");
+const previewRenderer = new THREE.WebGLRenderer({ canvas: previewCanvas,
+                                                  antialias: true, alpha: true });
+previewRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+const previewScene = new THREE.Scene();
+previewScene.add(new THREE.HemisphereLight(0xaab4ff, 0x2a1a44, 1.1));
+const previewSun = new THREE.DirectionalLight(0xfff3d6, 1.0);
+previewSun.position.set(3, 6, 4);
+previewScene.add(previewSun);
+
+const previewCamera = new THREE.PerspectiveCamera(
+  32, previewCanvas.width / previewCanvas.height, 0.1, 40);
+previewCamera.position.set(0, 1.2, 5.2);
+previewCamera.lookAt(0, 1.05, 0);
+
+let previewModel = null;
+
+function rebuildPreview() {
+  if (previewModel) previewScene.remove(previewModel);
+  previewModel = buildCharacter({
+    shirt: myLook.shirt, skin: myLook.skin,
+    hair: myLook.hair, trousers: myLook.trousers
+  }).group;
+  previewScene.add(previewModel);
+}
+
+function buildSwatches() {
+  const holder = document.getElementById("swatches");
+  const labels = { shirt: "Shirt", skin: "Skin", hair: "Hair", trousers: "Legs" };
+
+  for (const part of Object.keys(PALETTES)) {
+    const row = document.createElement("div");
+    row.className = "swrow";
+
+    const label = document.createElement("span");
+    label.className = "swlabel";
+    label.textContent = labels[part];
+    row.appendChild(label);
+
+    PALETTES[part].forEach(colour => {
+      const dot = document.createElement("button");
+      dot.className = "sw";
+      dot.type = "button";
+      dot.style.background = "#" + colour.toString(16).padStart(6, "0");
+      dot.title = labels[part];
+      dot.dataset.part = part;
+      dot.dataset.colour = colour;
+      if (myLook[part] === colour) dot.classList.add("picked");
+
+      dot.addEventListener("click", () => {
+        myLook[part] = colour;
+        saveLook();
+        rebuildPreview();
+        holder.querySelectorAll('.sw[data-part="' + part + '"]')
+              .forEach(o => o.classList.toggle("picked", +o.dataset.colour === colour));
+      });
+      row.appendChild(dot);
+    });
+    holder.appendChild(row);
+  }
+}
+
+
 const ROOM_PREFIX = "ollie-star-arena-v1-";
 const NAME_KEY    = "ollie-star-arena-name";
 
@@ -1965,7 +2263,7 @@ function netReceive(msg) {
 
   if (msg.t === "hello" || (!other && msg.t === "state")) {
     if (!other) {
-      other = addOtherPlayer(msg.from, msg.colour, msg.name);
+      other = addOtherPlayer(msg.from, msg.colour, msg.name, msg.look);
       say(other.name + " joined! 👋", 2);
     }
   }
@@ -2017,6 +2315,25 @@ function netReceive(msg) {
       }
       break;
 
+    case "build":
+      addBlock(msg.x, msg.y, msg.z, false);
+      break;
+
+    case "unbuild":
+      removeBlock(blockAt(msg.x, msg.y, msg.z));
+      break;
+
+    case "world":
+      // a full copy of what's already built, sent when you join
+      if (Array.isArray(msg.blocks)) {
+        for (const bl of msg.blocks.slice(0, MAX_BLOCKS)) {
+          if (Number.isFinite(bl.x) && Number.isFinite(bl.y) && Number.isFinite(bl.z)) {
+            addBlock(bl.x, bl.y, bl.z, false);
+          }
+        }
+      }
+      break;
+
     case "bye":
       net.left.add(msg.from);
       removeOtherPlayer(msg.from);
@@ -2025,17 +2342,19 @@ function netReceive(msg) {
   }
 }
 
-function addOtherPlayer(id, colour, name) {
-  colour = colour || PLAYER_COLOURS[net.others.size % PLAYER_COLOURS.length];
+function addOtherPlayer(id, colour, name, look) {
+  // their chosen look, but only colours from our own palettes
+  const theirLook = cleanLook(look);
+  colour = colour || theirLook.shirt;
   name = cleanNickname(name) || "Friend";
 
   const built = buildCharacter({
-    shirt: colour,
-    skin: 0xf0c8a0,
-    trousers: 0x2f3350,
-    hair: 0x3a2a1c,
+    shirt: theirLook.shirt,
+    skin: theirLook.skin,
+    trousers: theirLook.trousers,
+    hair: theirLook.hair,
     name: name,
-    tagColour: "#" + colour.toString(16).padStart(6, "0")
+    tagColour: "#" + theirLook.shirt.toString(16).padStart(6, "0")
   });
   const group = built.group;
 
@@ -2184,7 +2503,9 @@ document.getElementById("btn-host").addEventListener("click", () => {
     net.conns.push(conn);
     conn.on("open", () => {
       status.textContent = "Your friend is here! 🎉";
-      conn.send({ t: "hello", from: net.me, name: myName(), colour: 0xffd93d });
+      conn.send({ t: "hello", from: net.me, name: myName(), look: myLook });
+      conn.send({ t: "world", from: net.me,
+                  blocks: blocks.map(bl => ({ x: bl.x, y: bl.y, z: bl.z })) });
     });
     conn.on("data", netReceive);
     conn.on("close", () => {
@@ -2224,8 +2545,7 @@ document.getElementById("btn-connect").addEventListener("click", () => {
     conn.on("open", () => {
       net.mode = "guest";
       status.textContent = "Connected! 🎉";
-      conn.send({ t: "hello", from: net.me, name: myName(),
-                  colour: PLAYER_COLOURS[1] });
+      conn.send({ t: "hello", from: net.me, name: myName(), look: myLook });
       beginGame();
     });
     conn.on("data", netReceive);
@@ -2251,6 +2571,8 @@ window.__testNet = function (role, myId) {
   beginGame();
 };
 
+buildSwatches();
+rebuildPreview();
 showWeapon(0);
 updateHud();
 tick();
