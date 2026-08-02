@@ -1,0 +1,1060 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Star Arena</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: #0b1020;
+    font-family: "Trebuchet MS", Verdana, sans-serif;
+    color: #fff;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    overscroll-behavior: none;
+  }
+
+  canvas { display: block; }
+
+  /* ---------------- HUD ---------------- */
+  #hud {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  #crosshair {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 26px; height: 26px;
+    margin: -13px 0 0 -13px;
+    opacity: 0.85;
+  }
+  #crosshair::before, #crosshair::after {
+    content: "";
+    position: absolute;
+    background: #fff;
+    box-shadow: 0 0 4px #000;
+  }
+  #crosshair::before { left: 50%; top: 0; width: 2px; height: 100%; margin-left: -1px; }
+  #crosshair::after  { top: 50%; left: 0; height: 2px; width: 100%; margin-top: -1px; }
+
+  .topleft {
+    position: absolute;
+    top: max(12px, env(safe-area-inset-top));
+    left: max(12px, env(safe-area-inset-left));
+  }
+  .topright {
+    position: absolute;
+    top: max(12px, env(safe-area-inset-top));
+    right: max(12px, env(safe-area-inset-right));
+    text-align: right;
+  }
+
+  .bar {
+    width: 190px;
+    height: 20px;
+    background: rgba(0,0,0,0.5);
+    border: 2px solid rgba(255,255,255,0.35);
+    border-radius: 11px;
+    overflow: hidden;
+  }
+  #health-fill {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, #4ade80, #a3e635);
+    transition: width 0.15s ease-out;
+  }
+  .label {
+    font-size: 0.75rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #b9b3e6;
+    margin-bottom: 4px;
+    text-shadow: 0 2px 4px #000;
+  }
+  .big {
+    font-size: 1.9rem;
+    font-weight: bold;
+    text-shadow: 0 3px 8px #000;
+    line-height: 1;
+  }
+  .gold { color: #ffd93d; }
+
+  #hitflash {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle, transparent 45%, rgba(255,40,40,0.55) 100%);
+    opacity: 0;
+    transition: opacity 0.25s;
+  }
+
+  #message {
+    position: absolute;
+    left: 50%; top: 42%;
+    transform: translate(-50%,-50%);
+    font-size: clamp(1.4rem, 6vw, 2.4rem);
+    font-weight: bold;
+    text-align: center;
+    text-shadow: 0 4px 12px #000;
+    opacity: 0;
+    transition: opacity 0.3s;
+    white-space: nowrap;
+  }
+
+  /* ---------------- touch controls ---------------- */
+  #touch { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+  #touch.on { pointer-events: none; }
+
+  .stick {
+    position: absolute;
+    bottom: max(26px, env(safe-area-inset-bottom));
+    width: 128px; height: 128px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.09);
+    border: 2px solid rgba(255,255,255,0.28);
+    pointer-events: auto;
+    touch-action: none;
+  }
+  #stick-move { left: max(20px, env(safe-area-inset-left)); }
+  #stick-look { right: max(20px, env(safe-area-inset-right)); }
+
+  .knob {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 56px; height: 56px;
+    margin: -28px 0 0 -28px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.55);
+    border: 2px solid rgba(255,255,255,0.8);
+    pointer-events: none;
+  }
+
+  .tbtn {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(255,217,61,0.22);
+    border: 3px solid #ffd93d;
+    color: #fff;
+    font-family: inherit;
+    font-weight: bold;
+    pointer-events: auto;
+    touch-action: none;
+    display: grid;
+    place-items: center;
+  }
+  #btn-fire {
+    right: max(168px, calc(env(safe-area-inset-right) + 168px));
+    bottom: max(96px, calc(env(safe-area-inset-bottom) + 70px));
+    width: 84px; height: 84px;
+    font-size: 1.6rem;
+  }
+  #btn-jump {
+    right: max(24px, env(safe-area-inset-right));
+    bottom: max(170px, calc(env(safe-area-inset-bottom) + 144px));
+    width: 66px; height: 66px;
+    font-size: 1.2rem;
+    background: rgba(107,203,255,0.22);
+    border-color: #6bcbff;
+  }
+  .tbtn:active { transform: scale(0.92); }
+
+  /* On a narrow phone - especially held upright - the default sizes
+     put the fire button right on top of the move stick. Shrink
+     everything and pull the buttons in. */
+  @media (max-width: 480px) {
+    .stick { width: 104px; height: 104px; }
+    .knob  { width: 46px; height: 46px; margin: -23px 0 0 -23px; }
+    /* Stack the buttons ABOVE the look stick instead of beside it.
+       Squeezing them in sideways left only a couple of pixels of gap,
+       which is asking for a mis-tap. */
+    #btn-fire {
+      right: max(26px, calc(env(safe-area-inset-right) + 26px));
+      bottom: max(142px, calc(env(safe-area-inset-bottom) + 120px));
+      width: 72px; height: 72px;
+      font-size: 1.35rem;
+    }
+    #btn-jump {
+      right: max(33px, calc(env(safe-area-inset-right) + 33px));
+      bottom: max(224px, calc(env(safe-area-inset-bottom) + 202px));
+      width: 58px; height: 58px;
+      font-size: 1rem;
+    }
+  }
+
+  /* ---------------- start screen ---------------- */
+  #start {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    background: rgba(11,16,32,0.94);
+    display: grid;
+    place-items: center;
+    text-align: center;
+    padding: 20px;
+  }
+  #start h1 {
+    font-size: clamp(2rem, 9vw, 3.4rem);
+    background: linear-gradient(90deg, #ffd93d, #ff6b6b, #6bcbff, #ffd93d);
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: rainbow 7s linear infinite;
+    margin-bottom: 10px;
+  }
+  @keyframes rainbow { to { background-position: 300% 0; } }
+
+  #start p { color: #c9c2ff; line-height: 1.6; margin-bottom: 6px; font-size: 0.98rem; }
+  kbd {
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 5px;
+    padding: 1px 6px;
+    font-family: inherit;
+    font-size: 0.85em;
+  }
+  #play {
+    margin-top: 20px;
+    font-family: inherit;
+    font-size: 1.25rem;
+    font-weight: bold;
+    color: #0b1020;
+    background: #ffd93d;
+    border: none;
+    border-radius: 14px;
+    padding: 15px 38px;
+    cursor: pointer;
+  }
+  #play:active { transform: scale(0.96); }
+  #home {
+    position: fixed;
+    top: max(12px, env(safe-area-inset-top));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 21;
+    color: #ffd93d;
+    font-size: 0.85rem;
+    font-weight: bold;
+    text-decoration: none;
+    background: rgba(0,0,0,0.45);
+    border: 2px solid rgba(255,255,255,0.25);
+    border-radius: 10px;
+    padding: 6px 12px;
+  }
+</style>
+</head>
+<body>
+
+<a id="home" href="../../index.html">← Home</a>
+
+<div id="hud">
+  <div id="crosshair"></div>
+  <div id="hitflash"></div>
+
+  <div class="topleft">
+    <div class="label">Health</div>
+    <div class="bar"><div id="health-fill"></div></div>
+  </div>
+
+  <div class="topright">
+    <div class="label">Score</div>
+    <div class="big gold" id="score">0</div>
+  </div>
+
+  <div id="message"></div>
+</div>
+
+<div id="touch">
+  <div class="stick" id="stick-move"><div class="knob"></div></div>
+  <div class="stick" id="stick-look"><div class="knob"></div></div>
+  <button class="tbtn" id="btn-fire">💥</button>
+  <button class="tbtn" id="btn-jump">⬆</button>
+</div>
+
+<div id="start">
+  <div>
+    <h1>Star Arena</h1>
+    <p><strong>Beat the robots!</strong> Three hits knocks one out.</p>
+    <p id="how-desktop">
+      <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to move &nbsp;·&nbsp;
+      mouse to look &nbsp;·&nbsp; <kbd>Space</kbd> to jump<br>
+      Click to shoot &nbsp;·&nbsp; <kbd>Esc</kbd> to stop
+    </p>
+    <p id="how-touch">
+      Left stick to move &nbsp;·&nbsp; right stick to look<br>
+      💥 to shoot &nbsp;·&nbsp; ⬆ to jump
+    </p>
+    <button id="play">PLAY</button>
+  </div>
+</div>
+
+<script src="three.min.js"></script>
+<script>
+/* =====================================================================
+   STAR ARENA - a first person 3D game
+
+   3D is just 2D with one more number. Every position is x, y, z:
+     x = left and right
+     y = up and down
+     z = forwards and backwards
+
+   The camera IS the player's eyes. Moving the camera is moving you.
+   ===================================================================== */
+
+const HAS_TOUCH = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+
+// ---- settings you can fiddle with ----
+const PLAYER_HEIGHT = 1.7;    // how tall you are, in metres
+const MOVE_SPEED    = 6.5;    // metres per second
+const JUMP_SPEED    = 7.0;
+const GRAVITY       = 20.0;
+const PLAYER_RADIUS = 0.4;
+
+const BOLT_SPEED    = 34;
+const BOLT_LIFE     = 2.2;    // seconds before it fizzles out
+const PLAYER_DAMAGE = 34;     // 3 hits to beat a robot
+const ROBOT_DAMAGE  = 9;
+const FIRE_DELAY    = 0.22;   // seconds between your shots
+
+const ARENA = 22;             // half-width of the floor
+const ROBOT_COUNT = 4;
+
+// ---------------------------------------------------------------
+// SCENE, CAMERA, RENDERER - the three things every 3D program needs
+// ---------------------------------------------------------------
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b1020);
+scene.fog = new THREE.Fog(0x0b1020, 26, 62);
+
+const camera = new THREE.PerspectiveCamera(
+  75,                                   // how wide your view is
+  window.innerWidth / window.innerHeight,
+  0.1,                                  // nearest thing you can see
+  200                                   // furthest
+);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ---------------------------------------------------------------
+// LIGHTS - without these everything is pitch black
+// ---------------------------------------------------------------
+scene.add(new THREE.HemisphereLight(0x9aa8ff, 0x2a1a44, 1.0));
+const sun = new THREE.DirectionalLight(0xfff3d6, 1.05);
+sun.position.set(12, 24, 8);
+scene.add(sun);
+
+// ---------------------------------------------------------------
+// THE ARENA
+//
+// Every wall and crate goes in `solids` as a box. That's the list we
+// check against when something tries to move through a wall.
+// ---------------------------------------------------------------
+const solids = [];
+
+function addBox(x, y, z, w, h, d, colour) {
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(w, h, d),
+    new THREE.MeshLambertMaterial({ color: colour })
+  );
+  mesh.position.set(x, y, z);
+  scene.add(mesh);
+
+  solids.push({
+    minX: x - w/2, maxX: x + w/2,
+    minY: y - h/2, maxY: y + h/2,
+    minZ: z - d/2, maxZ: z + d/2,
+    mesh: mesh
+  });
+  return mesh;
+}
+
+// floor
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(ARENA * 2, ARENA * 2),
+  new THREE.MeshLambertMaterial({ color: 0x2a2350 })
+);
+floor.rotation.x = -Math.PI / 2;
+scene.add(floor);
+
+// a grid so you can tell you're actually moving
+const grid = new THREE.GridHelper(ARENA * 2, 22, 0x6b5bd6, 0x3d3475);
+grid.position.y = 0.02;
+scene.add(grid);
+
+// four walls
+const WALL_H = 6;
+addBox(0,  WALL_H/2, -ARENA, ARENA*2, WALL_H, 1, 0x3b2f7a);
+addBox(0,  WALL_H/2,  ARENA, ARENA*2, WALL_H, 1, 0x3b2f7a);
+addBox(-ARENA, WALL_H/2, 0, 1, WALL_H, ARENA*2, 0x342a6b);
+addBox( ARENA, WALL_H/2, 0, 1, WALL_H, ARENA*2, 0x342a6b);
+
+// crates and pillars to hide behind
+[
+  [ -8,  1.5,  -6,  3, 3, 3, 0xc98a5b],
+  [  9,  1.5,  -9,  3, 3, 3, 0xc98a5b],
+  [ -11, 2.5,   7,  3, 5, 3, 0x4a4e8a],
+  [  12, 2.5,   6,  3, 5, 3, 0x4a4e8a],
+  [   0, 1.0,   0,  6, 2, 6, 0x3fa34d],
+  [  -4, 1.5,  13,  4, 3, 2, 0xc98a5b],
+  [   5, 1.5, -15,  4, 3, 2, 0xc98a5b],
+  [  15, 1.5,  15,  3, 3, 3, 0x4a4e8a],
+  [ -15, 1.5, -15,  3, 3, 3, 0x4a4e8a],
+].forEach(b => addBox(b[0], b[1], b[2], b[3], b[4], b[5], b[6]));
+
+// a few stars floating above, because it's Star Arena
+for (let i = 0; i < 60; i++) {
+  const s = new THREE.Mesh(
+    new THREE.SphereGeometry(0.12, 6, 6),
+    new THREE.MeshBasicMaterial({ color: 0xffe680 })
+  );
+  s.position.set((Math.random()-0.5)*ARENA*2,
+                 8 + Math.random()*14,
+                 (Math.random()-0.5)*ARENA*2);
+  scene.add(s);
+}
+
+// ---------------------------------------------------------------
+// THE PLAYER
+// ---------------------------------------------------------------
+const player = {
+  pos: new THREE.Vector3(0, PLAYER_HEIGHT, 16),
+  vel: new THREE.Vector3(),
+  // yaw 0 looks down -z, which from the spawn point means facing into
+  // the arena. Facing the other way just shows you a blank wall!
+  yaw: 0,
+  pitch: 0,            // up/down
+  onGround: false,
+  health: 100,
+  fireCooldown: 0,
+  score: 0,
+  dead: false,
+  respawnIn: 0,
+  safeFor: 0        // brief shield after respawning
+};
+
+// ---------------------------------------------------------------
+// COLLISION
+//
+// You're treated as a box. For each solid we check whether the boxes
+// overlap, then push you out along whichever side you're least deep
+// into - that's the side you came in from.
+// ---------------------------------------------------------------
+function collide(pos, radius, height) {
+  let landed = false;
+
+  for (const s of solids) {
+    const minX = pos.x - radius, maxX = pos.x + radius;
+    const minY = pos.y - height, maxY = pos.y;
+    const minZ = pos.z - radius, maxZ = pos.z + radius;
+
+    if (maxX <= s.minX || minX >= s.maxX) continue;
+    if (maxY <= s.minY || minY >= s.maxY) continue;
+    if (maxZ <= s.minZ || minZ >= s.maxZ) continue;
+
+    // how far we'd have to move each way to get out
+    const outLeft  = s.minX - maxX, outRight = s.maxX - minX;
+    const outDown  = s.minY - maxY, outUp    = s.maxY - minY;
+    const outBack  = s.minZ - maxZ, outFwd   = s.maxZ - minZ;
+
+    const px = Math.abs(outLeft) < Math.abs(outRight) ? outLeft : outRight;
+    const py = Math.abs(outDown) < Math.abs(outUp)    ? outDown : outUp;
+    const pz = Math.abs(outBack) < Math.abs(outFwd)   ? outBack : outFwd;
+
+    // shove out along the shallowest one
+    if (Math.abs(px) <= Math.abs(py) && Math.abs(px) <= Math.abs(pz)) {
+      pos.x += px;
+    } else if (Math.abs(py) <= Math.abs(pz)) {
+      pos.y += py;
+      if (py > 0) landed = true;     // pushed upwards = standing on it
+    } else {
+      pos.z += pz;
+    }
+  }
+  return landed;
+}
+
+// ---------------------------------------------------------------
+// ROBOTS - the ones you're fighting
+// ---------------------------------------------------------------
+const ROBOT_COLOURS = [0xff6b6b, 0x6bcbff, 0xa06bff, 0xff9f43, 0xff8fd9];
+const robots = [];
+
+function makeRobot() {
+  const colour = ROBOT_COLOURS[Math.floor(Math.random() * ROBOT_COLOURS.length)];
+  const group = new THREE.Group();
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.1, 0.5),
+                              new THREE.MeshLambertMaterial({ color: colour }));
+  body.position.y = 0.75;
+  group.add(body);
+
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.5, 0.55),
+                              new THREE.MeshLambertMaterial({ color: 0xf0e6d2 }));
+  head.position.y = 1.58;
+  group.add(head);
+
+  // two little eyes so you can tell which way it's looking
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0x1a1a2e });
+  [-0.14, 0.14].forEach(dx => {
+    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.12, 0.06), eyeMat);
+    eye.position.set(dx, 1.62, 0.29);
+    group.add(eye);
+  });
+
+  // legs
+  [-0.22, 0.22].forEach(dx => {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.6, 0.24),
+                               new THREE.MeshLambertMaterial({ color: 0x2b2b45 }));
+    leg.position.set(dx, 0.3, 0);
+    group.add(leg);
+  });
+
+  scene.add(group);
+
+  const robot = {
+    group, body, head,
+    pos: new THREE.Vector3(),
+    vel: new THREE.Vector3(),
+    health: 100,
+    cooldown: Math.random() * 2,
+    wanderAngle: Math.random() * Math.PI * 2,
+    wanderTimer: 0,
+    alive: true,
+    respawnIn: 0
+  };
+  robots.push(robot);
+  placeRandomly(robot);
+  return robot;
+}
+
+function placeRandomly(robot) {
+  // keep trying until we find a spot that isn't inside a crate
+  for (let tries = 0; tries < 60; tries++) {
+    const x = (Math.random() - 0.5) * (ARENA * 2 - 6);
+    const z = (Math.random() - 0.5) * (ARENA * 2 - 6);
+    const test = new THREE.Vector3(x, 1.75, z);
+
+    const before = test.clone();
+    collide(test, 0.45, 1.75);
+    const clear = before.distanceTo(test) < 0.001;
+    const farFromPlayer = Math.hypot(x - player.pos.x, z - player.pos.z) > 8;
+
+    if (clear && farFromPlayer) {
+      robot.pos.set(x, 0, z);
+      robot.vel.set(0, 0, 0);
+      return;
+    }
+  }
+  robot.pos.set(0, 0, -14);   // give up and use a safe default
+}
+
+for (let i = 0; i < ROBOT_COUNT; i++) makeRobot();
+
+// ---------------------------------------------------------------
+// BOLTS - the glowing balls everyone shoots
+// ---------------------------------------------------------------
+const bolts = [];
+const boltGeo = new THREE.SphereGeometry(0.16, 8, 8);
+
+function shoot(from, dir, fromPlayer) {
+  const mesh = new THREE.Mesh(boltGeo, new THREE.MeshBasicMaterial({
+    color: fromPlayer ? 0xffe680 : 0xff5b5b
+  }));
+  mesh.position.copy(from);
+  scene.add(mesh);
+
+  bolts.push({ mesh, dir: dir.clone().normalize(), fromPlayer, life: BOLT_LIFE });
+}
+
+function removeBolt(i) {
+  scene.remove(bolts[i].mesh);
+  bolts[i].mesh.material.dispose();
+  bolts.splice(i, 1);
+}
+
+// a little burst of sparks when something gets hit
+const sparks = [];
+function sparkle(at, colour) {
+  for (let i = 0; i < 10; i++) {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.09, 5, 5),
+                             new THREE.MeshBasicMaterial({ color: colour }));
+    m.position.copy(at);
+    scene.add(m);
+    sparks.push({
+      mesh: m,
+      vel: new THREE.Vector3((Math.random()-0.5)*7, Math.random()*6, (Math.random()-0.5)*7),
+      life: 0.65
+    });
+  }
+}
+
+// ---------------------------------------------------------------
+// CONTROLS
+// ---------------------------------------------------------------
+const keys = {};
+addEventListener("keydown", e => {
+  keys[e.code] = true;
+  if (e.code === "Space") e.preventDefault();
+});
+addEventListener("keyup", e => { keys[e.code] = false; });
+
+let pointerLocked = false;
+const canvas = renderer.domElement;
+
+canvas.addEventListener("click", () => {
+  if (!playing) return;
+  if (!HAS_TOUCH && !pointerLocked) canvas.requestPointerLock();
+  else if (pointerLocked) { firePressed = true; fireQueued = true; }
+});
+
+document.addEventListener("pointerlockchange", () => {
+  pointerLocked = (document.pointerLockElement === canvas);
+});
+
+addEventListener("mousemove", e => {
+  if (!pointerLocked) return;
+  player.yaw   -= e.movementX * 0.0022;
+  player.pitch -= e.movementY * 0.0022;
+  clampPitch();
+});
+
+function clampPitch() {
+  const limit = Math.PI / 2 - 0.05;
+  player.pitch = Math.max(-limit, Math.min(limit, player.pitch));
+}
+
+// ---- on-screen joysticks ----
+function makeStick(id) {
+  const el = document.getElementById(id);
+  const knob = el.querySelector(".knob");
+  const out = { x: 0, y: 0 };
+  let activeId = null;
+
+  function move(e) {
+    const r = el.getBoundingClientRect();
+    let dx = e.clientX - (r.left + r.width / 2);
+    let dy = e.clientY - (r.top + r.height / 2);
+    const max = r.width / 2;
+    const len = Math.hypot(dx, dy);
+    if (len > max) { dx = dx / len * max; dy = dy / len * max; }
+    knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    out.x = dx / max;
+    out.y = dy / max;
+  }
+
+  function release(e) {
+    if (e.pointerId !== activeId) return;
+    activeId = null;
+    out.x = 0; out.y = 0;
+    knob.style.transform = "translate(-50%, -50%)";
+  }
+
+  el.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    activeId = e.pointerId;
+    el.setPointerCapture(e.pointerId);
+    move(e);
+  });
+  el.addEventListener("pointermove", e => {
+    if (e.pointerId === activeId) { e.preventDefault(); move(e); }
+  });
+  el.addEventListener("pointerup", release);
+  el.addEventListener("pointercancel", release);
+
+  return out;
+}
+
+const stickMove = makeStick("stick-move");
+const stickLook = makeStick("stick-look");
+
+/* Two separate things, and it matters:
+
+     firePressed - the button is being HELD right now (rapid fire)
+     fireQueued  - a tap happened at some point since the last frame
+
+   Without the queued one, a quick tap can be completely missed: if your
+   finger goes down AND up in the gap between two frames, the loop only
+   ever sees "not pressed" and you never fire. */
+let firePressed = false;
+let fireQueued  = false;
+let jumpPressed = false;
+
+const fireBtn = document.getElementById("btn-fire");
+const jumpBtn = document.getElementById("btn-jump");
+
+fireBtn.addEventListener("pointerdown", e => {
+  e.preventDefault(); firePressed = true; fireQueued = true;
+});
+fireBtn.addEventListener("pointerup",   e => { e.preventDefault(); firePressed = false; });
+fireBtn.addEventListener("pointerleave",()  => { firePressed = false; });
+jumpBtn.addEventListener("pointerdown", e => { e.preventDefault(); jumpPressed = true; });
+
+addEventListener("mousedown", () => {
+  if (pointerLocked) { firePressed = true; fireQueued = true; }
+});
+addEventListener("mouseup",   () => { firePressed = false; });
+
+// ---------------------------------------------------------------
+// HUD
+// ---------------------------------------------------------------
+const healthFill = document.getElementById("health-fill");
+const scoreEl    = document.getElementById("score");
+const hitFlash   = document.getElementById("hitflash");
+const messageEl  = document.getElementById("message");
+
+function updateHud() {
+  healthFill.style.width = Math.max(0, player.health) + "%";
+  healthFill.style.background = player.health > 50
+    ? "linear-gradient(90deg,#4ade80,#a3e635)"
+    : player.health > 25
+      ? "linear-gradient(90deg,#ffd93d,#ff9f43)"
+      : "linear-gradient(90deg,#ff5b5b,#ff8fa3)";
+  scoreEl.textContent = player.score;
+}
+
+let messageTimer = null;
+function say(text, seconds) {
+  messageEl.textContent = text;
+  messageEl.style.opacity = "1";
+  clearTimeout(messageTimer);
+  messageTimer = setTimeout(() => { messageEl.style.opacity = "0"; }, (seconds || 1.4) * 1000);
+}
+
+function flash() {
+  hitFlash.style.opacity = "1";
+  setTimeout(() => { hitFlash.style.opacity = "0"; }, 90);
+}
+
+// ---------------------------------------------------------------
+// START SCREEN
+// ---------------------------------------------------------------
+let playing = false;
+const startScreen = document.getElementById("start");
+const touchLayer  = document.getElementById("touch");
+
+document.getElementById("how-desktop").style.display = HAS_TOUCH ? "none" : "block";
+document.getElementById("how-touch").style.display   = HAS_TOUCH ? "block" : "none";
+touchLayer.style.display = HAS_TOUCH ? "block" : "none";
+
+document.getElementById("play").addEventListener("click", () => {
+  startScreen.style.display = "none";
+  document.getElementById("home").style.display = "none";
+  playing = true;
+  if (!HAS_TOUCH) canvas.requestPointerLock();
+});
+
+// ---------------------------------------------------------------
+// THE GAME LOOP
+// ---------------------------------------------------------------
+const forward = new THREE.Vector3();
+const right   = new THREE.Vector3();
+const tmp     = new THREE.Vector3();
+
+let last = performance.now();
+
+function tick() {
+  requestAnimationFrame(tick);
+
+  const now = performance.now();
+  // Cap the step. If you switch tabs for a minute, dt would be 60
+  // seconds and everything would teleport through the walls.
+  let dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+
+  if (playing) {
+    updatePlayer(dt);
+    updateRobots(dt);
+    updateBolts(dt);
+    updateSparks(dt);
+  }
+
+  // point the camera where the player is looking
+  camera.position.copy(player.pos);
+  camera.rotation.set(0, 0, 0);
+  camera.rotateY(player.yaw);
+  camera.rotateX(player.pitch);
+
+  renderer.render(scene, camera);
+}
+
+function updatePlayer(dt) {
+  // ---- dead? wait to come back ----
+  if (player.dead) {
+    player.respawnIn -= dt;
+    if (player.respawnIn <= 0) {
+      player.dead = false;
+      player.health = 100;
+      player.pos.set(0, PLAYER_HEIGHT, 16);
+      player.vel.set(0, 0, 0);
+      // A moment of shield, or a robot standing near the spawn point
+      // could knock you straight back out before you'd even moved.
+      player.safeFor = 1.6;
+      updateHud();
+      say("Go!", 0.9);
+    }
+    return;
+  }
+
+  if (player.safeFor > 0) player.safeFor -= dt;
+
+  // ---- looking around with the right stick ----
+  if (Math.abs(stickLook.x) > 0.08 || Math.abs(stickLook.y) > 0.08) {
+    player.yaw   -= stickLook.x * 2.6 * dt;
+    player.pitch -= stickLook.y * 2.0 * dt;
+    clampPitch();
+  }
+
+  // ---- which way is "forwards"? ----
+  forward.set(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+  right.set(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
+
+  let moveX = 0, moveZ = 0;
+  if (keys.KeyW || keys.ArrowUp)    moveZ += 1;
+  if (keys.KeyS || keys.ArrowDown)  moveZ -= 1;
+  if (keys.KeyD || keys.ArrowRight) moveX += 1;
+  if (keys.KeyA || keys.ArrowLeft)  moveX -= 1;
+
+  moveX += stickMove.x;
+  moveZ -= stickMove.y;          // stick y is positive downwards
+
+  const len = Math.hypot(moveX, moveZ);
+  if (len > 1) { moveX /= len; moveZ /= len; }   // no speed boost diagonally
+
+  player.vel.x = (forward.x * moveZ + right.x * moveX) * MOVE_SPEED;
+  player.vel.z = (forward.z * moveZ + right.z * moveX) * MOVE_SPEED;
+
+  // ---- jumping and falling ----
+  if ((keys.Space || jumpPressed) && player.onGround) {
+    player.vel.y = JUMP_SPEED;
+    player.onGround = false;
+  }
+  jumpPressed = false;
+
+  player.vel.y -= GRAVITY * dt;
+
+  player.pos.x += player.vel.x * dt;
+  player.pos.y += player.vel.y * dt;
+  player.pos.z += player.vel.z * dt;
+
+  // ---- floor and walls ----
+  if (player.pos.y - PLAYER_HEIGHT < 0) {
+    player.pos.y = PLAYER_HEIGHT;
+    player.vel.y = 0;
+    player.onGround = true;
+  }
+  if (collide(player.pos, PLAYER_RADIUS, PLAYER_HEIGHT)) {
+    player.vel.y = 0;
+    player.onGround = true;
+  }
+
+  // don't let anyone escape the arena
+  const edge = ARENA - 1.2;
+  player.pos.x = Math.max(-edge, Math.min(edge, player.pos.x));
+  player.pos.z = Math.max(-edge, Math.min(edge, player.pos.z));
+
+  // ---- shooting ----
+  player.fireCooldown -= dt;
+  if ((firePressed || fireQueued) && player.fireCooldown <= 0) {
+    fireQueued = false;
+    player.fireCooldown = FIRE_DELAY;
+
+    // fire from just below the eyes, in the exact direction you're facing
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    tmp.copy(player.pos).addScaledVector(dir, 0.6);
+    tmp.y -= 0.15;
+    shoot(tmp, dir, true);
+  }
+  fireQueued = false;
+}
+
+function updateRobots(dt) {
+  for (const r of robots) {
+    // ---- knocked out? come back shortly ----
+    if (!r.alive) {
+      r.respawnIn -= dt;
+      if (r.respawnIn <= 0) {
+        r.alive = true;
+        r.health = 100;
+        placeRandomly(r);
+        r.group.visible = true;
+      }
+      continue;
+    }
+
+    const toPlayer = tmp.copy(player.pos).sub(r.pos);
+    toPlayer.y = 0;
+    const distance = toPlayer.length();
+
+    let wantX = 0, wantZ = 0;
+
+    if (distance < 20 && !player.dead) {
+      // chase, but stop and shoot once fairly close
+      toPlayer.normalize();
+      const keepAway = distance < 6 ? -0.5 : 1;
+      wantX = toPlayer.x * keepAway;
+      wantZ = toPlayer.z * keepAway;
+
+      // face the player
+      r.group.rotation.y = Math.atan2(toPlayer.x, toPlayer.z);
+
+      // ---- shoot at you ----
+      r.cooldown -= dt;
+      if (r.cooldown <= 0 && distance < 17) {
+        r.cooldown = 1.3 + Math.random() * 1.2;
+
+        const from = new THREE.Vector3(r.pos.x, 1.5, r.pos.z);
+        const at = new THREE.Vector3().copy(player.pos).sub(from);
+
+        // robots aren't perfect shots, or the game would be impossible
+        at.x += (Math.random() - 0.5) * 1.6;
+        at.y += (Math.random() - 0.5) * 1.0;
+        at.z += (Math.random() - 0.5) * 1.6;
+
+        shoot(from, at, false);
+      }
+    } else {
+      // ---- nobody about: wander ----
+      r.wanderTimer -= dt;
+      if (r.wanderTimer <= 0) {
+        r.wanderTimer = 1.5 + Math.random() * 2.5;
+        r.wanderAngle = Math.random() * Math.PI * 2;
+      }
+      wantX = Math.sin(r.wanderAngle);
+      wantZ = Math.cos(r.wanderAngle);
+      r.group.rotation.y = Math.atan2(wantX, wantZ);
+    }
+
+    const speed = 3.4;
+    const next = new THREE.Vector3(
+      r.pos.x + wantX * speed * dt,
+      1.75,
+      r.pos.z + wantZ * speed * dt
+    );
+
+    const before = next.clone();
+    collide(next, 0.45, 1.75);
+
+    // if it walked into something, turn round instead of grinding on it
+    if (before.distanceTo(next) > 0.001) r.wanderTimer = 0;
+
+    const edge = ARENA - 1.5;
+    r.pos.x = Math.max(-edge, Math.min(edge, next.x));
+    r.pos.z = Math.max(-edge, Math.min(edge, next.z));
+
+    r.group.position.set(r.pos.x, 0, r.pos.z);
+  }
+}
+
+function updateBolts(dt) {
+  for (let i = bolts.length - 1; i >= 0; i--) {
+    const b = bolts[i];
+    b.life -= dt;
+    if (b.life <= 0) { removeBolt(i); continue; }
+
+    b.mesh.position.addScaledVector(b.dir, BOLT_SPEED * dt);
+    const p = b.mesh.position;
+
+    // hit a wall or crate?
+    let hitWall = false;
+    for (const s of solids) {
+      if (p.x > s.minX && p.x < s.maxX &&
+          p.y > s.minY && p.y < s.maxY &&
+          p.z > s.minZ && p.z < s.maxZ) { hitWall = true; break; }
+    }
+    if (p.y < 0 || Math.abs(p.x) > ARENA || Math.abs(p.z) > ARENA) hitWall = true;
+
+    if (hitWall) {
+      sparkle(p, b.fromPlayer ? 0xffe680 : 0xff5b5b);
+      removeBolt(i);
+      continue;
+    }
+
+    if (b.fromPlayer) {
+      // did it hit a robot?
+      let hit = null;
+      for (const r of robots) {
+        if (!r.alive) continue;
+        const dx = p.x - r.pos.x, dz = p.z - r.pos.z;
+        if (Math.abs(dx) < 0.55 && Math.abs(dz) < 0.5 && p.y > 0 && p.y < 2.0) { hit = r; break; }
+      }
+      if (hit) {
+        hit.health -= PLAYER_DAMAGE;
+        sparkle(p, 0xffe680);
+        removeBolt(i);
+
+        if (hit.health <= 0) {
+          hit.alive = false;
+          hit.respawnIn = 3;
+          hit.group.visible = false;
+          sparkle(new THREE.Vector3(hit.pos.x, 1, hit.pos.z), 0xffffff);
+          player.score++;
+          updateHud();
+          say("Got one! ⭐", 1.0);
+        }
+        continue;
+      }
+    } else if (!player.dead) {
+      // did it hit you?
+      const dx = p.x - player.pos.x;
+      const dy = p.y - (player.pos.y - PLAYER_HEIGHT / 2);
+      const dz = p.z - player.pos.z;
+      if (Math.abs(dx) < 0.5 && Math.abs(dz) < 0.5 && Math.abs(dy) < 1.0) {
+        if (player.safeFor > 0) { sparkle(p, 0x6bcbff); removeBolt(i); continue; }
+        player.health -= ROBOT_DAMAGE;
+        sparkle(p, 0xff5b5b);
+        removeBolt(i);
+        flash();
+        updateHud();
+
+        if (player.health <= 0) {
+          player.health = 0;
+          player.dead = true;
+          player.respawnIn = 2.2;
+          updateHud();
+          say("Knocked out! Back in a moment...", 2.2);
+        }
+        continue;
+      }
+    }
+  }
+}
+
+function updateSparks(dt) {
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const s = sparks[i];
+    s.life -= dt;
+    if (s.life <= 0) {
+      scene.remove(s.mesh);
+      s.mesh.geometry.dispose();
+      s.mesh.material.dispose();
+      sparks.splice(i, 1);
+      continue;
+    }
+    s.vel.y -= 14 * dt;
+    s.mesh.position.addScaledVector(s.vel, dt);
+    s.mesh.scale.setScalar(Math.max(0.05, s.life / 0.65));
+  }
+}
+
+updateHud();
+tick();
+</script>
+
+</body>
+</html>
