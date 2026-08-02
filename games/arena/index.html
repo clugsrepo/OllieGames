@@ -196,6 +196,22 @@
     background: rgba(107,203,255,0.25);
     border-color: #6bcbff;
   }
+  #btn-admin {
+    left: max(176px, calc(env(safe-area-inset-left) + 176px));
+    bottom: max(254px, calc(env(safe-area-inset-bottom) + 228px));
+    width: 62px; height: 62px;
+    font-size: 1.2rem;
+    background: rgba(255,217,61,0.25);
+    border-color: #ffd93d;
+  }
+  #btn-down {
+    right: max(112px, calc(env(safe-area-inset-right) + 112px));
+    bottom: max(196px, calc(env(safe-area-inset-bottom) + 170px));
+    width: 62px; height: 62px;
+    font-size: 1.2rem;
+    background: rgba(255,217,61,0.25);
+    border-color: #ffd93d;
+  }
   .tbtn:active { transform: scale(0.92); }
 
   /* On a narrow phone - especially held upright - the default sizes
@@ -230,6 +246,18 @@
       bottom: max(222px, calc(env(safe-area-inset-bottom) + 200px));
       width: 54px; height: 54px;
       font-size: 1rem;
+    }
+    #btn-admin {
+      left: max(42px, calc(env(safe-area-inset-left) + 42px));
+      bottom: max(298px, calc(env(safe-area-inset-bottom) + 276px));
+      width: 52px; height: 52px;
+      font-size: 0.95rem;
+    }
+    #btn-down {
+      right: max(40px, calc(env(safe-area-inset-right) + 40px));
+      bottom: max(300px, calc(env(safe-area-inset-bottom) + 278px));
+      width: 52px; height: 52px;
+      font-size: 0.95rem;
     }
   }
 
@@ -351,6 +379,94 @@
     background: rgba(255,255,255,0.26);
     box-shadow: 0 0 10px rgba(255,255,255,0.5);
   }
+
+  /* ---------- admin ---------- */
+  #adminrow { gap: 8px; }
+  #admincode {
+    font-family: inherit;
+    font-size: 1rem;
+    width: 90px;
+    text-align: center;
+    letter-spacing: 4px;
+    padding: 7px 8px;
+    border-radius: 10px;
+    border: 2px solid rgba(255,217,61,0.5);
+    background: rgba(0,0,0,0.35);
+    color: #ffd93d;
+  }
+  #btn-unlock {
+    font-family: inherit; font-size: 0.85rem; font-weight: bold;
+    padding: 8px 14px; border-radius: 10px; cursor: pointer;
+    color: #1a1a2e; background: #ffd93d; border: none;
+  }
+  #adminstate { font-size: 0.85rem; color: #ffd93d; }
+
+  #adminbadge {
+    position: fixed;
+    top: max(58px, calc(env(safe-area-inset-top) + 48px));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 12;
+    font-size: 0.78rem; font-weight: bold;
+    color: #1a1a2e; background: #ffd93d;
+    border-radius: 10px;
+    padding: 4px 12px;
+    letter-spacing: 1px;
+    white-space: nowrap;
+  }
+
+  #adminpanel {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 40;                  /* above everything, including the HUD */
+    background: rgba(20,16,48,0.96);
+    border: 2px solid #ffd93d;
+    border-radius: 16px;
+    padding: 16px 18px;
+    min-width: 240px;
+    max-height: 88vh;
+    overflow-y: auto;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.6);
+  }
+  #adminpanel h2 {
+    margin: 0 0 10px;
+    font-size: 1rem; color: #ffd93d; letter-spacing: 1px;
+  }
+  .adm {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    font-family: inherit; font-size: 0.9rem;
+    margin-bottom: 7px;
+    padding: 9px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    color: #fff;
+    background: rgba(255,255,255,0.08);
+    border: 2px solid rgba(255,255,255,0.25);
+  }
+  .adm.on { background: rgba(255,217,61,0.28); border-color: #ffd93d; }
+  .adm .state { font-weight: bold; color: #ffd93d; }
+  .adm .keyhint {
+    font-size: 0.7rem; color: #c9c2ff; opacity: 0.8;
+  }
+  #admin-close {
+    width: 100%;
+    font-family: inherit; font-size: 0.9rem; font-weight: bold;
+    margin-top: 6px; padding: 9px;
+    border-radius: 10px; cursor: pointer;
+    color: #1a1a2e; background: #ffd93d; border: none;
+  }
+  #adminnote {
+    margin: 8px 0 0;
+    font-size: 0.7rem; color: #c9c2ff; line-height: 1.4;
+  }
+
+  /* the spanner and the fly-down button only exist for an admin */
+  #btn-admin, #btn-down { display: none; }
+  body.admin #btn-admin { display: block; }
+  body.admin.flying #btn-down { display: block; }
 
   .namerow { display: flex; align-items: center; gap: 10px; margin: 14px 0 4px; }
   #nickname {
@@ -486,6 +602,7 @@
   <div id="pausehint">Paused &mdash; click to play on, or <strong>Leave</strong> at the top</div>
   <div id="playerlist"></div>
   <div id="weaponbox"><span id="weaponname">Star Blaster</span></div>
+  <div id="adminbadge" hidden>🛠 ADMIN</div>
 </div>
 
 <div id="touch">
@@ -495,6 +612,15 @@
   <button class="tbtn" id="btn-jump">⬆</button>
   <button class="tbtn" id="btn-gun">🔫</button>
   <button class="tbtn" id="btn-build">🧱</button>
+  <button class="tbtn" id="btn-admin">🛠</button>
+  <button class="tbtn" id="btn-down">⬇</button>
+</div>
+
+<div id="adminpanel" hidden>
+  <h2>🛠 ADMIN PANEL</h2>
+  <div id="adminbuttons"></div>
+  <button id="admin-close">Close (P)</button>
+  <p id="adminnote">Only changes YOUR game. Press <strong>P</strong> any time.</p>
 </div>
 
 <div id="start">
@@ -524,6 +650,14 @@
       <label for="nickname">Your name:</label>
       <input id="nickname" maxlength="12" autocomplete="off" spellcheck="false"
              placeholder="Ollie">
+    </p>
+
+    <p class="namerow" id="adminrow" hidden>
+      <label for="admincode">Secret code:</label>
+      <input id="admincode" maxlength="6" autocomplete="off" spellcheck="false"
+             inputmode="numeric" placeholder="••••">
+      <button id="btn-unlock" type="button">Unlock</button>
+      <span id="adminstate"></span>
     </p>
 
     <div id="menu">
@@ -1018,7 +1152,7 @@ function addBlock(x, y, z, mine) {
   blocks.push(block);
 
   // don't let the arena fill up forever
-  if (blocks.length > MAX_BLOCKS) removeBlock(blocks[0]);
+  if (blocks.length > blockLimit()) removeBlock(blocks[0]);
   return block;
 }
 
@@ -1561,6 +1695,8 @@ function sparkle(at, colour) {
 // CONTROLS
 // ---------------------------------------------------------------
 let jumpPressed = false;    // declared up here so the key handler can set it
+let jumpHeld    = false;    // HELD down, for rising while you're flying
+let flyDownHeld = false;    // the admin's ⬇ button
 const keys = {};
 addEventListener("keydown", e => {
   keys[e.code] = true;
@@ -1600,7 +1736,10 @@ document.addEventListener("pointerlockchange", () => {
   // On a computer the mouse is captured by the game, so clicks can't
   // reach the Leave button until you press Esc. Say so, rather than
   // leaving people stuck wondering why the button does nothing.
-  const showHint = playing && !pointerLocked && !HAS_TOUCH;
+  // ...but not while the admin panel is open - that lets go of the
+  // mouse on purpose, so the hint would just be in the way.
+  const showHint = playing && !pointerLocked && !HAS_TOUCH
+                   && document.getElementById("adminpanel").hidden;
   pauseHint.style.opacity = showHint ? "1" : "0";
 });
 
@@ -1717,7 +1856,11 @@ fireBtn.addEventListener("pointerdown", e => {
 });
 fireBtn.addEventListener("pointerup",   e => { e.preventDefault(); firePressed = false; });
 fireBtn.addEventListener("pointerleave",()  => { firePressed = false; });
-jumpBtn.addEventListener("pointerdown", e => { e.preventDefault(); jumpPressed = true; });
+jumpBtn.addEventListener("pointerdown", e => {
+  e.preventDefault(); jumpPressed = true; jumpHeld = true;
+});
+jumpBtn.addEventListener("pointerup",   e => { e.preventDefault(); jumpHeld = false; });
+jumpBtn.addEventListener("pointerleave",()  => { jumpHeld = false; });
 
 document.getElementById("btn-gun").addEventListener("pointerdown", e => {
   e.preventDefault();
@@ -1785,6 +1928,231 @@ const touchLayer  = document.getElementById("touch");
 document.getElementById("how-desktop").style.display = HAS_TOUCH ? "none" : "block";
 document.getElementById("how-touch").style.display   = HAS_TOUCH ? "block" : "none";
 touchLayer.style.display = HAS_TOUCH ? "block" : "none";
+
+/* =====================================================================
+   ADMIN POWERS
+
+   Put OLLIE as your name and the secret code box appears. Get the code
+   right and you unlock the spanner: flying, no damage, freezing the
+   robots, and as many blocks as you like.
+
+   Two things worth being straight about:
+
+   1. This is a SECRET, not a lock. Everything a web page does is inside
+      the page, so anyone who really goes looking can find the code.
+      It's here for fun.
+   2. Every power only changes YOUR OWN game. Nothing here reaches into
+      a friend's game, kicks anybody out, or changes their score.
+   ===================================================================== */
+
+const ADMIN_NAME  = "ollie";
+const ADMIN_CODE  = "1233";
+const FLY_SPEED   = 9;
+const FLY_CEILING = 34;
+
+const admin = {
+  unlocked:   false,
+  flying:     false,
+  invincible: false,
+  frozen:     false,
+  endless:    false
+};
+
+// switches you can turn on and off
+const ADMIN_POWERS = [
+  { id: "flying",     label: "🕊 Flying",         code: "KeyF", hint: "F" },
+  { id: "invincible", label: "🛡 No damage",      code: "KeyG", hint: "G" },
+  { id: "frozen",     label: "🧊 Freeze robots",  code: "KeyK", hint: "K" },
+  { id: "endless",    label: "🧱 Endless blocks", code: "KeyL", hint: "L" }
+];
+
+// things that just happen once when you press them
+const ADMIN_ACTIONS = [
+  { id: "heal", label: "❤️ Full health", code: "KeyH", hint: "H", run() {
+      player.dead = false; player.respawnIn = 0; player.health = 100;
+      player.safeFor = 1.6;
+      updateHud();
+      say("Full health!", 1.2);
+    } },
+  { id: "wake", label: "🤖 Wake robots up", code: "KeyJ", hint: "J", run() {
+      robots.forEach(r => {
+        r.alive = true; r.health = 100; r.respawnIn = 0;
+        r.group.visible = true;
+      });
+      say("All robots back up!", 1.2);
+    } },
+  { id: "tidy", label: "🧹 Clear the blocks", code: "KeyM", hint: "M", run() {
+      blocks.slice().forEach(b => {
+        removeBlock(b);
+        netSend({ t: "unbuild", x: b.x, y: b.y, z: b.z });
+      });
+      say("Blocks cleared", 1.2);
+    } }
+];
+
+// how many blocks may stand at once - a lot more with endless on
+function blockLimit() { return admin.endless ? MAX_BLOCKS * 10 : MAX_BLOCKS; }
+
+const adminRow    = document.getElementById("adminrow");
+const adminBadge  = document.getElementById("adminbadge");
+const adminPanel  = document.getElementById("adminpanel");
+const adminState  = document.getElementById("adminstate");
+const codeBox     = document.getElementById("admincode");
+
+function nameIsAdmin() {
+  const box = document.getElementById("nickname");
+  return cleanNickname(box && box.value).toLowerCase() === ADMIN_NAME;
+}
+
+// the code box only appears for the right name
+function refreshAdminRow() {
+  const allowed = nameIsAdmin();
+  adminRow.hidden = !allowed;
+  if (!allowed && admin.unlocked) lockAdmin("Powers off - you changed your name");
+}
+
+function unlockAdmin() {
+  if (!nameIsAdmin()) return false;
+  if (codeBox.value.trim() !== ADMIN_CODE) {
+    adminState.textContent = "❌ Not that one";
+    codeBox.value = "";
+    return false;
+  }
+  admin.unlocked = true;
+  adminState.textContent = "✅ Admin powers on!";
+  codeBox.value = "";
+  document.body.classList.add("admin");
+  refreshAdminBadge();
+  return true;
+}
+
+// turn everything off again and put it all back to normal
+function lockAdmin(why) {
+  admin.unlocked = admin.flying = admin.invincible =
+    admin.frozen = admin.endless = false;
+  adminPanel.hidden = true;
+  document.body.classList.remove("admin", "flying");
+  adminState.textContent = why || "";
+  refreshAdminBadge();
+}
+
+function refreshAdminBadge() {
+  const on = ADMIN_POWERS.filter(p => admin[p.id]);
+  adminBadge.hidden = !admin.unlocked;
+  adminBadge.textContent = "🛠 ADMIN"
+    + (on.length ? " · " + on.map(p => p.label.slice(2)).join(" · ") : "");
+  document.body.classList.toggle("flying", admin.flying);
+
+  // the buttons in the panel show which way each switch is
+  ADMIN_POWERS.forEach(p => {
+    const button = document.getElementById("adm-" + p.id);
+    if (!button) return;
+    button.classList.toggle("on", !!admin[p.id]);
+    button.querySelector(".state").textContent = admin[p.id] ? "ON" : "off";
+  });
+}
+
+function setPower(id, on) {
+  if (!admin.unlocked) return;
+  admin[id] = on === undefined ? !admin[id] : !!on;
+
+  // stepping off the accelerator shouldn't leave you frozen mid-air
+  if (id === "flying" && !admin.flying) player.onGround = false;
+
+  refreshAdminBadge();
+}
+
+function runAdminAction(id) {
+  if (!admin.unlocked) return;
+  const action = ADMIN_ACTIONS.find(a => a.id === id);
+  if (action) action.run();
+}
+
+function buildAdminPanel() {
+  const holder = document.getElementById("adminbuttons");
+
+  ADMIN_POWERS.forEach(p => {
+    const button = document.createElement("button");
+    button.className = "adm";
+    button.type = "button";
+    button.id = "adm-" + p.id;
+    button.innerHTML = "";                       // built from real elements
+    const name = document.createElement("span");
+    name.textContent = p.label;
+    const right = document.createElement("span");
+    const key = document.createElement("span");
+    key.className = "keyhint";
+    key.textContent = p.hint + " ";
+    const state = document.createElement("span");
+    state.className = "state";
+    state.textContent = "off";
+    right.appendChild(key); right.appendChild(state);
+    button.appendChild(name); button.appendChild(right);
+    button.addEventListener("click", () => setPower(p.id));
+    holder.appendChild(button);
+  });
+
+  ADMIN_ACTIONS.forEach(a => {
+    const button = document.createElement("button");
+    button.className = "adm";
+    button.type = "button";
+    button.id = "adm-" + a.id;
+    const name = document.createElement("span");
+    name.textContent = a.label;
+    const key = document.createElement("span");
+    key.className = "keyhint";
+    key.textContent = a.hint;
+    button.appendChild(name); button.appendChild(key);
+    button.addEventListener("click", () => runAdminAction(a.id));
+    holder.appendChild(button);
+  });
+}
+buildAdminPanel();
+
+/* Opening the panel lets go of the mouse, the same as pressing Esc -
+   otherwise the game has hold of it and none of the buttons can be
+   clicked. */
+function toggleAdminPanel(show) {
+  if (!admin.unlocked) { adminPanel.hidden = true; return; }
+  const open = show === undefined ? adminPanel.hidden : !!show;
+  adminPanel.hidden = !open;
+  if (open) {
+    if (pointerLocked) document.exitPointerLock();
+    pauseHint.style.opacity = "0";
+    refreshAdminBadge();
+  }
+}
+
+document.getElementById("btn-unlock").addEventListener("click", unlockAdmin);
+codeBox.addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); unlockAdmin(); }
+});
+document.getElementById("nickname").addEventListener("input", refreshAdminRow);
+document.getElementById("admin-close").addEventListener("click",
+  () => toggleAdminPanel(false));
+
+document.getElementById("btn-admin").addEventListener("pointerdown", e => {
+  e.preventDefault();
+  toggleAdminPanel();
+});
+const downBtn = document.getElementById("btn-down");
+downBtn.addEventListener("pointerdown", e => { e.preventDefault(); flyDownHeld = true; });
+downBtn.addEventListener("pointerup",   e => { e.preventDefault(); flyDownHeld = false; });
+downBtn.addEventListener("pointerleave",()  => { flyDownHeld = false; });
+
+addEventListener("keydown", e => {
+  if (!admin.unlocked || !playing) return;
+
+  if (e.code === "KeyP") { e.preventDefault(); toggleAdminPanel(); return; }
+
+  const power = ADMIN_POWERS.find(p => p.code === e.code);
+  if (power) { e.preventDefault(); setPower(power.id); return; }
+
+  const action = ADMIN_ACTIONS.find(a => a.code === e.code);
+  if (action) { e.preventDefault(); action.run(); }
+});
+
+refreshAdminRow();
 
 function beginGame() {
   startScreen.style.display = "none";
@@ -1904,18 +2272,36 @@ function updatePlayer(dt) {
   player.vel.x = (forward.x * moveZ + right.x * moveX) * MOVE_SPEED;
   player.vel.z = (forward.z * moveZ + right.z * moveX) * MOVE_SPEED;
 
-  // ---- jumping and falling ----
-  if ((keys.Space || jumpPressed) && player.onGround) {
-    player.vel.y = JUMP_SPEED;
+  // ---- jumping and falling, or flying if you're the boss ----
+  if (admin.flying) {
+    // no gravity at all: hold jump to go up, Shift (or ⬇) to come down,
+    // and you glide about a bit faster than you can run
+    player.vel.x *= 1.7;
+    player.vel.z *= 1.7;
+
+    let lift = 0;
+    if (keys.Space || jumpPressed || jumpHeld) lift += 1;
+    if (keys.ShiftLeft || keys.ShiftRight || keys.KeyC || flyDownHeld) lift -= 1;
+    player.vel.y = lift * FLY_SPEED;
     player.onGround = false;
+  } else {
+    if ((keys.Space || jumpPressed) && player.onGround) {
+      player.vel.y = JUMP_SPEED;
+      player.onGround = false;
+    }
+    player.vel.y -= GRAVITY * dt;
   }
   jumpPressed = false;
-
-  player.vel.y -= GRAVITY * dt;
 
   player.pos.x += player.vel.x * dt;
   player.pos.y += player.vel.y * dt;
   player.pos.z += player.vel.z * dt;
+
+  // even flying has a ceiling, or you'd be a dot in the sky
+  if (player.pos.y > FLY_CEILING) {
+    player.pos.y = FLY_CEILING;
+    player.vel.y = Math.min(player.vel.y, 0);
+  }
 
   // ---- floor and walls ----
   if (player.pos.y - PLAYER_HEIGHT < 0) {
@@ -1989,6 +2375,9 @@ function startGrudge(robot, enemy) {
 }
 
 function updateRobots(dt) {
+  // an admin can put the whole lot on pause
+  if (admin.frozen) return;
+
   for (const r of robots) {
     // ---- knocked out? come back shortly ----
     if (!r.alive) {
@@ -2240,7 +2629,11 @@ function updateBolts(dt) {
       const dy = p.y - (player.pos.y - PLAYER_HEIGHT / 2);
       const dz = p.z - player.pos.z;
       if (Math.abs(dx) < 0.5 && Math.abs(dz) < 0.5 && Math.abs(dy) < 1.0) {
-        if (player.safeFor > 0) { sparkle(p, 0x6bcbff); removeBolt(i); continue; }
+        if (player.safeFor > 0 || admin.invincible) {
+          sparkle(p, admin.invincible ? 0xffd93d : 0x6bcbff);
+          removeBolt(i);
+          continue;
+        }
         player.health -= ROBOT_DAMAGE;
         sparkle(p, 0xff5b5b);
         removeBolt(i);
@@ -2466,6 +2859,10 @@ try {
   if (saved) document.getElementById("nickname").value = cleanNickname(saved);
 } catch (e) {}
 
+// the name box has only just been filled in, so ask again whether the
+// secret code box should be showing
+refreshAdminRow();
+
 document.getElementById("nickname").addEventListener("change", () => {
   try { localStorage.setItem(NAME_KEY, myName()); } catch (e) {}
 });
@@ -2560,7 +2957,8 @@ function netReceive(msg) {
 
     case "hit":
       // someone says they hit US. Only we can change our own health.
-      if (msg.target === net.me && !player.dead && player.safeFor <= 0) {
+      if (msg.target === net.me && !player.dead && player.safeFor <= 0
+          && !admin.invincible) {
         player.health -= msg.dmg;
         flash();
         updateHud();
