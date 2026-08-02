@@ -451,6 +451,17 @@ const PLAYER_DAMAGE = 34;     // 3 hits to beat a robot
 const ROBOT_DAMAGE  = 9;
 const FIRE_DELAY    = 0.22;   // seconds between your shots
 
+/* How fast the camera turns when you look around.
+
+   1.00 = how it was to start with
+   1.02 = 2% faster  <-- Ollie asked for this
+   1.50 = much twitchier
+
+   It multiplies ALL three ways of looking - mouse, swiping and the
+   joystick - so they stay in step with each other. Change this one
+   number to tune it again. */
+const LOOK_SENSITIVITY = 1.02;
+
 const ARENA = 22;             // half-width of the floor
 const ROBOT_COUNT = 4;
 
@@ -777,8 +788,8 @@ document.addEventListener("pointerlockchange", () => {
 
 addEventListener("mousemove", e => {
   if (!pointerLocked) return;
-  player.yaw   -= e.movementX * 0.0022;
-  player.pitch -= e.movementY * 0.0022;
+  player.yaw   -= e.movementX * 0.0022 * LOOK_SENSITIVITY;
+  player.pitch -= e.movementY * 0.0022 * LOOK_SENSITIVITY;
   clampPitch();
 });
 
@@ -796,7 +807,8 @@ function clampPitch() {
    We only do this for `pointerType === "touch"`, so a mouse still
    behaves normally and doesn't drag the camera about by accident. */
 
-const DRAG_LOOK = 0.0038;      // how far the camera turns per pixel dragged
+// how far the camera turns per pixel you drag
+const DRAG_LOOK = 0.0038 * LOOK_SENSITIVITY;
 
 let lookPointer = null;
 let lastLookX = 0, lastLookY = 0;
@@ -1034,8 +1046,8 @@ function updatePlayer(dt) {
 
   // ---- looking around with the right stick ----
   if (Math.abs(stickLook.x) > 0.08 || Math.abs(stickLook.y) > 0.08) {
-    player.yaw   -= stickLook.x * 2.6 * dt;
-    player.pitch -= stickLook.y * 2.0 * dt;
+    player.yaw   -= stickLook.x * 2.6 * LOOK_SENSITIVITY * dt;
+    player.pitch -= stickLook.y * 2.0 * LOOK_SENSITIVITY * dt;
     clampPitch();
   }
 
