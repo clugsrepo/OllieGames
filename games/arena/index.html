@@ -333,6 +333,24 @@
     transform: scale(1.18);
     box-shadow: 0 0 10px rgba(255,255,255,0.6);
   }
+  /* accessory buttons - an emoji instead of a colour */
+  .acc {
+    min-width: 32px; height: 28px;
+    border-radius: 8px;
+    border: 2px solid rgba(255,255,255,0.3);
+    background: rgba(255,255,255,0.08);
+    color: #fff;
+    font-family: inherit;
+    font-size: 0.95rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 3px;
+  }
+  .acc.picked {
+    border-color: #fff;
+    background: rgba(255,255,255,0.26);
+    box-shadow: 0 0 10px rgba(255,255,255,0.5);
+  }
 
   .namerow { display: flex; align-items: center; gap: 10px; margin: 14px 0 4px; }
   #nickname {
@@ -1055,6 +1073,17 @@ function tryBuild() {
 const ROBOT_COLOURS = [0xff6b6b, 0x6bcbff, 0xa06bff, 0xff9f43, 0xff8fd9];
 const robots = [];
 
+// the odds and ends the bots turn up wearing
+const ROBOT_KITS = [
+  { hat: "antenna" },
+  { hat: "antenna", face: "visor" },
+  { face: "visor" },
+  { hat: "cap" },
+  { hat: "horns", face: "visor" },
+  { back: "jetpack" },
+  { hat: "antenna", back: "jetpack" }
+];
+
 /* =====================================================================
    BUILDING A CHARACTER
 
@@ -1111,6 +1140,189 @@ function makeNameTag(text, colour) {
   sprite.scale.set(1.9, 0.48, 1);
   sprite.position.y = 2.35;
   return sprite;
+}
+
+/* =====================================================================
+   ACCESSORIES
+
+   Three slots - something on your head, something on your face, and
+   something on your back - so you can mix and match. Each one is just
+   a little group of shapes parked in the right place on the body.
+
+   These live up here, next to buildCharacter, because the robots are
+   built before the skin maker's code runs further down the page.
+   ===================================================================== */
+
+const ACCESSORY_SLOTS = {
+  hat:  ["none", "cap", "horns", "halo", "antenna", "tophat"],
+  face: ["none", "glasses", "visor", "moustache"],
+  back: ["none", "cape", "jetpack"]
+};
+
+const ACCESSORY_ICONS = {
+  none: "—", cap: "🧢", horns: "😈", halo: "😇", antenna: "📡", tophat: "🎩",
+  glasses: "👓", visor: "🥽", moustache: "🥸", cape: "🦸", jetpack: "🚀"
+};
+
+const ACCESSORY_NAMES = {
+  none: "Nothing", cap: "Cap", horns: "Horns", halo: "Halo",
+  antenna: "Antenna", tophat: "Top hat", glasses: "Glasses",
+  visor: "Space visor", moustache: "Moustache", cape: "Cape",
+  jetpack: "Jetpack"
+};
+
+const METAL = 0xb8c4d4;
+
+function glow(colour, opacity) {
+  return new THREE.MeshBasicMaterial({
+    color: colour,
+    transparent: opacity !== undefined,
+    opacity: opacity === undefined ? 1 : opacity
+  });
+}
+
+/* Build one accessory. `colour` is the shirt colour, so hats and capes
+   match what you're wearing; `hair` is used for the moustache. */
+function makeAccessory(kind, colour, hair) {
+  const g = new THREE.Group();
+
+  switch (kind) {
+    case "cap": {
+      const dome = new THREE.Mesh(
+        new THREE.SphereGeometry(0.285, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.5),
+        mat(colour));
+      dome.scale.set(1, 0.85, 0.96);
+      dome.position.y = 1.87;
+      g.add(dome);
+
+      const brim = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.035, 0.26), mat(colour));
+      brim.position.set(0, 1.885, 0.26);
+      g.add(brim);
+      break;
+    }
+
+    case "horns": {
+      [-1, 1].forEach(side => {
+        const horn = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.24, 7),
+                                    mat(0xf2e6d0));
+        horn.position.set(side * 0.16, 2.09, 0);
+        horn.rotation.z = -side * 0.38;
+        g.add(horn);
+      });
+      break;
+    }
+
+    case "halo": {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.032, 8, 20),
+                                  glow(0xffe680));
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = 2.38;
+      g.add(ring);
+      break;
+    }
+
+    case "antenna": {
+      const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.3, 6),
+                                 mat(METAL));
+      rod.position.y = 2.24;
+      g.add(rod);
+
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8),
+                                  glow(0xff6b6b));
+      ball.position.y = 2.42;
+      g.add(ball);
+      break;
+    }
+
+    case "tophat": {
+      const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.035, 16),
+                                  mat(0x14142a));
+      brim.position.y = 2.09;
+      g.add(brim);
+
+      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.235, 0.235, 0.34, 16),
+                                  mat(0x14142a));
+      pipe.position.y = 2.27;
+      g.add(pipe);
+
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.245, 0.245, 0.07, 16),
+                                  mat(colour));
+      band.position.y = 2.14;
+      g.add(band);
+      break;
+    }
+
+    case "glasses": {
+      [-0.09, 0.09].forEach(dx => {
+        const lens = new THREE.Mesh(new THREE.TorusGeometry(0.062, 0.014, 6, 14),
+                                    mat(0x1a1a2e));
+        lens.position.set(dx, 1.86, 0.225);
+        g.add(lens);
+      });
+      const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.014, 0.014),
+                                    mat(0x1a1a2e));
+      bridge.position.set(0, 1.86, 0.225);
+      g.add(bridge);
+      break;
+    }
+
+    case "visor": {
+      const glass = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.115, 0.06),
+                                   glow(0x6bf0ff, 0.75));
+      glass.position.set(0, 1.87, 0.21);
+      g.add(glass);
+
+      const strap = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.5), mat(METAL));
+      strap.position.set(0, 1.87, 0.02);
+      g.add(strap);
+      break;
+    }
+
+    case "moustache": {
+      const tash = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.05, 0.05), mat(hair));
+      tash.position.set(0, 1.755, 0.225);
+      g.add(tash);
+      [-1, 1].forEach(side => {
+        const curl = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.05), mat(hair));
+        curl.position.set(side * 0.11, 1.775, 0.215);
+        g.add(curl);
+      });
+      break;
+    }
+
+    case "cape": {
+      const cloth = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.9, 0.04), mat(colour));
+      cloth.position.set(0, 1.05, -0.23);
+      cloth.rotation.x = -0.08;                 // billows out a little
+      g.add(cloth);
+
+      const collar = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.09, 0.34), mat(colour));
+      collar.position.set(0, 1.5, -0.05);
+      g.add(collar);
+      break;
+    }
+
+    case "jetpack": {
+      const pack = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.44, 0.18), mat(METAL));
+      pack.position.set(0, 1.2, -0.27);
+      g.add(pack);
+
+      [-1, 1].forEach(side => {
+        const nozzle = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.055, 0.075, 0.14, 8), mat(0x3a3f5c));
+        nozzle.position.set(side * 0.11, 0.92, -0.27);
+        g.add(nozzle);
+
+        const flame = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.16, 8),
+                                     glow(0xffa76b, 0.8));
+        flame.position.set(side * 0.11, 0.78, -0.27);
+        flame.rotation.x = Math.PI;
+        g.add(flame);
+      });
+      break;
+    }
+  }
+  return g;
 }
 
 function buildCharacter(opts) {
@@ -1178,9 +1390,24 @@ function buildCharacter(opts) {
   parts.legR.position.set(0.15, 0.66, 0);
   group.add(parts.legR);
 
+  // ---- accessories ----
+  // A slot we don't recognise is simply ignored - the list of what's
+  // allowed lives in one place, so a made-up one can't appear.
+  const hairColour = opts.hair !== undefined ? opts.hair : 0x3a2a1c;
+  for (const slot of Object.keys(ACCESSORY_SLOTS)) {
+    const kind = opts[slot];
+    if (!kind || kind === "none" || !ACCESSORY_SLOTS[slot].includes(kind)) continue;
+
+    const worn = makeAccessory(kind, shirt, hairColour);
+    worn.name = slot;
+    parts[slot] = worn;
+    group.add(worn);
+  }
+
   // ---- name above their head ----
   if (opts.name) {
     parts.tag = makeNameTag(opts.name, opts.tagColour || "#ffffff");
+    if (parts.hat) parts.tag.position.y = 2.78;   // don't sit inside the hat
     group.add(parts.tag);
   }
 
@@ -1212,14 +1439,17 @@ function makeRobot() {
   robotCount++;
   const name = "Bot " + robotCount;
 
-  const built = buildCharacter({
+  // every bot gets a bit of kit, so no two look quite the same
+  const kit = ROBOT_KITS[Math.floor(Math.random() * ROBOT_KITS.length)];
+
+  const built = buildCharacter(Object.assign({
     shirt: colour,
     skin: 0xb8c4d4,                       // a metal sort of colour
     trousers: 0x3a3f5c,
     hair: 0x8a94ad,
     name: name,
     tagColour: "#d7dcff"
-  });
+  }, kit));
   const group = built.group;
 
   scene.add(group);
@@ -2082,7 +2312,8 @@ const PALETTES = {
 };
 
 const DEFAULT_LOOK = { shirt: 0x6bcbff, skin: 0xf0c8a0,
-                       hair: 0x3a2a1c, trousers: 0x2f3350 };
+                       hair: 0x3a2a1c, trousers: 0x2f3350,
+                       hat: "none", face: "none", back: "none" };
 
 let myLook = Object.assign({}, DEFAULT_LOOK);
 
@@ -2095,6 +2326,13 @@ function cleanLook(raw) {
   for (const part of Object.keys(PALETTES)) {
     const value = Number(raw[part]);
     if (PALETTES[part].includes(value)) out[part] = value;
+  }
+
+  // Same rule for accessories: it has to be one we know how to build.
+  for (const slot of Object.keys(ACCESSORY_SLOTS)) {
+    const kind = raw[slot];
+    if (typeof kind === "string" && ACCESSORY_SLOTS[slot].includes(kind))
+      out[slot] = kind;
   }
   return out;
 }
@@ -2128,10 +2366,7 @@ let previewModel = null;
 
 function rebuildPreview() {
   if (previewModel) previewScene.remove(previewModel);
-  previewModel = buildCharacter({
-    shirt: myLook.shirt, skin: myLook.skin,
-    hair: myLook.hair, trousers: myLook.trousers
-  }).group;
+  previewModel = buildCharacter(Object.assign({}, myLook)).group;
   previewScene.add(previewModel);
 }
 
@@ -2166,6 +2401,40 @@ function buildSwatches() {
               .forEach(o => o.classList.toggle("picked", +o.dataset.colour === colour));
       });
       row.appendChild(dot);
+    });
+    holder.appendChild(row);
+  }
+
+  // ---- accessories: a row of little buttons for each slot ----
+  const slotLabels = { hat: "Head", face: "Face", back: "Back" };
+
+  for (const slot of Object.keys(ACCESSORY_SLOTS)) {
+    const row = document.createElement("div");
+    row.className = "swrow";
+
+    const label = document.createElement("span");
+    label.className = "swlabel";
+    label.textContent = slotLabels[slot];
+    row.appendChild(label);
+
+    ACCESSORY_SLOTS[slot].forEach(kind => {
+      const button = document.createElement("button");
+      button.className = "acc";
+      button.type = "button";
+      button.textContent = ACCESSORY_ICONS[kind];
+      button.title = ACCESSORY_NAMES[kind];
+      button.dataset.slot = slot;
+      button.dataset.kind = kind;
+      if (myLook[slot] === kind) button.classList.add("picked");
+
+      button.addEventListener("click", () => {
+        myLook[slot] = kind;
+        saveLook();
+        rebuildPreview();
+        holder.querySelectorAll('.acc[data-slot="' + slot + '"]')
+              .forEach(o => o.classList.toggle("picked", o.dataset.kind === kind));
+      });
+      row.appendChild(button);
     });
     holder.appendChild(row);
   }
@@ -2348,20 +2617,16 @@ function addOtherPlayer(id, colour, name, look) {
   colour = colour || theirLook.shirt;
   name = cleanNickname(name) || "Friend";
 
-  const built = buildCharacter({
-    shirt: theirLook.shirt,
-    skin: theirLook.skin,
-    trousers: theirLook.trousers,
-    hair: theirLook.hair,
+  const built = buildCharacter(Object.assign({}, theirLook, {
     name: name,
     tagColour: "#" + theirLook.shirt.toString(16).padStart(6, "0")
-  });
+  }));
   const group = built.group;
 
   // a little crown so you can tell friends from robots at a glance
   const crown = new THREE.Mesh(new THREE.ConeGeometry(0.19, 0.26, 5),
                                new THREE.MeshBasicMaterial({ color: colour }));
-  crown.position.y = 2.12;
+  crown.position.y = built.parts.hat ? 2.55 : 2.12;   // clear of a tall hat
   group.add(crown);
 
   scene.add(group);
