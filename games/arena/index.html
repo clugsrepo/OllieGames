@@ -764,7 +764,7 @@
              placeholder="Ollie">
     </p>
 
-    <p class="namerow" id="adminrow" hidden>
+    <p class="namerow" id="adminrow">
       <label for="admincode">Secret code:</label>
       <input id="admincode" maxlength="6" autocomplete="off" spellcheck="false"
              inputmode="numeric" placeholder="••••">
@@ -2052,9 +2052,9 @@ touchLayer.style.display = HAS_TOUCH ? "block" : "none";
 /* =====================================================================
    ADMIN POWERS  -  a proper admin panel, Roblox style
 
-   Put OLLIE as your name and the secret code box appears. Get the code
-   right and you unlock the panel: a searchable list of commands, and a
-   command bar you type into (press ; like Roblox admin scripts).
+   Type the secret code on the start screen - whatever name you're
+   using - and you unlock the panel: a searchable list of commands, and
+   a command bar you type into (press ; like Roblox admin scripts).
 
    Two things worth being straight about:
 
@@ -2066,7 +2066,6 @@ touchLayer.style.display = HAS_TOUCH ? "block" : "none";
       a command aimed at a friend says so instead of pretending.
    ===================================================================== */
 
-const ADMIN_NAME  = "ollie";
 const ADMIN_CODE  = "1233";
 const FLY_SPEED   = 9;
 const FLY_CEILING = 34;
@@ -2315,6 +2314,11 @@ const ADMIN_COMMANDS = [
     help: "Show this list of commands",
     run: () => { toggleAdminPanel(true); return "Here you go"; } },
 
+  { name: "lock", args: "",
+    help: "Give the admin powers back up",
+    run: () => { lockAdmin("Locked - type the code again for another go");
+                 return "Admin powers locked"; } },
+
   { name: "normal", alias: ["default", "off"], args: "",
     help: "Put everything back to normal",
     run: () => { admin.flying = admin.invincible = admin.frozen =
@@ -2393,20 +2397,9 @@ function adminLog(text, bad) {
   setTimeout(() => { if (line.parentNode) line.parentNode.removeChild(line); }, 4200);
 }
 
-function nameIsAdmin() {
-  const box = document.getElementById("nickname");
-  return cleanNickname(box && box.value).toLowerCase() === ADMIN_NAME;
-}
-
-// the code box only appears for the right name
-function refreshAdminRow() {
-  const allowed = nameIsAdmin();
-  adminRow.hidden = !allowed;
-  if (!allowed && admin.unlocked) lockAdmin("Powers off - you changed your name");
-}
-
+/* Anybody may TRY the code - it's the code that decides, not your
+   name. Change your name afterwards and you keep your powers. */
 function unlockAdmin() {
-  if (!nameIsAdmin()) return false;
   if (codeBox.value.trim() !== ADMIN_CODE) {
     adminState.textContent = "❌ Not that one";
     codeBox.value = "";
@@ -2660,7 +2653,6 @@ document.getElementById("btn-unlock").addEventListener("click", unlockAdmin);
 codeBox.addEventListener("keydown", e => {
   if (e.key === "Enter") { e.preventDefault(); unlockAdmin(); }
 });
-document.getElementById("nickname").addEventListener("input", refreshAdminRow);
 document.getElementById("admin-close").addEventListener("click",
   () => toggleAdminPanel(false));
 document.getElementById("btn-cmdbar").addEventListener("click", () => {
@@ -2697,8 +2689,6 @@ addEventListener("keydown", e => {
   const quick = ADMIN_COMMANDS.find(c => c.key === e.code);
   if (quick) { e.preventDefault(); runCommand(quick.name); }
 });
-
-refreshAdminRow();
 
 
 function beginGame() {
@@ -3422,9 +3412,6 @@ try {
   if (saved) document.getElementById("nickname").value = cleanNickname(saved);
 } catch (e) {}
 
-// the name box has only just been filled in, so ask again whether the
-// secret code box should be showing
-refreshAdminRow();
 
 document.getElementById("nickname").addEventListener("change", () => {
   try { localStorage.setItem(NAME_KEY, myName()); } catch (e) {}
