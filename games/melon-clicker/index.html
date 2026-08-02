@@ -156,8 +156,8 @@
   /* ---------- stats ---------- */
   .stats {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
     width: 100%;
     margin-top: 18px;
   }
@@ -190,8 +190,58 @@
     padding: 18px;
     text-align: center;
   }
-  .panel h2 { font-size: 1.15rem; margin-bottom: 6px; }
-  .panel p  { font-size: 0.9rem; color: #c9c2ff; line-height: 1.5; }
+  .panel h2 { font-size: 1.15rem; margin-bottom: 12px; }
+
+  /* ---------- shop buttons ---------- */
+  .upgrade {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-align: left;
+    font-family: inherit;
+    color: #fff;
+    background: rgba(255,255,255,0.09);
+    border: 2px solid rgba(255,255,255,0.2);
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: transform 0.1s, background 0.15s, border-color 0.15s;
+  }
+  .upgrade:last-child { margin-bottom: 0; }
+
+  /* you can afford it - make it obvious */
+  .upgrade.afford {
+    border-color: #ffd93d;
+    background: rgba(255,217,61,0.14);
+  }
+  .upgrade.afford:hover { background: rgba(255,217,61,0.24); }
+  .upgrade:active { transform: scale(0.97); }
+
+  /* too expensive - dim it and switch off the pointer */
+  .upgrade:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .up-icon { font-size: 1.7rem; }
+  .up-text { display: flex; flex-direction: column; flex: 1; }
+  .up-name { font-weight: bold; font-size: 1.02rem; }
+  .up-desc { font-size: 0.8rem; color: #c9c2ff; margin-top: 1px; }
+  .up-owned { font-size: 0.72rem; color: #9d95cc; margin-top: 3px; }
+
+  .up-cost {
+    font-weight: bold;
+    font-size: 1.05rem;
+    color: #ffd93d;
+    white-space: nowrap;
+  }
+  .up-cost::before { content: "🪙 "; }
+
+  @media (max-width: 380px) {
+    .up-desc { display: none; }
+  }
 
   footer {
     margin-top: auto;
@@ -228,8 +278,12 @@
 
   <div class="stats">
     <div class="stat">
-      <div class="label">Coins per tap</div>
+      <div class="label">Per tap</div>
       <div class="value" id="per-click">1</div>
+    </div>
+    <div class="stat">
+      <div class="label">Per second</div>
+      <div class="value" id="per-second">0</div>
     </div>
     <div class="stat">
       <div class="label">Total taps</div>
@@ -239,8 +293,26 @@
 
   <div class="panel">
     <h2>🛒 Upgrades</h2>
-    <p>Coming soon &mdash; Ollie is designing these!<br>
-       Spend your coins on things that make each tap worth more.</p>
+
+    <button class="upgrade" id="buy-click">
+      <span class="up-icon">👆</span>
+      <span class="up-text">
+        <span class="up-name">Stronger Taps</span>
+        <span class="up-desc">+1 coin every time you tap</span>
+        <span class="up-owned" id="click-owned">You have 0</span>
+      </span>
+      <span class="up-cost" id="click-cost">10</span>
+    </button>
+
+    <button class="upgrade" id="buy-auto">
+      <span class="up-icon">⏱️</span>
+      <span class="up-text">
+        <span class="up-name">Auto Tapper</span>
+        <span class="up-desc">+1 coin every second, on its own</span>
+        <span class="up-owned" id="auto-owned">You have 0</span>
+      </span>
+      <span class="up-cost" id="auto-cost">25</span>
+    </button>
   </div>
 
   <footer>Your coins are saved on this device automatically.</footer>
@@ -262,15 +334,46 @@ const SAVE_KEY = "ollie-melon-clicker-v1";
 let game = {
   coins: 0,
   perClick: 1,
+  perSecond: 0,
+  clickLevel: 0,      // how many "Stronger Taps" you've bought
+  autoLevel: 0,       // how many "Auto Tappers" you've bought
   totalClicks: 0,
   soundOn: true
 };
+
+/* ---------------------------------------------------------------
+   THE SHOP
+
+   Each upgrade starts cheap and gets dearer every time you buy it -
+   otherwise you'd buy a hundred at once and the game would be over in
+   a minute.
+
+   The price is:   start price  x  1.25  for each one you already own
+
+   So Stronger Taps goes 10, 13, 16, 20, 24, 30, 38... It creeps up
+   slowly at first and then really takes off. That's an EXPONENTIAL,
+   and it's the reason clicker games can keep going forever.
+   --------------------------------------------------------------- */
+
+const UPGRADES = {
+  click: { start: 10, growth: 1.25 },   // +1 coin per tap
+  auto:  { start: 25, growth: 1.30 }    // +1 coin per second
+};
+
+function costOf(which) {
+  const u = UPGRADES[which];
+  const owned = which === "click" ? game.clickLevel : game.autoLevel;
+  return Math.ceil(u.start * Math.pow(u.growth, owned));
+}
 
 // ---- bits of the page we talk to ----
 const star       = document.getElementById("star");
 const clickzone  = document.getElementById("clickzone");
 const coinsEl    = document.getElementById("coins");
 const perClickEl = document.getElementById("per-click");
+const perSecEl   = document.getElementById("per-second");
+const buyClick   = document.getElementById("buy-click");
+const buyAuto    = document.getElementById("buy-auto");
 const clicksEl   = document.getElementById("total-clicks");
 const rateEl     = document.getElementById("rate");
 const hintEl     = document.getElementById("hint");
@@ -300,12 +403,25 @@ function load() {
     // has fiddled with it, fall back to a sensible value instead of
     // ending up with "NaN coins" forever.
     // We used to call these Mels. Old saved games still use that name,
-  // so read whichever one is in there - nobody should lose their
-  // coins just because we renamed them.
-  game.coins       = safeNumber(saved.coins !== undefined ? saved.coins : saved.mels, 0);
-    game.perClick    = Math.max(1, safeNumber(saved.perClick, 1));
+    // so read whichever one is in there - nobody should lose their coins
+    // just because we renamed them.
+    game.coins       = safeNumber(saved.coins !== undefined ? saved.coins : saved.mels, 0);
+    /* If a save has no levels in it, it's from before the shop existed.
+       Work the levels back out from the power it recorded, so nobody
+       loses upgrades they'd already earned just because we changed how
+       we store them. Taking someone's stuff away is never acceptable. */
+    game.clickLevel  = Math.floor(safeNumber(saved.clickLevel,
+                         Math.max(0, safeNumber(saved.perClick, 1) - 1)));
+    game.autoLevel   = Math.floor(safeNumber(saved.autoLevel,
+                         safeNumber(saved.perSecond, 0)));
     game.totalClicks = safeNumber(saved.totalClicks, 0);
     game.soundOn     = saved.soundOn !== false;
+
+    // Work these two out from the levels rather than trusting the saved
+    // numbers. If they ever disagreed - an older save, or someone
+    // editing the file - the levels are the honest answer.
+    game.perClick  = 1 + game.clickLevel;
+    game.perSecond = game.autoLevel;
   } catch (e) {
     // broken save - just start fresh
   }
@@ -333,8 +449,53 @@ function pretty(n) {
 function refresh() {
   coinsEl.textContent    = pretty(game.coins);
   perClickEl.textContent = pretty(game.perClick);
+  perSecEl.textContent   = pretty(game.perSecond);
   clicksEl.textContent   = pretty(game.totalClicks);
+  refreshShop();
 }
+
+function refreshShop() {
+  const purse = Math.floor(game.coins);
+
+  const clickCost = costOf("click");
+  document.getElementById("click-cost").textContent  = pretty(clickCost);
+  document.getElementById("click-owned").textContent = "You have " + game.clickLevel;
+  buyClick.disabled = purse < clickCost;
+  buyClick.classList.toggle("afford", purse >= clickCost);
+
+  const autoCost = costOf("auto");
+  document.getElementById("auto-cost").textContent  = pretty(autoCost);
+  document.getElementById("auto-owned").textContent = "You have " + game.autoLevel;
+  buyAuto.disabled = purse < autoCost;
+  buyAuto.classList.toggle("afford", purse >= autoCost);
+}
+
+function buy(which) {
+  const cost = costOf(which);
+
+  // Check the price again here, not just on the button. Never trust the
+  // button - it could be out of date, or someone could call buy() from
+  // the browser console to cheat.
+  if (Math.floor(game.coins) < cost) return false;
+
+  game.coins -= cost;
+
+  if (which === "click") {
+    game.clickLevel++;
+    game.perClick = 1 + game.clickLevel;
+  } else {
+    game.autoLevel++;
+    game.perSecond = game.autoLevel;
+  }
+
+  refresh();
+  buySound();
+  save();
+  return true;
+}
+
+buyClick.addEventListener("click", () => buy("click"));
+buyAuto.addEventListener("click",  () => buy("auto"));
 
 
 /* ---------------------------------------------------------------
@@ -449,12 +610,40 @@ setInterval(() => {
   tapTimes = tapTimes.filter(t => now - t < 3000);   // last 3 seconds
 
   if (tapTimes.length < 2) {
-    rateEl.textContent = "";
+    rateEl.textContent = game.perSecond > 0
+      ? pretty(game.perSecond) + " coins per second"
+      : "";
     return;
   }
-  const perSec = (tapTimes.length / 3) * game.perClick;
-  rateEl.textContent = pretty(Math.round(perSec)) + " coins per second";
+  const fromTapping = (tapTimes.length / 3) * game.perClick;
+  rateEl.textContent = pretty(Math.round(fromTapping + game.perSecond))
+                     + " coins per second";
 }, 400);
+
+
+/* ---------------------------------------------------------------
+   THE AUTO TAPPER - coins that arrive on their own
+
+   We don't just add perSecond every second. If you switch to another
+   tab, browsers slow timers right down, and you'd be robbed of coins.
+   Instead we look at the CLOCK and work out how much time really went
+   by since last time. Slow timer, fast timer, doesn't matter - the
+   sums come out the same.
+   --------------------------------------------------------------- */
+
+let lastTick = performance.now();
+
+setInterval(() => {
+  const now = performance.now();
+  const secondsPassed = (now - lastTick) / 1000;
+  lastTick = now;
+
+  if (game.perSecond <= 0) return;
+
+  game.coins += game.perSecond * secondsPassed;
+  refresh();
+  saveSoon();
+}, 100);
 
 
 /* ---------------------------------------------------------------
@@ -485,6 +674,34 @@ function blip() {
     osc.stop(audio.currentTime + 0.13);
   } catch (e) {
     // no sound available - never mind, the game still works
+  }
+}
+
+
+// a happier two-note "ker-ching!" when you buy an upgrade
+function buySound() {
+  if (!game.soundOn) return;
+  try {
+    if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === "suspended") audio.resume();
+
+    [660, 990].forEach((note, i) => {
+      const osc  = audio.createOscillator();
+      const gain = audio.createGain();
+      const at   = audio.currentTime + i * 0.09;
+
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(note, at);
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(0.11, at + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.18);
+
+      osc.connect(gain).connect(audio.destination);
+      osc.start(at);
+      osc.stop(at + 0.2);
+    });
+  } catch (e) {
+    // no sound available - never mind
   }
 }
 
@@ -528,7 +745,8 @@ soundBtn.addEventListener("click", () => {
 document.getElementById("btn-reset").addEventListener("click", () => {
   const total = pretty(game.coins);
   if (!confirm("Start again from zero?\n\nYou will lose all " + total + " coins!")) return;
-  game = { coins: 0, perClick: 1, totalClicks: 0, soundOn: game.soundOn };
+  game = { coins: 0, perClick: 1, perSecond: 0, clickLevel: 0, autoLevel: 0,
+           totalClicks: 0, soundOn: game.soundOn };
   tapTimes = [];
   hintEl.style.opacity = "1";
   refresh();
