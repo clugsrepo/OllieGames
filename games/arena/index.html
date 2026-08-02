@@ -206,15 +206,28 @@
   }
 
   /* ---------------- start screen ---------------- */
+  /* The start screen has to SCROLL when it doesn't fit.
+
+     Centring it with grid looked fine on a big screen, but on a short
+     one the panel overflowed and the "back" button ended up off the
+     bottom with no way to reach it - the page itself can't scroll
+     because the game needs that switched off. */
   #start {
     position: fixed;
     inset: 0;
     z-index: 20;
     background: rgba(11,16,32,0.94);
-    display: grid;
-    place-items: center;
     text-align: center;
-    padding: 20px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  #start > div {
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 24px 20px;
   }
   #start h1 {
     font-size: clamp(2rem, 9vw, 3.4rem);
@@ -249,7 +262,73 @@
     padding: 15px 38px;
     cursor: pointer;
   }
-  #play:active { transform: scale(0.96); }
+  #play:active, .alt:active, #btn-go-host:active, #btn-connect:active { transform: scale(0.96); }
+
+  /* The `hidden` attribute only works if nothing overrides display.
+     `#menu { display: flex }` beat it, so hiding the menu did nothing
+     and the buttons stayed on screen behind the panel. */
+  [hidden] { display: none !important; }
+
+  #menu { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+
+  .alt, #btn-go-host, #btn-connect {
+    font-family: inherit;
+    font-size: 1.05rem;
+    font-weight: bold;
+    color: #fff;
+    background: rgba(255,255,255,0.12);
+    border: 2px solid rgba(255,255,255,0.35);
+    border-radius: 12px;
+    padding: 12px 26px;
+    cursor: pointer;
+  }
+  .alt:hover, #btn-go-host:hover, #btn-connect:hover { background: rgba(255,255,255,0.22); }
+  #btn-go-host:disabled { opacity: 0.4; cursor: not-allowed; }
+  #btn-go-host, #btn-connect {
+    margin-top: 12px; color: #0b1020; background: #ffd93d; border-color: #ffd93d;
+  }
+
+  .link {
+    margin-top: 14px;
+    background: none; border: none;
+    color: #9d95cc; font-family: inherit; font-size: 0.9rem;
+    cursor: pointer; text-decoration: underline;
+  }
+
+  #roomcode {
+    font-size: clamp(2.2rem, 12vw, 3.4rem);
+    font-weight: bold;
+    letter-spacing: 8px;
+    color: #ffd93d;
+    margin: 6px 0 10px;
+    text-shadow: 0 0 24px rgba(255,217,61,0.4);
+  }
+
+  #codeinput {
+    font-family: inherit;
+    font-size: 2rem;
+    font-weight: bold;
+    letter-spacing: 6px;
+    text-align: center;
+    text-transform: uppercase;
+    width: 240px;
+    max-width: 80vw;
+    padding: 10px;
+    border-radius: 12px;
+    border: 2px solid rgba(255,255,255,0.35);
+    background: rgba(0,0,0,0.4);
+    color: #ffd93d;
+  }
+
+  #playerlist {
+    position: absolute;
+    top: max(60px, calc(env(safe-area-inset-top) + 50px));
+    left: max(12px, env(safe-area-inset-left));
+    font-size: 0.8rem;
+    color: #c9c2ff;
+    text-shadow: 0 2px 4px #000;
+    line-height: 1.5;
+  }
   /* The way out. This stays put the whole time you're playing - hiding
      it left you stuck in the game with no way back to the hub. */
   #home {
@@ -268,13 +347,15 @@
     padding: 9px 16px;
     pointer-events: auto;
     touch-action: manipulation;
+    display: none;              /* only while you're actually playing */
   }
+  body.playing #home { display: block; }
   #home:active { transform: translateX(-50%) scale(0.94); }
 </style>
 </head>
 <body>
 
-<a id="home" href="../../index.html">← Leave</a>
+<a id="home" href="../../index.html" onclick="netSend({t:'bye'})">← Leave</a>
 
 <div id="hud">
   <div id="crosshair"></div>
@@ -292,6 +373,7 @@
 
   <div id="message"></div>
   <div id="pausehint">Paused &mdash; click to play on, or <strong>Leave</strong> at the top</div>
+  <div id="playerlist"></div>
 </div>
 
 <div id="touch">
@@ -315,11 +397,33 @@
       Left stick to move &nbsp;·&nbsp; <strong>swipe the screen to look</strong><br>
       💥 to shoot &nbsp;·&nbsp; ⬆ to jump
     </p>
-    <button id="play">PLAY</button>
+    <div id="menu">
+      <button id="play">PLAY ON MY OWN</button>
+      <button class="alt" id="btn-host">🏠 START A PRIVATE GAME</button>
+      <button class="alt" id="btn-join">🔑 JOIN A FRIEND</button>
+    </div>
+
+    <div id="hostpanel" hidden>
+      <p>Give this code to your friend:</p>
+      <div id="roomcode">····</div>
+      <p id="hoststatus">Getting your code…</p>
+      <button id="btn-go-host" disabled>START PLAYING</button><br>
+      <button class="link" data-back>← back</button>
+    </div>
+
+    <div id="joinpanel" hidden>
+      <p>Type your friend's code:</p>
+      <input id="codeinput" maxlength="6" autocomplete="off"
+             autocapitalize="characters" spellcheck="false" placeholder="ABC123">
+      <p id="joinstatus">&nbsp;</p>
+      <button id="btn-connect">JOIN</button><br>
+      <button class="link" data-back>← back</button>
+    </div>
   </div>
 </div>
 
 <script src="three.min.js"></script>
+<script src="peerjs.min.js"></script>
 <script>
 /* =====================================================================
    STAR ARENA - a first person 3D game
@@ -831,11 +935,15 @@ document.getElementById("how-desktop").style.display = HAS_TOUCH ? "none" : "blo
 document.getElementById("how-touch").style.display   = HAS_TOUCH ? "block" : "none";
 touchLayer.style.display = HAS_TOUCH ? "block" : "none";
 
-document.getElementById("play").addEventListener("click", () => {
+function beginGame() {
   startScreen.style.display = "none";
+  document.body.classList.add("playing");
   playing = true;
+  refreshPlayerList();
   if (!HAS_TOUCH) canvas.requestPointerLock();
-});
+}
+
+document.getElementById("play").addEventListener("click", beginGame);
 
 // ---------------------------------------------------------------
 // THE GAME LOOP
@@ -858,7 +966,8 @@ function tick() {
   if (playing) {
     updatePeace(dt);
     updatePlayer(dt);
-    updateRobots(dt);
+    if (net.mode === "solo") updateRobots(dt);   // in a friend game you fight each other
+    netTick(dt);
     updateBolts(dt);
     updateSparks(dt);
   }
@@ -978,6 +1087,8 @@ function updatePlayer(dt) {
     tmp.copy(player.pos).addScaledVector(dir, 0.6);
     tmp.y -= 0.15;
     shoot(tmp, dir, true);
+    netSend({ t: "shot", x: tmp.x, y: tmp.y, z: tmp.z,
+              dx: dir.x, dy: dir.y, dz: dir.z });
   }
   fireQueued = false;
 }
@@ -1092,6 +1203,28 @@ function updateBolts(dt) {
         const dx = p.x - r.pos.x, dz = p.z - r.pos.z;
         if (Math.abs(dx) < 0.55 && Math.abs(dz) < 0.5 && p.y > 0 && p.y < 2.0) { hit = r; break; }
       }
+      /* Did it hit a FRIEND?
+
+         Whoever fires decides whether it hit, and tells the other
+         person. It has to work that way round: on your screen your
+         friend is always a fraction of a second behind where they
+         really are, so only the shooter's view can judge their own
+         aim fairly. */
+      if (!hit && net.mode !== "solo") {
+        for (const [id, o] of net.others) {
+          if (o.dead) continue;
+          const dx = p.x - o.x, dz = p.z - o.z;
+          if (Math.abs(dx) < 0.6 && Math.abs(dz) < 0.6 && p.y > 0 && p.y < 2.1) {
+            sparkle(p, 0xffe680);
+            removeBolt(i);
+            netSend({ t: "hit", target: id, dmg: PLAYER_DAMAGE });
+            hit = "friend";
+            break;
+          }
+        }
+        if (hit === "friend") continue;
+      }
+
       if (hit) {
         hit.health -= PLAYER_DAMAGE;
         sparkle(p, 0xffe680);
@@ -1108,8 +1241,10 @@ function updateBolts(dt) {
         }
         continue;
       }
-    } else if (!player.dead) {
+    } else if (!player.dead && !b.visual) {
       // did it hit you?
+      // (visual bolts are just your friend's shots being drawn on your
+      //  screen - their computer decides whether they hit, not ours)
       const dx = p.x - player.pos.x;
       const dy = p.y - (player.pos.y - PLAYER_HEIGHT / 2);
       const dz = p.z - player.pos.z;
@@ -1150,6 +1285,350 @@ function updateSparks(dt) {
     s.mesh.scale.setScalar(Math.max(0.05, s.life / 0.65));
   }
 }
+
+/* =====================================================================
+   PLAYING WITH A FRIEND
+
+   There is no server anywhere. The two computers talk STRAIGHT TO EACH
+   OTHER using something called WebRTC.
+
+   The only thing we borrow from the internet is a free "matchmaker",
+   whose whole job is to introduce the two browsers. Your friend's code
+   is really just a name we book with the matchmaker. Once the two are
+   introduced, the matchmaker steps out and the game data goes directly
+   between you.
+
+   One player HOSTS. Everyone else connects to the host, and the host
+   passes messages along to everybody. That way three or four can play,
+   not just two.
+   ===================================================================== */
+
+const ROOM_PREFIX = "ollie-star-arena-v1-";
+
+// Letters and numbers that can't be mixed up: no O/0, no I/1/L.
+const CODE_LETTERS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+function makeRoomCode() {
+  let code = "";
+  for (let i = 0; i < 6; i++) {
+    code += CODE_LETTERS[Math.floor(Math.random() * CODE_LETTERS.length)];
+  }
+  return code;
+}
+
+const PLAYER_COLOURS = [0x6bcbff, 0xff8fd9, 0x4ade80, 0xff9f43, 0xa06bff, 0xffd93d];
+
+const net = {
+  mode: "solo",        // "solo" | "host" | "guest"
+  peer: null,          // the PeerJS object
+  conns: [],           // who we're connected to
+  me: "me",
+  others: new Map(),   // id -> { mesh, x, y, z, yaw, health, dead, name, colour }
+  left: new Set(),     // people who have said goodbye
+  sendRate: 0,
+  transport: null      // swapped for a fake one in tests
+};
+
+/* ---- sending ----
+   Guests send to the host. The host sends to everyone. */
+function netSend(msg) {
+  if (net.mode === "solo") return;
+  msg.from = msg.from || net.me;
+  if (net.transport) { net.transport.send(msg); return; }
+  for (const c of net.conns) {
+    if (c.open) { try { c.send(msg); } catch (e) {} }
+  }
+}
+
+/* ---- receiving ---- */
+function netReceive(msg) {
+  if (!msg || !msg.from || msg.from === net.me) return;
+
+  /* Once someone has left, ignore anything else from them.
+
+     Without this they come straight back from the dead: their last few
+     position messages are still in flight when the goodbye arrives, and
+     the next one to land makes a brand new player appear. A fresh
+     "hello" means they've genuinely rejoined, so that one is allowed. */
+  if (net.left.has(msg.from)) {
+    if (msg.t !== "hello") return;
+    net.left.delete(msg.from);
+  }
+
+  // The host is the postbox: pass everything on to the other guests so
+  // guests can see each other, not just the host.
+  if (net.mode === "host") {
+    for (const c of net.conns) {
+      if (c.open && c.peer !== msg.from) { try { c.send(msg); } catch (e) {} }
+    }
+  }
+
+  let other = net.others.get(msg.from);
+
+  if (msg.t === "hello" || (!other && msg.t === "state")) {
+    if (!other) {
+      other = addOtherPlayer(msg.from, msg.colour, msg.name);
+      say((msg.name || "A friend") + " joined! 👋", 2);
+    }
+  }
+  if (!other) return;
+
+  switch (msg.t) {
+    case "state":
+      other.x = msg.x; other.y = msg.y; other.z = msg.z;
+      other.yaw = msg.yaw;
+      other.health = msg.health;
+      other.dead = msg.dead;
+      other.lastSeen = performance.now();
+      break;
+
+    case "shot":
+      // just for show - the person shooting decides if it hit
+      shootVisual(new THREE.Vector3(msg.x, msg.y, msg.z),
+                  new THREE.Vector3(msg.dx, msg.dy, msg.dz), other.colour);
+      break;
+
+    case "hit":
+      // someone says they hit US. Only we can change our own health.
+      if (msg.target === net.me && !player.dead && player.safeFor <= 0) {
+        player.health -= msg.dmg;
+        flash();
+        updateHud();
+        if (player.health <= 0) {
+          player.health = 0;
+          player.dead = true;
+          player.respawnIn = 2.2;
+          updateHud();
+          netSend({ t: "down", by: msg.from });
+          say("Knocked out by " + other.name + "!", 2.2);
+        }
+      }
+      break;
+
+    case "down":
+      // they were knocked out - if it was us that did it, have a point
+      if (msg.by === net.me) {
+        player.score++;
+        updateHud();
+        say("You beat " + other.name + "! ⭐", 1.4);
+      }
+      break;
+
+    case "bye":
+      net.left.add(msg.from);
+      removeOtherPlayer(msg.from);
+      say((other.name || "A friend") + " left", 1.6);
+      break;
+  }
+}
+
+function addOtherPlayer(id, colour, name) {
+  colour = colour || PLAYER_COLOURS[net.others.size % PLAYER_COLOURS.length];
+
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.1, 0.5),
+                              new THREE.MeshLambertMaterial({ color: colour }));
+  body.position.y = 0.75;
+  group.add(body);
+
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.5, 0.55),
+                              new THREE.MeshLambertMaterial({ color: 0xf0e6d2 }));
+  head.position.y = 1.58;
+  group.add(head);
+
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0x1a1a2e });
+  [-0.14, 0.14].forEach(dx => {
+    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.12, 0.06), eyeMat);
+    eye.position.set(dx, 1.62, 0.29);
+    group.add(eye);
+  });
+
+  // a little crown so you can tell friends from robots at a glance
+  const crown = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.3, 5),
+                               new THREE.MeshBasicMaterial({ color: colour }));
+  crown.position.y = 2.05;
+  group.add(crown);
+
+  scene.add(group);
+
+  const other = { id, mesh: group, colour, name: name || "Friend",
+                  x: 0, y: PLAYER_HEIGHT, z: 0, yaw: 0,
+                  health: 100, dead: false, lastSeen: performance.now() };
+  net.others.set(id, other);
+  refreshPlayerList();
+  return other;
+}
+
+function removeOtherPlayer(id) {
+  const other = net.others.get(id);
+  if (!other) return;
+  scene.remove(other.mesh);
+  net.others.delete(id);
+  refreshPlayerList();
+}
+
+function refreshPlayerList() {
+  const el = document.getElementById("playerlist");
+  if (net.mode === "solo") { el.textContent = ""; return; }
+  const names = [...net.others.values()].map(o => "· " + o.name);
+  el.innerHTML = "<strong>In this game</strong><br>· You<br>" + names.join("<br>");
+}
+
+// a bolt that's only for show - it can't hurt anyone
+function shootVisual(from, dir, colour) {
+  const mesh = new THREE.Mesh(boltGeo, new THREE.MeshBasicMaterial({ color: colour }));
+  mesh.position.copy(from);
+  scene.add(mesh);
+  bolts.push({ mesh, dir: dir.clone().normalize(), fromPlayer: false,
+               visual: true, life: BOLT_LIFE });
+}
+
+/* ---- called every frame ---- */
+let stateTimer = 0;
+
+function netTick(dt) {
+  if (net.mode === "solo") return;
+
+  // tell everyone where we are, about 15 times a second
+  stateTimer -= dt;
+  if (stateTimer <= 0) {
+    stateTimer = 1 / 15;
+    netSend({ t: "state", x: player.pos.x, y: player.pos.y, z: player.pos.z,
+              yaw: player.yaw, health: player.health, dead: player.dead });
+  }
+
+  // slide everyone else towards where they said they were, so they
+  // glide instead of jumping between positions
+  const now = performance.now();
+  for (const [id, o] of net.others) {
+    const m = o.mesh;
+    m.position.x += (o.x - m.position.x) * Math.min(1, dt * 12);
+    m.position.z += (o.z - m.position.z) * Math.min(1, dt * 12);
+    m.position.y = 0;
+    m.rotation.y = o.yaw + Math.PI;
+    m.visible = !o.dead;
+
+    // gone quiet for 12 seconds? they've probably closed the game
+    if (now - o.lastSeen > 12000) removeOtherPlayer(id);
+  }
+}
+
+/* ---- the lobby buttons ---- */
+const menuEl   = document.getElementById("menu");
+const hostPanel = document.getElementById("hostpanel");
+const joinPanel = document.getElementById("joinpanel");
+
+function showPanel(which) {
+  menuEl.hidden   = which !== "menu";
+  hostPanel.hidden = which !== "host";
+  joinPanel.hidden = which !== "join";
+}
+
+document.querySelectorAll("[data-back]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    if (net.peer) { try { net.peer.destroy(); } catch (e) {} net.peer = null; }
+    net.mode = "solo";
+    showPanel("menu");
+  });
+});
+
+document.getElementById("btn-host").addEventListener("click", () => {
+  showPanel("host");
+  const code = makeRoomCode();
+  document.getElementById("roomcode").textContent = code;
+  const status = document.getElementById("hoststatus");
+  status.textContent = "Getting your code…";
+
+  try {
+    net.peer = new Peer(ROOM_PREFIX + code, { debug: 0 });
+  } catch (e) {
+    status.textContent = "Couldn't start. Try again?";
+    return;
+  }
+
+  net.peer.on("open", () => {
+    net.mode = "host";
+    net.me = ROOM_PREFIX + code;
+    status.textContent = "Ready! Waiting for your friend…";
+    document.getElementById("btn-go-host").disabled = false;
+  });
+
+  net.peer.on("error", err => {
+    status.textContent = err.type === "unavailable-id"
+      ? "That code is taken - go back and try again."
+      : "Couldn't connect (" + err.type + ").";
+  });
+
+  net.peer.on("connection", conn => {
+    net.conns.push(conn);
+    conn.on("open", () => {
+      status.textContent = "Your friend is here! 🎉";
+      conn.send({ t: "hello", from: net.me, name: "Host", colour: 0xffd93d });
+    });
+    conn.on("data", netReceive);
+    conn.on("close", () => {
+      net.conns = net.conns.filter(c => c !== conn);
+      removeOtherPlayer(conn.peer);
+    });
+  });
+});
+
+document.getElementById("btn-join").addEventListener("click", () => showPanel("join"));
+
+document.getElementById("btn-connect").addEventListener("click", () => {
+  const code = (document.getElementById("codeinput").value || "").trim().toUpperCase();
+  const status = document.getElementById("joinstatus");
+
+  if (code.length !== 6) { status.textContent = "Codes are 6 letters and numbers."; return; }
+  status.textContent = "Looking for your friend…";
+
+  try {
+    net.peer = new Peer({ debug: 0 });
+  } catch (e) {
+    status.textContent = "Couldn't start. Try again?";
+    return;
+  }
+
+  net.peer.on("error", err => {
+    status.textContent = err.type === "peer-unavailable"
+      ? "No game with that code. Check the letters?"
+      : "Couldn't connect (" + err.type + ").";
+  });
+
+  net.peer.on("open", myId => {
+    net.me = myId;
+    const conn = net.peer.connect(ROOM_PREFIX + code, { reliable: false });
+    net.conns = [conn];
+
+    conn.on("open", () => {
+      net.mode = "guest";
+      status.textContent = "Connected! 🎉";
+      conn.send({ t: "hello", from: net.me, name: "Friend",
+                  colour: PLAYER_COLOURS[1] });
+      beginGame();
+    });
+    conn.on("data", netReceive);
+    conn.on("close", () => say("Lost the connection", 3));
+  });
+});
+
+document.getElementById("btn-go-host").addEventListener("click", beginGame);
+
+/* ---- FOR TESTING ----
+   Lets the test harness join two browser tabs together with a pretend
+   connection, so all the game logic can be checked without needing the
+   real internet. Nothing here runs during normal play. */
+window.__testNet = function (role, myId) {
+  net.mode = role;
+  net.me = myId;
+  net.transport = {
+    outbox: [],
+    send(msg) { this.outbox.push(msg); }
+  };
+  window.__outbox = () => { const o = net.transport.outbox; net.transport.outbox = []; return o; };
+  window.__deliver = msg => netReceive(msg);
+  beginGame();
+};
 
 updateHud();
 tick();
