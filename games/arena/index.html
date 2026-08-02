@@ -180,6 +180,14 @@
     background: rgba(107,203,255,0.22);
     border-color: #6bcbff;
   }
+  #btn-gun {
+    left: max(24px, env(safe-area-inset-left));
+    bottom: max(170px, calc(env(safe-area-inset-bottom) + 144px));
+    width: 62px; height: 62px;
+    font-size: 1.2rem;
+    background: rgba(160,107,255,0.25);
+    border-color: #a06bff;
+  }
   .tbtn:active { transform: scale(0.92); }
 
   /* On a narrow phone - especially held upright - the default sizes
@@ -201,6 +209,12 @@
       right: max(33px, calc(env(safe-area-inset-right) + 33px));
       bottom: max(224px, calc(env(safe-area-inset-bottom) + 202px));
       width: 58px; height: 58px;
+      font-size: 1rem;
+    }
+    #btn-gun {
+      left: max(28px, calc(env(safe-area-inset-left) + 28px));
+      bottom: max(142px, calc(env(safe-area-inset-bottom) + 120px));
+      width: 56px; height: 56px;
       font-size: 1rem;
     }
   }
@@ -334,6 +348,22 @@
     color: #ffd93d;
   }
 
+  #weaponbox {
+    position: absolute;
+    bottom: max(14px, env(safe-area-inset-bottom));
+    left: 50%;
+    transform: translateX(-50%);
+    font-weight: bold;
+    font-size: 0.95rem;
+    color: #ffd93d;
+    background: rgba(0,0,0,0.5);
+    border: 2px solid rgba(255,217,61,0.5);
+    border-radius: 10px;
+    padding: 5px 14px;
+    text-shadow: 0 2px 4px #000;
+    white-space: nowrap;
+  }
+
   #playerlist {
     position: absolute;
     top: max(60px, calc(env(safe-area-inset-top) + 50px));
@@ -388,6 +418,7 @@
   <div id="message"></div>
   <div id="pausehint">Paused &mdash; click to play on, or <strong>Leave</strong> at the top</div>
   <div id="playerlist"></div>
+  <div id="weaponbox"><span id="weaponname">Star Blaster</span></div>
 </div>
 
 <div id="touch">
@@ -395,6 +426,7 @@
   <div class="stick" id="stick-look"><div class="knob"></div></div>
   <button class="tbtn" id="btn-fire">💥</button>
   <button class="tbtn" id="btn-jump">⬆</button>
+  <button class="tbtn" id="btn-gun">🔫</button>
 </div>
 
 <div id="start">
@@ -405,11 +437,12 @@
     <p id="how-desktop">
       <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to move &nbsp;·&nbsp;
       mouse to look &nbsp;·&nbsp; <kbd>Space</kbd> to jump<br>
-      Click to shoot &nbsp;·&nbsp; <kbd>Esc</kbd> to free the mouse, then Leave
+      Click to shoot &nbsp;·&nbsp; <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> to change gun<br>
+      <kbd>Esc</kbd> to free the mouse, then Leave
     </p>
     <p id="how-touch">
       Left stick to move &nbsp;·&nbsp; <strong>swipe the screen to look</strong><br>
-      💥 to shoot &nbsp;·&nbsp; ⬆ to jump
+      💥 to shoot &nbsp;·&nbsp; ⬆ to jump &nbsp;·&nbsp; 🔫 to change gun
     </p>
     <p class="namerow">
       <label for="nickname">Your name:</label>
@@ -469,7 +502,36 @@ const BOLT_SPEED    = 34;
 const BOLT_LIFE     = 2.2;    // seconds before it fizzles out
 const PLAYER_DAMAGE = 34;     // 3 hits to beat a robot
 const ROBOT_DAMAGE  = 9;
-const FIRE_DELAY    = 0.22;   // seconds between your shots
+const FIRE_DELAY    = 0.22;   // (the old single setting - now per weapon)
+
+/* =====================================================================
+   THE WEAPONS
+
+   Three of them, and they feel completely different to use even though
+   the code is the same. That's the whole trick with weapon design: you
+   change a handful of numbers, not the machinery.
+
+     fireDelay - seconds between shots (small = fast)
+     damage    - health taken off per bolt that lands
+     pellets   - how many bolts leave the barrel at once
+     spread    - how much they scatter (0 = dead straight)
+
+   They're balanced so none is simply "the best":
+     Blaster  34 x 1 every 0.22s  = steady and accurate
+     Rifle    14 x 1 every 0.09s  = fast but weaker per shot
+     Scatter  13 x 6 every 0.62s  = brutal up close, useless far away
+   ===================================================================== */
+
+const WEAPONS = [
+  { name: "Star Blaster", fireDelay: 0.22, damage: 34, pellets: 1,
+    spread: 0.0,   colour: 0xffe680, size: 1.0, kick: 0.05 },
+  { name: "Rapid Rifle",  fireDelay: 0.09, damage: 14, pellets: 1,
+    spread: 0.035, colour: 0x9bf6ff, size: 0.75, kick: 0.03 },
+  { name: "Scatter Gun",  fireDelay: 0.62, damage: 13, pellets: 6,
+    spread: 0.11,  colour: 0xffa76b, size: 0.8, kick: 0.13 }
+];
+
+let currentWeapon = 0;
 
 /* How fast the camera turns when you look around.
 
@@ -586,6 +648,98 @@ for (let i = 0; i < 60; i++) {
                  8 + Math.random()*14,
                  (Math.random()-0.5)*ARENA*2);
   scene.add(s);
+}
+
+/* ---------------------------------------------------------------
+   THE GUN IN YOUR HANDS
+
+   This is called a "viewmodel". It isn't really out in the world at
+   all - it's parented to the CAMERA, so it rides along with your head
+   and always sits in the same spot on screen.
+   --------------------------------------------------------------- */
+
+scene.add(camera);            // needed, or things attached to the camera never draw
+
+/* Where the gun sits on screen. It was much too close to start with -
+   at 0.55 away with a wide field of view it filled a third of the
+   screen. Further back and a bit smaller looks far better. */
+const GUN_REST = { x: 0.26, y: -0.20, z: -0.82 };
+
+const gunRig = new THREE.Group();
+gunRig.position.set(GUN_REST.x, GUN_REST.y, GUN_REST.z);
+gunRig.scale.setScalar(0.8);
+camera.add(gunRig);
+
+const gunModels = [];
+const muzzles = [];
+
+function buildGun(style) {
+  const g = new THREE.Group();
+  const dark  = new THREE.MeshLambertMaterial({ color: 0x3a3f52 });
+  const mid   = new THREE.MeshLambertMaterial({ color: 0x565d78 });
+  const glowM = new THREE.MeshBasicMaterial({ color: style.colour });
+
+  // grip
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.16, 0.07), dark);
+  grip.position.set(0, -0.09, 0.05);
+  grip.rotation.x = -0.25;
+  g.add(grip);
+
+  // body
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.09, style.bodyLen), mid);
+  body.position.z = -style.bodyLen / 2 + 0.06;
+  g.add(body);
+
+  // barrel
+  const barrel = new THREE.Mesh(
+    new THREE.CylinderGeometry(style.barrelR, style.barrelR, style.barrelLen, 8), dark);
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.z = -style.bodyLen - style.barrelLen / 2 + 0.06;
+  g.add(barrel);
+
+  // a glowing strip so you can tell them apart at a glance
+  const strip = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, style.bodyLen * 0.6), glowM);
+  strip.position.set(0.045, 0.02, -style.bodyLen * 0.4);
+  g.add(strip);
+
+  if (style.mag) {                       // the rifle gets a magazine
+    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.13, 0.05), dark);
+    mag.position.set(0, -0.09, -0.1);
+    mag.rotation.x = 0.3;
+    g.add(mag);
+  }
+  if (style.wide) {                      // the scatter gun gets a fat muzzle
+    const horn = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.045, 0.1, 8), mid);
+    horn.rotation.x = Math.PI / 2;
+    horn.position.z = -style.bodyLen - style.barrelLen + 0.02;
+    g.add(horn);
+  }
+
+  // the flash that pops when you fire
+  const flash = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8),
+                               new THREE.MeshBasicMaterial({ color: style.colour }));
+  flash.position.z = -style.bodyLen - style.barrelLen + 0.02;
+  flash.visible = false;
+  g.add(flash);
+
+  gunRig.add(g);
+  gunModels.push(g);
+  muzzles.push(flash);
+  return g;
+}
+
+buildGun({ colour: 0xffe680, bodyLen: 0.30, barrelLen: 0.14, barrelR: 0.022 });
+buildGun({ colour: 0x9bf6ff, bodyLen: 0.36, barrelLen: 0.20, barrelR: 0.018, mag: true });
+buildGun({ colour: 0xffa76b, bodyLen: 0.26, barrelLen: 0.16, barrelR: 0.03, wide: true });
+
+let gunKick = 0;          // how far it's recoiled right now
+let flashTimer = 0;
+
+function showWeapon(index) {
+  currentWeapon = ((index % WEAPONS.length) + WEAPONS.length) % WEAPONS.length;
+  gunModels.forEach((m, i) => { m.visible = i === currentWeapon; });
+  const el = document.getElementById("weaponname");
+  if (el) el.textContent = WEAPONS[currentWeapon].name;
 }
 
 // ---------------------------------------------------------------
@@ -873,14 +1027,35 @@ const boltGeo = new THREE.SphereGeometry(0.16, 8, 8);
 
 // `owner` is the robot that fired it, so a bolt can't hit the robot that
 // shot it - and so a robot knows who to blame when it gets hit.
-function shoot(from, dir, fromPlayer, owner) {
+function shoot(from, dir, fromPlayer, owner, opts) {
+  opts = opts || {};
   const mesh = new THREE.Mesh(boltGeo, new THREE.MeshBasicMaterial({
-    color: fromPlayer ? 0xffe680 : 0xff5b5b
+    color: opts.colour !== undefined ? opts.colour : (fromPlayer ? 0xffe680 : 0xff5b5b)
   }));
   mesh.position.copy(from);
+  if (opts.size) mesh.scale.setScalar(opts.size);
   scene.add(mesh);
 
-  bolts.push({ mesh, dir: dir.clone().normalize(), fromPlayer, owner, life: BOLT_LIFE });
+  // Each bolt remembers its own damage, so a shot fired by the rifle
+  // still does rifle damage even if you switch guns while it's flying.
+  // If no damage was given, fall back to whoever fired it. Defaulting
+  // everything to the robots' damage was wrong: a player bolt with no
+  // damage set would have done a robot's feeble 9 instead of 34.
+  const fallback = fromPlayer ? PLAYER_DAMAGE : ROBOT_DAMAGE;
+
+  bolts.push({ mesh, dir: dir.clone().normalize(), fromPlayer, owner,
+               damage: opts.damage !== undefined ? opts.damage : fallback,
+               life: BOLT_LIFE });
+}
+
+// nudge a direction sideways by a random amount
+function scatter(dir, amount) {
+  if (!amount) return dir.clone();
+  return dir.clone().add(new THREE.Vector3(
+    (Math.random() - 0.5) * amount * 2,
+    (Math.random() - 0.5) * amount * 2,
+    (Math.random() - 0.5) * amount * 2
+  )).normalize();
 }
 
 function removeBolt(i) {
@@ -921,6 +1096,14 @@ addEventListener("keydown", e => {
   }
 });
 addEventListener("keyup", e => { keys[e.code] = false; });
+
+// press 1, 2 or 3 to change gun (or Q to flick through them)
+addEventListener("keydown", e => {
+  if (e.code === "Digit1") showWeapon(0);
+  if (e.code === "Digit2") showWeapon(1);
+  if (e.code === "Digit3") showWeapon(2);
+  if (e.code === "KeyQ")   showWeapon(currentWeapon + 1);
+});
 
 let pointerLocked = false;
 const canvas = renderer.domElement;
@@ -1057,6 +1240,11 @@ fireBtn.addEventListener("pointerdown", e => {
 fireBtn.addEventListener("pointerup",   e => { e.preventDefault(); firePressed = false; });
 fireBtn.addEventListener("pointerleave",()  => { firePressed = false; });
 jumpBtn.addEventListener("pointerdown", e => { e.preventDefault(); jumpPressed = true; });
+
+document.getElementById("btn-gun").addEventListener("pointerdown", e => {
+  e.preventDefault();
+  showWeapon(currentWeapon + 1);
+});
 
 addEventListener("mousedown", () => {
   if (pointerLocked) { firePressed = true; fireQueued = true; }
@@ -1260,18 +1448,45 @@ function updatePlayer(dt) {
   player.fireCooldown -= dt;
   if ((firePressed || fireQueued) && player.fireCooldown <= 0) {
     fireQueued = false;
-    player.fireCooldown = FIRE_DELAY;
+
+    const gun = WEAPONS[currentWeapon];
+    player.fireCooldown = gun.fireDelay;
 
     // fire from just below the eyes, in the exact direction you're facing
     const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
     tmp.copy(player.pos).addScaledVector(dir, 0.6);
     tmp.y -= 0.15;
-    shoot(tmp, dir, true);
+
+    for (let i = 0; i < gun.pellets; i++) {
+      shoot(tmp, scatter(dir, gun.spread), true, null,
+            { damage: gun.damage, colour: gun.colour, size: gun.size });
+    }
+
+    gunKick = gun.kick;
+    flashTimer = 0.07;   // 4-ish frames: brief, but you do see it
+    muzzles[currentWeapon].visible = true;
+
     netSend({ t: "shot", x: tmp.x, y: tmp.y, z: tmp.z,
-              dx: dir.x, dy: dir.y, dz: dir.z });
+              dx: dir.x, dy: dir.y, dz: dir.z, w: currentWeapon });
   }
   fireQueued = false;
+
+  // ---- the gun settles back after the kick ----
+  if (flashTimer > 0) {
+    flashTimer -= dt;
+    if (flashTimer <= 0) muzzles.forEach(m => { m.visible = false; });
+  }
+  gunKick *= Math.max(0, 1 - dt * 11);
+  gunRig.position.z = GUN_REST.z + gunKick;
+  gunRig.rotation.x = gunKick * 1.6;
+
+  // and it sways a little as you walk, so it doesn't feel glued on
+  gunSway += Math.hypot(player.vel.x, player.vel.z) * dt * 1.6;
+  gunRig.position.x = GUN_REST.x + Math.sin(gunSway) * 0.009;
+  gunRig.position.y = GUN_REST.y + Math.abs(Math.cos(gunSway)) * 0.009;
 }
+
+let gunSway = 0;
 
 function startGrudge(robot, enemy) {
   if (!enemy || enemy === robot || !enemy.alive) return;
@@ -1445,7 +1660,7 @@ function updateBolts(dt) {
           if (Math.abs(dx) < 0.6 && Math.abs(dz) < 0.6 && p.y > 0 && p.y < 2.1) {
             sparkle(p, 0xffe680);
             removeBolt(i);
-            netSend({ t: "hit", target: id, dmg: PLAYER_DAMAGE });
+            netSend({ t: "hit", target: id, dmg: b.damage });
             hit = "friend";
             break;
           }
@@ -1454,7 +1669,7 @@ function updateBolts(dt) {
       }
 
       if (hit) {
-        hit.health -= PLAYER_DAMAGE;
+        hit.health -= (b.damage !== undefined ? b.damage : PLAYER_DAMAGE);
         sparkle(p, 0xffe680);
         removeBolt(i);
 
@@ -1671,11 +1886,16 @@ function netReceive(msg) {
       other.lastSeen = performance.now();
       break;
 
-    case "shot":
+    case "shot": {
       // just for show - the person shooting decides if it hit
-      shootVisual(new THREE.Vector3(msg.x, msg.y, msg.z),
-                  new THREE.Vector3(msg.dx, msg.dy, msg.dz), other.colour);
+      const gun = WEAPONS[msg.w] || WEAPONS[0];
+      const at = new THREE.Vector3(msg.dx, msg.dy, msg.dz);
+      for (let i = 0; i < gun.pellets; i++) {
+        shootVisual(new THREE.Vector3(msg.x, msg.y, msg.z),
+                    scatter(at, gun.spread), gun.colour, gun.size);
+      }
       break;
+    }
 
     case "hit":
       // someone says they hit US. Only we can change our own health.
@@ -1775,9 +1995,10 @@ function refreshPlayerList() {
 }
 
 // a bolt that's only for show - it can't hurt anyone
-function shootVisual(from, dir, colour) {
+function shootVisual(from, dir, colour, size) {
   const mesh = new THREE.Mesh(boltGeo, new THREE.MeshBasicMaterial({ color: colour }));
   mesh.position.copy(from);
+  if (size) mesh.scale.setScalar(size);
   scene.add(mesh);
   bolts.push({ mesh, dir: dir.clone().normalize(), fromPlayer: false,
                visual: true, life: BOLT_LIFE });
@@ -1936,6 +2157,7 @@ window.__testNet = function (role, myId) {
   beginGame();
 };
 
+showWeapon(0);
 updateHud();
 tick();
 </script>
