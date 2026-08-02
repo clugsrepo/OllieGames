@@ -295,20 +295,20 @@
     <h2>🛒 Upgrades</h2>
 
     <button class="upgrade" id="buy-click">
-      <span class="up-icon">👆</span>
+      <span class="up-icon">✨</span>
       <span class="up-text">
-        <span class="up-name">Stronger Taps</span>
-        <span class="up-desc">+1 coin every time you tap</span>
+        <span class="up-name">Star Power</span>
+        <span class="up-desc">Your star shines brighter &mdash; +1 coin per tap</span>
         <span class="up-owned" id="click-owned">You have 0</span>
       </span>
       <span class="up-cost" id="click-cost">10</span>
     </button>
 
     <button class="upgrade" id="buy-auto">
-      <span class="up-icon">⏱️</span>
+      <span class="up-icon">🌠</span>
       <span class="up-text">
-        <span class="up-name">Auto Tapper</span>
-        <span class="up-desc">+1 coin every second, on its own</span>
+        <span class="up-name">Shooting Stars</span>
+        <span class="up-desc">Stars fly past on their own &mdash; +1 coin a second</span>
         <span class="up-owned" id="auto-owned">You have 0</span>
       </span>
       <span class="up-cost" id="auto-cost">25</span>
@@ -335,8 +335,8 @@ let game = {
   coins: 0,
   perClick: 1,
   perSecond: 0,
-  clickLevel: 0,      // how many "Stronger Taps" you've bought
-  autoLevel: 0,       // how many "Auto Tappers" you've bought
+  clickLevel: 0,      // how many "Star Power" upgrades you've bought
+  autoLevel: 0,       // how many "Shooting Stars" you've bought
   totalClicks: 0,
   soundOn: true
 };
@@ -350,14 +350,14 @@ let game = {
 
    The price is:   start price  x  1.25  for each one you already own
 
-   So Stronger Taps goes 10, 13, 16, 20, 24, 30, 38... It creeps up
+   So Star Power goes 10, 13, 16, 20, 25, 31, 39... It creeps up
    slowly at first and then really takes off. That's an EXPONENTIAL,
    and it's the reason clicker games can keep going forever.
    --------------------------------------------------------------- */
 
 const UPGRADES = {
-  click: { start: 10, growth: 1.25 },   // +1 coin per tap
-  auto:  { start: 25, growth: 1.30 }    // +1 coin per second
+  click: { start: 10, growth: 1.25 },   // "Star Power"     +1 coin per tap
+  auto:  { start: 25, growth: 1.30 }    // "Shooting Stars" +1 coin per second
 };
 
 function costOf(which) {
