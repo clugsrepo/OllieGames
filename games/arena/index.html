@@ -437,7 +437,8 @@
     <p id="how-desktop">
       <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to move &nbsp;·&nbsp;
       mouse to look &nbsp;·&nbsp; <kbd>Space</kbd> to jump<br>
-      Click to shoot &nbsp;·&nbsp; <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> to change gun<br>
+      Click to shoot &nbsp;·&nbsp; <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> to change gun
+      (takes a moment!)<br>
       <kbd>Esc</kbd> to free the mouse, then Leave
     </p>
     <p id="how-touch">
@@ -524,11 +525,11 @@ const FIRE_DELAY    = 0.22;   // (the old single setting - now per weapon)
 
 const WEAPONS = [
   { name: "Star Blaster", fireDelay: 0.22, damage: 34, pellets: 1,
-    spread: 0.0,   colour: 0xffe680, size: 1.0, kick: 0.05 },
+    spread: 0.0,   colour: 0xffe680, size: 1.0,  kick: 0.05, draw: 0.26 },
   { name: "Rapid Rifle",  fireDelay: 0.09, damage: 14, pellets: 1,
-    spread: 0.035, colour: 0x9bf6ff, size: 0.75, kick: 0.03 },
+    spread: 0.035, colour: 0x9bf6ff, size: 0.75, kick: 0.03, draw: 0.32 },
   { name: "Scatter Gun",  fireDelay: 0.62, damage: 13, pellets: 6,
-    spread: 0.11,  colour: 0xffa76b, size: 0.8, kick: 0.13 }
+    spread: 0.11,  colour: 0xffa76b, size: 0.8,  kick: 0.13, draw: 0.44 }
 ];
 
 let currentWeapon = 0;
@@ -735,11 +736,99 @@ buildGun({ colour: 0xffa76b, bodyLen: 0.26, barrelLen: 0.16, barrelR: 0.03, wide
 let gunKick = 0;          // how far it's recoiled right now
 let flashTimer = 0;
 
+/* ---- CHANGING WEAPONS PROPERLY ----
+
+   Guns used to appear in your hands instantly. Now it works like a real
+   game does:
+
+     1. the gun you're holding swings DOWN out of sight
+     2. it's swapped for the new one while you can't see it
+     3. the new one swings UP into place
+
+   And you CAN'T FIRE while any of that is happening. That's the part
+   that actually matters - it means changing gun in the middle of a
+   fight is a real decision, not a free move. Heavier guns take longer
+   to bring up, so the Scatter Gun is a bigger commitment. */
+
+const swap = { busy: false, raising: false, t: 0, to: 0, drop: 0 };
+
 function showWeapon(index) {
+  // snap straight to it - used at start-up and by tests
   currentWeapon = ((index % WEAPONS.length) + WEAPONS.length) % WEAPONS.length;
   gunModels.forEach((m, i) => { m.visible = i === currentWeapon; });
+  swap.busy = false;
+  swap.drop = 0;
   const el = document.getElementById("weaponname");
   if (el) el.textContent = WEAPONS[currentWeapon].name;
+}
+
+function requestWeapon(index) {
+  const want = ((index % WEAPONS.length) + WEAPONS.length) % WEAPONS.length;
+  if (swap.busy) return;              // already changing - wait your turn
+  if (want === currentWeapon) return; // already holding it
+
+  swap.busy = true;
+  swap.raising = false;
+  swap.t = 0;
+  swap.to = want;
+
+  const el = document.getElementById("weaponname");
+  if (el) el.textContent = "…";       // you don't know what you've got yet
+}
+
+function updateSwap(dt) {
+  if (!swap.busy) { swap.drop = 0; return; }
+
+  // how long each half takes: putting away is quick, bringing up
+  // depends on how hefty the new gun is
+  const downTime = 0.16;
+  const upTime = WEAPONS[swap.to].draw;
+
+  swap.t += dt;
+
+  if (!swap.raising) {
+    swap.drop = Math.min(1, swap.t / downTime);
+    if (swap.t >= downTime) {
+      // out of sight - now do the actual change
+      currentWeapon = swap.to;
+      gunModels.forEach((m, i) => { m.visible = i === currentWeapon; });
+      const el = document.getElementById("weaponname");
+      if (el) el.textContent = WEAPONS[currentWeapon].name;
+      clackSound();
+      swap.raising = true;
+      swap.t = 0;
+    }
+  } else {
+    swap.drop = Math.max(0, 1 - swap.t / upTime);
+    if (swap.t >= upTime) {
+      swap.busy = false;
+      swap.drop = 0;
+    }
+  }
+}
+
+// a short mechanical clack when the new gun locks into place
+let audio = null;
+function clackSound() {
+  try {
+    if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === "suspended") audio.resume();
+
+    const now = audio.currentTime;
+    [0, 0.05].forEach((delay, i) => {
+      const osc = audio.createOscillator();
+      const gain = audio.createGain();
+      osc.type = "square";
+      osc.frequency.setValueAtTime(i ? 180 : 320, now + delay);
+      gain.gain.setValueAtTime(0.045, now + delay);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + delay + 0.05);
+      osc.connect(gain).connect(audio.destination);
+      osc.start(now + delay);
+      osc.stop(now + delay + 0.06);
+    });
+  } catch (e) {
+    // no sound available - the swap still works
+  }
 }
 
 // ---------------------------------------------------------------
@@ -1099,10 +1188,10 @@ addEventListener("keyup", e => { keys[e.code] = false; });
 
 // press 1, 2 or 3 to change gun (or Q to flick through them)
 addEventListener("keydown", e => {
-  if (e.code === "Digit1") showWeapon(0);
-  if (e.code === "Digit2") showWeapon(1);
-  if (e.code === "Digit3") showWeapon(2);
-  if (e.code === "KeyQ")   showWeapon(currentWeapon + 1);
+  if (e.code === "Digit1") requestWeapon(0);
+  if (e.code === "Digit2") requestWeapon(1);
+  if (e.code === "Digit3") requestWeapon(2);
+  if (e.code === "KeyQ")   requestWeapon(currentWeapon + 1);
 });
 
 let pointerLocked = false;
@@ -1243,7 +1332,7 @@ jumpBtn.addEventListener("pointerdown", e => { e.preventDefault(); jumpPressed =
 
 document.getElementById("btn-gun").addEventListener("pointerdown", e => {
   e.preventDefault();
-  showWeapon(currentWeapon + 1);
+  requestWeapon(currentWeapon + 1);
 });
 
 addEventListener("mousedown", () => {
@@ -1445,8 +1534,10 @@ function updatePlayer(dt) {
   player.pos.z = Math.max(-edge, Math.min(edge, player.pos.z));
 
   // ---- shooting ----
+  updateSwap(dt);
+
   player.fireCooldown -= dt;
-  if ((firePressed || fireQueued) && player.fireCooldown <= 0) {
+  if ((firePressed || fireQueued) && player.fireCooldown <= 0 && !swap.busy) {
     fireQueued = false;
 
     const gun = WEAPONS[currentWeapon];
@@ -1477,13 +1568,16 @@ function updatePlayer(dt) {
     if (flashTimer <= 0) muzzles.forEach(m => { m.visible = false; });
   }
   gunKick *= Math.max(0, 1 - dt * 11);
+  gunSway += Math.hypot(player.vel.x, player.vel.z) * dt * 1.6;
+
+  // Everything that moves the gun adds up here: the walking sway, the
+  // recoil kick, and the swap swinging it down out of view.
+  gunRig.position.x = GUN_REST.x + Math.sin(gunSway) * 0.009;
+  gunRig.position.y = GUN_REST.y + Math.abs(Math.cos(gunSway)) * 0.009
+                                 - swap.drop * 0.5;
   gunRig.position.z = GUN_REST.z + gunKick;
   gunRig.rotation.x = gunKick * 1.6;
-
-  // and it sways a little as you walk, so it doesn't feel glued on
-  gunSway += Math.hypot(player.vel.x, player.vel.z) * dt * 1.6;
-  gunRig.position.x = GUN_REST.x + Math.sin(gunSway) * 0.009;
-  gunRig.position.y = GUN_REST.y + Math.abs(Math.cos(gunSway)) * 0.009;
+  gunRig.rotation.z = swap.drop * 1.0;    // tips over as it drops
 }
 
 let gunSway = 0;
