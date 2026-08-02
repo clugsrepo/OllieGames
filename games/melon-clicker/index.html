@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Melon Clicker</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    min-height: 100%;
+    font-family: "Trebuchet MS", Verdana, sans-serif;
+    background: #1a1040;
+    background-image:
+      radial-gradient(circle at 20% 15%, #3b1d7a 0%, transparent 50%),
+      radial-gradient(circle at 80% 80%, #0f4c81 0%, transparent 50%);
+    color: #fff;
+    user-select: none;
+    -webkit-user-select: none;
+    overflow-x: hidden;
+  }
+
+  /* stop iOS zooming when you tap fast */
+  body { touch-action: manipulation; }
+
+  .wrap {
+    max-width: 620px;
+    margin: 0 auto;
+    padding: 16px 16px 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+  }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+  .topbar a, .iconbtn {
+    font-family: inherit;
+    font-size: 0.85rem;
+    font-weight: bold;
+    color: #ffd93d;
+    background: rgba(255,255,255,0.08);
+    border: 2px solid rgba(255,255,255,0.2);
+    border-radius: 10px;
+    padding: 7px 11px;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .iconbtn:hover, .topbar a:hover { background: rgba(255,255,255,0.18); }
+  .spacer { margin-left: auto; }
+
+  /* ---------- the big counter ---------- */
+  .counter {
+    text-align: center;
+    margin: 18px 0 4px;
+  }
+  #mels {
+    font-size: clamp(2.6rem, 12vw, 4.2rem);
+    font-weight: bold;
+    line-height: 1;
+    color: #ffd93d;
+    text-shadow: 0 0 26px rgba(255,217,61,0.35);
+    display: inline-block;
+    transition: transform 0.08s ease-out;
+  }
+  #mels.bump { transform: scale(1.09); }
+
+  .melword {
+    font-size: 1.15rem;
+    color: #c9c2ff;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-top: 4px;
+  }
+
+  .rate {
+    margin-top: 6px;
+    font-size: 0.9rem;
+    color: #9d95cc;
+    min-height: 1.2em;
+  }
+
+  /* ---------- the melon ---------- */
+  .melonzone {
+    position: relative;
+    margin: 22px 0 10px;
+    width: 280px;
+    height: 280px;
+    display: grid;
+    place-items: center;
+  }
+
+  #melon {
+    width: 250px;
+    height: 250px;
+    cursor: pointer;
+    filter: drop-shadow(0 14px 26px rgba(0,0,0,0.5));
+    animation: bob 3.4s ease-in-out infinite;
+    transition: transform 0.09s cubic-bezier(.34,1.56,.64,1);
+    border: none;
+    background: none;
+    padding: 0;
+  }
+  #melon:active, #melon.squish { transform: scale(0.9); }
+  #melon:focus-visible { outline: 3px solid #ffd93d; outline-offset: 8px; border-radius: 50%; }
+
+  @keyframes bob {
+    0%, 100% { translate: 0 0; }
+    50%      { translate: 0 -6px; }
+  }
+
+  .tap-hint {
+    color: #9d95cc;
+    font-size: 0.95rem;
+    margin-top: 2px;
+    transition: opacity 0.6s;
+  }
+
+  /* ---------- flying bits ---------- */
+  .pop, .seed {
+    position: absolute;
+    pointer-events: none;
+    will-change: transform, opacity;
+  }
+  .pop {
+    font-weight: bold;
+    font-size: 1.5rem;
+    color: #ffd93d;
+    text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+    animation: floatUp 0.9s ease-out forwards;
+  }
+  @keyframes floatUp {
+    0%   { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
+    18%  { transform: translate(-50%, -70%) scale(1.15); opacity: 1; }
+    100% { transform: translate(-50%, -180%) scale(1); opacity: 0; }
+  }
+
+  .seed {
+    width: 9px;
+    height: 13px;
+    background: #2b2b45;
+    border-radius: 50% 50% 45% 45%;
+  }
+
+  /* ---------- stats ---------- */
+  .stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    width: 100%;
+    margin-top: 18px;
+  }
+  .stat {
+    background: rgba(255,255,255,0.07);
+    border: 2px solid rgba(255,255,255,0.14);
+    border-radius: 14px;
+    padding: 12px;
+    text-align: center;
+  }
+  .stat .label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #9d95cc;
+  }
+  .stat .value {
+    font-size: 1.35rem;
+    font-weight: bold;
+    margin-top: 3px;
+  }
+
+  /* ---------- upgrades (coming soon) ---------- */
+  .panel {
+    width: 100%;
+    margin-top: 16px;
+    background: rgba(255,255,255,0.05);
+    border: 2px dashed rgba(255,255,255,0.22);
+    border-radius: 16px;
+    padding: 18px;
+    text-align: center;
+  }
+  .panel h2 { font-size: 1.15rem; margin-bottom: 6px; }
+  .panel p  { font-size: 0.9rem; color: #c9c2ff; line-height: 1.5; }
+
+  footer {
+    margin-top: auto;
+    padding-top: 22px;
+    font-size: 0.8rem;
+    color: #7a72a8;
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <div class="topbar">
+    <a href="../../index.html">← Home</a>
+    <button class="iconbtn spacer" id="btn-sound" title="Sound on or off">🔊 Sound</button>
+    <button class="iconbtn" id="btn-reset" title="Start again from zero">🗑️ Reset</button>
+  </div>
+
+  <div class="counter">
+    <div id="mels">0</div>
+    <div class="melword">Mels</div>
+    <div class="rate" id="rate"></div>
+  </div>
+
+  <div class="melonzone" id="melonzone">
+    <!-- Our very own melon. Not anybody else's! -->
+    <svg id="melon" viewBox="0 0 200 200" role="button" tabindex="0" aria-label="Click the melon">
+      <defs>
+        <radialGradient id="rind" cx="38%" cy="32%" r="72%">
+          <stop offset="0%"  stop-color="#7ee787"/>
+          <stop offset="55%" stop-color="#3fa34d"/>
+          <stop offset="100%" stop-color="#1e6b2c"/>
+        </radialGradient>
+      </defs>
+
+      <circle cx="100" cy="100" r="92" fill="url(#rind)"/>
+
+      <!-- the dark stripes -->
+      <g stroke="#1c5c27" stroke-width="11" fill="none" stroke-linecap="round" opacity="0.85">
+        <path d="M100 10 C 74 60, 74 140, 100 190"/>
+        <path d="M56 22 C 34 62, 34 138, 56 178"/>
+        <path d="M144 22 C 166 62, 166 138, 144 178"/>
+        <path d="M22 52 C 10 76, 10 124, 22 148"/>
+        <path d="M178 52 C 190 76, 190 124, 178 148"/>
+      </g>
+
+      <!-- shine -->
+      <ellipse cx="66" cy="58" rx="26" ry="17" fill="#fff" opacity="0.22"
+               transform="rotate(-28 66 58)"/>
+
+      <!-- a friendly face -->
+      <g fill="#12331a">
+        <circle cx="76" cy="92" r="9"/>
+        <circle cx="124" cy="92" r="9"/>
+      </g>
+      <circle cx="79" cy="89" r="3" fill="#fff" opacity="0.9"/>
+      <circle cx="127" cy="89" r="3" fill="#fff" opacity="0.9"/>
+      <path d="M74 122 Q 100 146, 126 122" stroke="#12331a" stroke-width="8"
+            fill="none" stroke-linecap="round"/>
+    </svg>
+  </div>
+
+  <p class="tap-hint" id="hint">Tap the melon!</p>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="label">Mels per tap</div>
+      <div class="value" id="per-click">1</div>
+    </div>
+    <div class="stat">
+      <div class="label">Total taps</div>
+      <div class="value" id="total-clicks">0</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>🛒 Upgrades</h2>
+    <p>Coming soon &mdash; Ollie is designing these!<br>
+       Spend your Mels on things that make each tap worth more.</p>
+  </div>
+
+  <footer>Your Mels are saved on this device automatically.</footer>
+</div>
+
+<script>
+/* =====================================================================
+   MELON CLICKER
+   Tap the melon, get Mels. Simple as that (for now!).
+
+   Everything is saved in something called "localStorage", which is a
+   little notepad the browser keeps for our game. Close the page, come
+   back tomorrow, and your Mels are still there.
+   ===================================================================== */
+
+const SAVE_KEY = "ollie-melon-clicker-v1";
+
+// ---- the whole game state lives in here ----
+let game = {
+  mels: 0,
+  perClick: 1,
+  totalClicks: 0,
+  soundOn: true
+};
+
+// ---- bits of the page we talk to ----
+const melon      = document.getElementById("melon");
+const melonzone  = document.getElementById("melonzone");
+const melsEl     = document.getElementById("mels");
+const perClickEl = document.getElementById("per-click");
+const clicksEl   = document.getElementById("total-clicks");
+const rateEl     = document.getElementById("rate");
+const hintEl     = document.getElementById("hint");
+const soundBtn   = document.getElementById("btn-sound");
+
+
+/* ---------------------------------------------------------------
+   SAVING AND LOADING
+   --------------------------------------------------------------- */
+
+function save() {
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(game));
+  } catch (e) {
+    // Some browsers block storage (private mode). The game still works,
+    // it just won't remember anything - so don't crash over it.
+  }
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+
+    // Only take numbers we trust. If the save file is damaged or someone
+    // has fiddled with it, fall back to a sensible value instead of
+    // ending up with "NaN Mels" forever.
+    game.mels        = safeNumber(saved.mels, 0);
+    game.perClick    = Math.max(1, safeNumber(saved.perClick, 1));
+    game.totalClicks = safeNumber(saved.totalClicks, 0);
+    game.soundOn     = saved.soundOn !== false;
+  } catch (e) {
+    // broken save - just start fresh
+  }
+}
+
+function safeNumber(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+
+/* ---------------------------------------------------------------
+   SHOWING NUMBERS NICELY
+   1234  ->  1,234
+   1500000 -> 1.5M      (ready for when the upgrades get silly)
+   --------------------------------------------------------------- */
+
+function pretty(n) {
+  n = Math.floor(n);
+  if (n < 1000000)    return n.toLocaleString("en-GB");
+  if (n < 1000000000) return (n / 1000000).toFixed(2).replace(/\.?0+$/, "") + "M";
+  return (n / 1000000000).toFixed(2).replace(/\.?0+$/, "") + "B";
+}
+
+function refresh() {
+  melsEl.textContent     = pretty(game.mels);
+  perClickEl.textContent = pretty(game.perClick);
+  clicksEl.textContent   = pretty(game.totalClicks);
+}
+
+
+/* ---------------------------------------------------------------
+   TAPPING THE MELON
+   --------------------------------------------------------------- */
+
+let bumpTimer = null;
+let squishTimer = null;
+
+function tapMelon(x, y) {
+  game.mels        += game.perClick;
+  game.totalClicks += 1;
+
+  refresh();
+  recordTapTime();
+
+  // make the number go "pop"
+  melsEl.classList.add("bump");
+  clearTimeout(bumpTimer);
+  bumpTimer = setTimeout(() => melsEl.classList.remove("bump"), 90);
+
+  // squash the melon (needed as well as :active, because :active
+  // doesn't fire when you tap with a keyboard)
+  melon.classList.add("squish");
+  clearTimeout(squishTimer);
+  squishTimer = setTimeout(() => melon.classList.remove("squish"), 95);
+
+  showPop(x, y);
+  spitSeeds(x, y);
+  blip();
+
+  if (game.totalClicks === 1) hintEl.style.opacity = "0";
+
+  saveSoon();
+}
+
+// Don't write to storage on every single tap - if you're clicking fast
+// that's hundreds of writes a second. Wait until things go quiet.
+let saveTimer = null;
+function saveSoon() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(save, 400);
+}
+
+
+/* ---------------------------------------------------------------
+   THE FUN BITS - floating numbers and flying seeds
+   --------------------------------------------------------------- */
+
+const MAX_BITS = 40;      // never have more than this many on screen
+let liveBits = 0;
+
+function showPop(x, y) {
+  if (liveBits > MAX_BITS) return;
+  liveBits++;
+
+  const el = document.createElement("div");
+  el.className = "pop";
+  el.textContent = "+" + pretty(game.perClick);
+  el.style.left = x + "px";
+  el.style.top  = y + "px";
+  melonzone.appendChild(el);
+
+  setTimeout(() => { el.remove(); liveBits--; }, 950);
+}
+
+function spitSeeds(x, y) {
+  if (liveBits > MAX_BITS) return;
+
+  for (let i = 0; i < 5; i++) {
+    liveBits++;
+    const seed = document.createElement("div");
+    seed.className = "seed";
+    seed.style.left = x + "px";
+    seed.style.top  = y + "px";
+    melonzone.appendChild(seed);
+
+    // fling each seed off in its own direction
+    const angle = Math.random() * Math.PI * 2;
+    const dist  = 60 + Math.random() * 70;
+    const dx    = Math.cos(angle) * dist;
+    const dy    = Math.sin(angle) * dist - 30;   // a bit of "up"
+    const spin  = (Math.random() * 720 - 360);
+
+    seed.animate(
+      [
+        { transform: "translate(-50%,-50%) rotate(0deg)", opacity: 1 },
+        { transform: `translate(${dx - 50}%, ${dy}%) rotate(${spin}deg)`,
+          opacity: 0 }
+      ],
+      { duration: 620 + Math.random() * 220, easing: "cubic-bezier(.2,.7,.4,1)" }
+    );
+
+    setTimeout(() => { seed.remove(); liveBits--; }, 900);
+  }
+}
+
+
+/* ---------------------------------------------------------------
+   MELS PER SECOND - just so you can see how fast you're going
+   --------------------------------------------------------------- */
+
+let tapTimes = [];
+
+function recordTapTime() {
+  tapTimes.push(performance.now());
+  if (tapTimes.length > 60) tapTimes.shift();
+}
+
+setInterval(() => {
+  const now = performance.now();
+  tapTimes = tapTimes.filter(t => now - t < 3000);   // last 3 seconds
+
+  if (tapTimes.length < 2) {
+    rateEl.textContent = "";
+    return;
+  }
+  const perSec = (tapTimes.length / 3) * game.perClick;
+  rateEl.textContent = pretty(Math.round(perSec)) + " Mels per second";
+}, 400);
+
+
+/* ---------------------------------------------------------------
+   A LITTLE POP SOUND, made from scratch - no sound files needed
+   --------------------------------------------------------------- */
+
+let audio = null;
+
+function blip() {
+  if (!game.soundOn) return;
+  try {
+    if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === "suspended") audio.resume();
+
+    const osc  = audio.createOscillator();
+    const gain = audio.createGain();
+
+    // slightly different note each time, so it doesn't get annoying
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(420 + Math.random() * 130, audio.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(880, audio.currentTime + 0.08);
+
+    gain.gain.setValueAtTime(0.09, audio.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + 0.12);
+
+    osc.connect(gain).connect(audio.destination);
+    osc.start();
+    osc.stop(audio.currentTime + 0.13);
+  } catch (e) {
+    // no sound available - never mind, the game still works
+  }
+}
+
+
+/* ---------------------------------------------------------------
+   LISTENING FOR TAPS
+   --------------------------------------------------------------- */
+
+// "pointerdown" covers mouse, finger and stylus all at once, and it
+// fires straight away instead of waiting to see if it's a double-tap.
+melon.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  const box = melonzone.getBoundingClientRect();
+  tapMelon(e.clientX - box.left, e.clientY - box.top);
+});
+
+// space or enter works too
+melon.addEventListener("keydown", (e) => {
+  if (e.key === " " || e.key === "Enter") {
+    e.preventDefault();
+    tapMelon(melonzone.clientWidth / 2, melonzone.clientHeight / 2);
+  }
+});
+
+// stop the page scrolling about when you tap fast on a phone
+melon.addEventListener("touchstart", e => e.preventDefault(), { passive: false });
+
+
+/* ---------------------------------------------------------------
+   BUTTONS
+   --------------------------------------------------------------- */
+
+soundBtn.addEventListener("click", () => {
+  game.soundOn = !game.soundOn;
+  soundBtn.textContent = game.soundOn ? "🔊 Sound" : "🔇 Muted";
+  save();
+});
+
+document.getElementById("btn-reset").addEventListener("click", () => {
+  const total = pretty(game.mels);
+  if (!confirm("Start again from zero?\n\nYou will lose all " + total + " Mels!")) return;
+  game = { mels: 0, perClick: 1, totalClicks: 0, soundOn: game.soundOn };
+  tapTimes = [];
+  hintEl.style.opacity = "1";
+  refresh();
+  save();
+});
+
+// save on the way out, just in case
+window.addEventListener("pagehide", save);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") save();
+});
+
+
+/* ---------------------------------------------------------------
+   GO!
+   --------------------------------------------------------------- */
+
+load();
+soundBtn.textContent = game.soundOn ? "🔊 Sound" : "🔇 Muted";
+if (game.totalClicks > 0) hintEl.style.opacity = "0";
+refresh();
+</script>
+
+</body>
+</html>
