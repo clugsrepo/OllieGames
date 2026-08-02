@@ -61,7 +61,7 @@
     text-align: center;
     margin: 18px 0 4px;
   }
-  #mels {
+  #coins {
     font-size: clamp(2.6rem, 12vw, 4.2rem);
     font-weight: bold;
     line-height: 1;
@@ -70,9 +70,9 @@
     display: inline-block;
     transition: transform 0.08s ease-out;
   }
-  #mels.bump { transform: scale(1.09); }
+  #coins.bump { transform: scale(1.09); }
 
-  .melword {
+  .coinword {
     font-size: 1.15rem;
     color: #c9c2ff;
     letter-spacing: 2px;
@@ -124,7 +124,7 @@
   }
 
   /* ---------- flying bits ---------- */
-  .pop, .seed {
+  .pop, .coin {
     position: absolute;
     pointer-events: none;
     will-change: transform, opacity;
@@ -142,11 +142,12 @@
     100% { transform: translate(-50%, -180%) scale(1); opacity: 0; }
   }
 
-  .seed {
-    width: 9px;
-    height: 13px;
-    background: #2b2b45;
-    border-radius: 50% 50% 45% 45%;
+  .coin {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #ffe680, #f0a500 65%, #b87600);
+    box-shadow: 0 0 6px rgba(255,200,60,0.55);
   }
 
   /* ---------- stats ---------- */
@@ -208,8 +209,8 @@
   </div>
 
   <div class="counter">
-    <div id="mels">0</div>
-    <div class="melword">Mels</div>
+    <div id="coins">0</div>
+    <div class="coinword">🪙 Coins</div>
     <div class="rate" id="rate"></div>
   </div>
 
@@ -255,7 +256,7 @@
 
   <div class="stats">
     <div class="stat">
-      <div class="label">Mels per tap</div>
+      <div class="label">Coins per tap</div>
       <div class="value" id="per-click">1</div>
     </div>
     <div class="stat">
@@ -267,27 +268,27 @@
   <div class="panel">
     <h2>🛒 Upgrades</h2>
     <p>Coming soon &mdash; Ollie is designing these!<br>
-       Spend your Mels on things that make each tap worth more.</p>
+       Spend your coins on things that make each tap worth more.</p>
   </div>
 
-  <footer>Your Mels are saved on this device automatically.</footer>
+  <footer>Your coins are saved on this device automatically.</footer>
 </div>
 
 <script>
 /* =====================================================================
    MELON CLICKER
-   Tap the melon, get Mels. Simple as that (for now!).
+   Tap the melon, get coins. Simple as that (for now!).
 
    Everything is saved in something called "localStorage", which is a
    little notepad the browser keeps for our game. Close the page, come
-   back tomorrow, and your Mels are still there.
+   back tomorrow, and your coins are still there.
    ===================================================================== */
 
 const SAVE_KEY = "ollie-melon-clicker-v1";
 
 // ---- the whole game state lives in here ----
 let game = {
-  mels: 0,
+  coins: 0,
   perClick: 1,
   totalClicks: 0,
   soundOn: true
@@ -296,7 +297,7 @@ let game = {
 // ---- bits of the page we talk to ----
 const melon      = document.getElementById("melon");
 const melonzone  = document.getElementById("melonzone");
-const melsEl     = document.getElementById("mels");
+const coinsEl    = document.getElementById("coins");
 const perClickEl = document.getElementById("per-click");
 const clicksEl   = document.getElementById("total-clicks");
 const rateEl     = document.getElementById("rate");
@@ -325,8 +326,11 @@ function load() {
 
     // Only take numbers we trust. If the save file is damaged or someone
     // has fiddled with it, fall back to a sensible value instead of
-    // ending up with "NaN Mels" forever.
-    game.mels        = safeNumber(saved.mels, 0);
+    // ending up with "NaN coins" forever.
+    // We used to call these Mels. Old saved games still use that name,
+  // so read whichever one is in there - nobody should lose their
+  // coins just because we renamed them.
+  game.coins       = safeNumber(saved.coins !== undefined ? saved.coins : saved.mels, 0);
     game.perClick    = Math.max(1, safeNumber(saved.perClick, 1));
     game.totalClicks = safeNumber(saved.totalClicks, 0);
     game.soundOn     = saved.soundOn !== false;
@@ -355,7 +359,7 @@ function pretty(n) {
 }
 
 function refresh() {
-  melsEl.textContent     = pretty(game.mels);
+  coinsEl.textContent    = pretty(game.coins);
   perClickEl.textContent = pretty(game.perClick);
   clicksEl.textContent   = pretty(game.totalClicks);
 }
@@ -369,16 +373,16 @@ let bumpTimer = null;
 let squishTimer = null;
 
 function tapMelon(x, y) {
-  game.mels        += game.perClick;
+  game.coins       += game.perClick;
   game.totalClicks += 1;
 
   refresh();
   recordTapTime();
 
   // make the number go "pop"
-  melsEl.classList.add("bump");
+  coinsEl.classList.add("bump");
   clearTimeout(bumpTimer);
-  bumpTimer = setTimeout(() => melsEl.classList.remove("bump"), 90);
+  bumpTimer = setTimeout(() => coinsEl.classList.remove("bump"), 90);
 
   // squash the melon (needed as well as :active, because :active
   // doesn't fire when you tap with a keyboard)
@@ -387,7 +391,7 @@ function tapMelon(x, y) {
   squishTimer = setTimeout(() => melon.classList.remove("squish"), 95);
 
   showPop(x, y);
-  spitSeeds(x, y);
+  spitCoins(x, y);
   blip();
 
   if (game.totalClicks === 1) hintEl.style.opacity = "0";
@@ -405,7 +409,7 @@ function saveSoon() {
 
 
 /* ---------------------------------------------------------------
-   THE FUN BITS - floating numbers and flying seeds
+   THE FUN BITS - floating numbers and flying coins
    --------------------------------------------------------------- */
 
 const MAX_BITS = 40;      // never have more than this many on screen
@@ -425,25 +429,25 @@ function showPop(x, y) {
   setTimeout(() => { el.remove(); liveBits--; }, 950);
 }
 
-function spitSeeds(x, y) {
+function spitCoins(x, y) {
   if (liveBits > MAX_BITS) return;
 
   for (let i = 0; i < 5; i++) {
     liveBits++;
-    const seed = document.createElement("div");
-    seed.className = "seed";
-    seed.style.left = x + "px";
-    seed.style.top  = y + "px";
-    melonzone.appendChild(seed);
+    const coin = document.createElement("div");
+    coin.className = "coin";
+    coin.style.left = x + "px";
+    coin.style.top  = y + "px";
+    melonzone.appendChild(coin);
 
-    // fling each seed off in its own direction
+    // fling each coin off in its own direction
     const angle = Math.random() * Math.PI * 2;
     const dist  = 60 + Math.random() * 70;
     const dx    = Math.cos(angle) * dist;
     const dy    = Math.sin(angle) * dist - 30;   // a bit of "up"
     const spin  = (Math.random() * 720 - 360);
 
-    seed.animate(
+    coin.animate(
       [
         { transform: "translate(-50%,-50%) rotate(0deg)", opacity: 1 },
         { transform: `translate(${dx - 50}%, ${dy}%) rotate(${spin}deg)`,
@@ -452,13 +456,13 @@ function spitSeeds(x, y) {
       { duration: 620 + Math.random() * 220, easing: "cubic-bezier(.2,.7,.4,1)" }
     );
 
-    setTimeout(() => { seed.remove(); liveBits--; }, 900);
+    setTimeout(() => { coin.remove(); liveBits--; }, 900);
   }
 }
 
 
 /* ---------------------------------------------------------------
-   MELS PER SECOND - just so you can see how fast you're going
+   COINS PER SECOND - just so you can see how fast you're going
    --------------------------------------------------------------- */
 
 let tapTimes = [];
@@ -477,7 +481,7 @@ setInterval(() => {
     return;
   }
   const perSec = (tapTimes.length / 3) * game.perClick;
-  rateEl.textContent = pretty(Math.round(perSec)) + " Mels per second";
+  rateEl.textContent = pretty(Math.round(perSec)) + " coins per second";
 }, 400);
 
 
@@ -548,9 +552,9 @@ soundBtn.addEventListener("click", () => {
 });
 
 document.getElementById("btn-reset").addEventListener("click", () => {
-  const total = pretty(game.mels);
-  if (!confirm("Start again from zero?\n\nYou will lose all " + total + " Mels!")) return;
-  game = { mels: 0, perClick: 1, totalClicks: 0, soundOn: game.soundOn };
+  const total = pretty(game.coins);
+  if (!confirm("Start again from zero?\n\nYou will lose all " + total + " coins!")) return;
+  game = { coins: 0, perClick: 1, totalClicks: 0, soundOn: game.soundOn };
   tapTimes = [];
   hintEl.style.opacity = "1";
   refresh();
