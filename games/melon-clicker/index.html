@@ -318,6 +318,8 @@
   <footer>Your coins are saved on this device automatically.</footer>
 </div>
 
+<script src="../../shared/player.js"></script>
+<script src="../../shared/admin-panel.js"></script>
 <script>
 /* =====================================================================
    MELON CLICKER
@@ -768,6 +770,78 @@ load();
 soundBtn.textContent = game.soundOn ? "🔊 Sound" : "🔇 Muted";
 if (game.totalClicks > 0) hintEl.style.opacity = "0";
 refresh();
+
+
+/* ---------------------------------------------------------------
+   ADMIN
+
+   Sign in on the home page as one of the family and the 🛠 button
+   appears. Press P for the panel, or ; to type a command.
+
+   These are cheats, plain and simple - the whole point of a clicker
+   is the long climb - so they're for messing about rather than for
+   playing properly. ";reset" puts everything back to zero.
+   --------------------------------------------------------------- */
+
+function bigNumber(word, fallback) {
+  const n = parseFloat(word);
+  if (!isFinite(n) || n < 0) return fallback;
+  return Math.min(n, 1e12);              // stay inside what maths can count
+}
+
+const ADMIN_COMMANDS = [
+  { name: "coins", alias: ["setcoins"], args: "<number>",
+    help: "Set your coins to any number",
+    run: words => { game.coins = bigNumber(words[0], game.coins);
+                    refresh(); save();
+                    return "Coins set to " + pretty(game.coins); } },
+
+  { name: "add", args: "<number>",
+    help: "Add coins to what you have",
+    run: words => { game.coins += bigNumber(words[0], 100);
+                    refresh(); save();
+                    return "Now on " + pretty(game.coins) + " coins"; } },
+
+  { name: "perclick", alias: ["click"], args: "<number>",
+    help: "Coins for every tap",
+    run: words => { game.clickLevel = Math.max(0, Math.round(bigNumber(words[0], 1)) - 1);
+                    game.perClick = 1 + game.clickLevel;
+                    refresh(); save();
+                    return "Every tap gives " + pretty(game.perClick); } },
+
+  { name: "persecond", alias: ["auto"], args: "<number>",
+    help: "Coins every second on their own",
+    run: words => { game.autoLevel = Math.max(0, Math.round(bigNumber(words[0], 1)));
+                    game.perSecond = game.autoLevel;
+                    refresh(); save();
+                    return "Earning " + pretty(game.perSecond) + " a second"; } },
+
+  { name: "rich", args: "",
+    help: "A million coins, right now",
+    run: () => { game.coins += 1000000; refresh(); save();
+                 return "💰 A million more coins"; } },
+
+  { name: "maxout", alias: ["max"], args: "",
+    help: "Buy 25 of both upgrades at once",
+    run: () => { game.clickLevel += 25; game.autoLevel += 25;
+                 game.perClick = 1 + game.clickLevel;
+                 game.perSecond = game.autoLevel;
+                 refresh(); save();
+                 return "Star Power " + game.clickLevel
+                        + ", Shooting Stars " + game.autoLevel; } },
+
+  { name: "reset", alias: ["zero"], args: "",
+    help: "Back to nothing, like a new game",
+    run: () => { game.coins = 0; game.perClick = 1; game.perSecond = 0;
+                 game.clickLevel = 0; game.autoLevel = 0; game.totalClicks = 0;
+                 refresh(); save();
+                 return "All back to zero"; } }
+];
+
+if (typeof OlliePlayer !== "undefined" && OlliePlayer.isAdmin()
+    && typeof OllieAdmin !== "undefined") {
+  OllieAdmin.start({ commands: ADMIN_COMMANDS });
+}
 </script>
 
 </body>

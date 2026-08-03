@@ -797,6 +797,7 @@
   </div>
 </div>
 
+<script src="../../shared/player.js"></script>
 <script src="three.min.js"></script>
 <script src="peerjs.min.js"></script>
 <script>
@@ -2052,9 +2053,12 @@ touchLayer.style.display = HAS_TOUCH ? "block" : "none";
 /* =====================================================================
    ADMIN POWERS  -  a proper admin panel, Roblox style
 
-   Type the secret code on the start screen - whatever name you're
-   using - and you unlock the panel: a searchable list of commands, and
-   a command bar you type into (press ; like Roblox admin scripts).
+   Two ways in. Sign in on the home page as one of the family - Ollie,
+   Doug, Clare, Ella or Chloe - and the powers are simply there. Anyone
+   else can type the secret code on the start screen.
+
+   Either way you get the panel: a searchable list of commands, and a
+   command bar you type into (press ; like Roblox admin scripts).
 
    Two things worth being straight about:
 
@@ -2079,6 +2083,7 @@ const admin = {
   endless:    false,
   noclip:     false,
   day:        false,
+  fromName:   false,         // did the powers come from your name, or the code?
   speed:      1,              // multipliers, 1 = the normal game
   jump:       1,
   gravity:    1
@@ -2405,23 +2410,47 @@ function unlockAdmin() {
     codeBox.value = "";
     return false;
   }
-  admin.unlocked = true;
-  adminState.textContent = "✅ Admin powers on!";
   codeBox.value = "";
+  return grantAdmin("✅ Admin powers on!");
+}
+
+function grantAdmin(why, fromName) {
+  admin.unlocked = true;
+  admin.fromName = !!fromName;
+  adminState.textContent = why || "";
   document.body.classList.add("admin");
   refreshAdmin();
   return true;
 }
 
+/* Signed in on the home page as one of the family? Then the powers are
+   yours without any code, and the code box gets out of the way. */
+function adminFromSignIn() {
+  if (typeof OlliePlayer === "undefined") return;
+
+  if (OlliePlayer.isAdmin()) {
+    adminRow.hidden = true;          // no code needed, so no code box
+    grantAdmin("", true);
+    return;
+  }
+
+  /* Changed to a name that isn't one of the family? Then powers that
+     came WITH that name go again. Powers earned with the code stay -
+     they were nothing to do with the name. */
+  if (admin.unlocked && admin.fromName) lockAdmin("");
+  adminRow.hidden = false;
+}
+
 // everything off, everything back to normal
 function lockAdmin(why) {
-  admin.unlocked = admin.flying = admin.invincible =
+  admin.unlocked = admin.fromName = admin.flying = admin.invincible =
     admin.frozen = admin.endless = admin.noclip = false;
   admin.speed = admin.jump = admin.gravity = 1;
   setSky(false);
   adminPanel.hidden = true;
   cmdBar.hidden = true;
   document.body.classList.remove("admin", "flying");
+  adminRow.hidden = false;           // the code box is the way back in
   adminState.textContent = why || "";
   refreshAdmin();
 }
@@ -3406,15 +3435,23 @@ function myName() {
   return cleanNickname(box && box.value) || "Player";
 }
 
-// remember it so you don't type it in every time
+/* Your name comes from the home page if you signed in there, and
+   otherwise from the last time you played this game. */
 try {
-  const saved = localStorage.getItem(NAME_KEY);
-  if (saved) document.getElementById("nickname").value = cleanNickname(saved);
+  const box = document.getElementById("nickname");
+  const signedIn = typeof OlliePlayer !== "undefined" ? OlliePlayer.name() : "";
+  const saved = signedIn || localStorage.getItem(NAME_KEY);
+  if (saved) box.value = cleanNickname(saved);
 } catch (e) {}
+
+adminFromSignIn();
 
 
 document.getElementById("nickname").addEventListener("change", () => {
   try { localStorage.setItem(NAME_KEY, myName()); } catch (e) {}
+  // keep the home page in step - one name for all the games
+  if (typeof OlliePlayer !== "undefined") OlliePlayer.setName(myName());
+  adminFromSignIn();
 });
 
 // Letters and numbers that can't be mixed up: no O/0, no I/1/L.

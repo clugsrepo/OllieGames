@@ -111,6 +111,8 @@
 <canvas id="c"></canvas>
 <p id="hint">Drag things around and fling them!</p>
 
+<script src="../../shared/player.js"></script>
+<script src="../../shared/admin-panel.js"></script>
 <script>
 /* =====================================================================
    OLLIE'S PLAYGROUND
@@ -1152,8 +1154,11 @@ function checkForBumps() {
   }
 }
 
+let noHurt = false;             // an admin can switch damage off entirely
+let frozen = false;             // ...and stop time altogether
+
 function hurt(person, amount) {
-  if (person.ko) return;
+  if (person.ko || noHurt) return;
 
   person.health -= amount;
   person.ouch = 12;               // flash red for a moment
@@ -1671,7 +1676,8 @@ function draw() {
    --------------------------------------------------------------- */
 
 function loop() {
-  const steps = slowMo ? 1 : 2;   // slow-mo just does less physics per frame
+  // frozen: still draw, still let you drag things, but no physics at all
+  const steps = frozen ? 0 : (slowMo ? 1 : 2);
 
   for (let i = 0; i < steps; i++) {
     if (fightMode) updateFights();   // people square up to each other
@@ -1797,6 +1803,116 @@ spawnRagdoll(WW / 2 + 120, WTOP + 160);
 hideHint();
 
 loop();
+
+
+/* ---------------------------------------------------------------
+   ADMIN
+
+   Sign in on the home page as one of the family and the 🛠 button
+   appears. Press P for the panel, or ; to type a command.
+
+   The toolbar can already do gravity, slow-mo, fighting, healing and
+   clearing - these are the things it can't: switching damage off,
+   spawning a whole crowd at once, and freezing time.
+   --------------------------------------------------------------- */
+
+function countUp(word, fallback, most) {
+  const n = Math.round(parseFloat(word));
+  if (!isFinite(n) || n < 1) return fallback;
+  return Math.min(n, most);
+}
+
+function dropSpot() {
+  return { x: WW / 2 + (Math.random() - 0.5) * Math.min(WW * 0.6, 500),
+           y: WTOP + 120 };
+}
+
+const ADMIN_COMMANDS = [
+  { name: "nohurt", alias: ["safe", "peace"], args: "[on/off]",
+    help: "Nobody can be hurt at all",
+    state: () => noHurt ? "ON" : "off",
+    run: words => { noHurt = words[0] === "off" ? false
+                          : words[0] === "on" ? true : !noHurt;
+                    if (noHurt) healEveryone();
+                    return "Nobody gets hurt: " + (noHurt ? "on" : "off"); } },
+
+  { name: "freeze", alias: ["pause", "time"], args: "[on/off]",
+    help: "Stop time - everything hangs still",
+    state: () => frozen ? "ON" : "off",
+    run: words => { frozen = words[0] === "off" ? false
+                          : words[0] === "on" ? true : !frozen;
+                    return frozen ? "Time frozen 🧊" : "Off we go again"; } },
+
+  { name: "army", alias: ["crowd"], args: "<how many>",
+    help: "Spawn a whole crowd of people",
+    run: words => { const many = countUp(words[0], 10, 40);
+                    for (let i = 0; i < many; i++) {
+                      const at = dropSpot();
+                      spawnRagdoll(at.x, at.y - i * 12);
+                    }
+                    return many + " people, coming down"; } },
+
+  { name: "spawn", args: "<thing> [how many]",
+    help: "croc, crawler, gulper, person, ball, box or plank",
+    run: words => {
+      const what = String(words[0] || "").toLowerCase();
+      const make = spawners[what] || (what === "person" ? spawners.ragdoll : null);
+      if (!make) return { bad: 'No such thing as a "' + (words[0] || "") + '"' };
+      const many = countUp(words[1], 1, 20);
+      for (let i = 0; i < many; i++) {
+        const at = dropSpot();
+        make(at.x, at.y - i * 14);
+      }
+      return many + " x " + what;
+    } },
+
+  { name: "heal", args: "",
+    help: "Patch everybody up",
+    run: () => { healEveryone(); return "Everyone healed ❤️"; } },
+
+  { name: "clear", alias: ["empty"], args: "",
+    help: "Take everything away",
+    run: () => { dots = []; sticks = []; creatures = []; people = []; held = null;
+                 return "All cleared"; } },
+
+  { name: "moon", args: "[on/off]",
+    help: "Floaty moon gravity",
+    state: () => gravityOn ? "off" : "ON",
+    run: words => { gravityOn = words[0] === "off" ? true
+                              : words[0] === "on" ? false : !gravityOn;
+                    gravityBtn.classList.toggle("on", gravityOn);
+                    return gravityOn ? "Normal gravity" : "Moon gravity 🌙"; } },
+
+  { name: "slowmo", alias: ["slow"], args: "[on/off]",
+    help: "Everything in slow motion",
+    state: () => slowMo ? "ON" : "off",
+    run: words => { slowMo = words[0] === "off" ? false
+                           : words[0] === "on" ? true : !slowMo;
+                    slowmoBtn.classList.toggle("on", slowMo);
+                    return slowMo ? "Slow motion 🐌" : "Normal speed"; } },
+
+  { name: "fight", args: "[on/off]",
+    help: "Make everybody square up",
+    state: () => fightMode ? "ON" : "off",
+    run: words => { fightMode = words[0] === "off" ? false
+                              : words[0] === "on" ? true : !fightMode;
+                    fightBtn.classList.toggle("on", fightMode);
+                    return fightMode ? "Fight! 🥊" : "Everybody calm down"; } },
+
+  { name: "normal", alias: ["default"], args: "",
+    help: "Put everything back to normal",
+    run: () => { noHurt = false; frozen = false; slowMo = false;
+                 fightMode = false; gravityOn = true;
+                 gravityBtn.classList.toggle("on", true);
+                 slowmoBtn.classList.toggle("on", false);
+                 fightBtn.classList.toggle("on", false);
+                 return "Everything back to normal"; } }
+];
+
+if (typeof OlliePlayer !== "undefined" && OlliePlayer.isAdmin()
+    && typeof OllieAdmin !== "undefined") {
+  OllieAdmin.start({ commands: ADMIN_COMMANDS });
+}
 </script>
 
 </body>
