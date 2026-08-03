@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Raise a Robot</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: "Trebuchet MS", Verdana, sans-serif;
+    background: #14102e;
+    background-image:
+      radial-gradient(circle at 15% 10%, #3b1d7a 0%, transparent 50%),
+      radial-gradient(circle at 85% 85%, #0f4c81 0%, transparent 50%);
+    color: #fff;
+    min-height: 100vh;
+    padding: 12px 12px 30px;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  [hidden] { display: none !important; }
+
+  .wrap { max-width: 760px; margin: 0 auto; }
+
+  .topbar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .btn {
+    font-family: inherit; font-size: 0.85rem; font-weight: bold;
+    padding: 9px 14px; border-radius: 12px; cursor: pointer;
+    color: #fff; text-decoration: none; white-space: nowrap;
+    background: rgba(255,255,255,0.1);
+    border: 2px solid rgba(255,255,255,0.25);
+  }
+  .btn:active { transform: scale(0.95); }
+  .btn.gold { color: #1a1a2e; background: #ffd93d; border-color: #fff3b0; }
+  .btn.big { font-size: 1.05rem; padding: 13px 24px; }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+  .spacer { margin-left: auto; }
+
+  .pill {
+    background: rgba(0,0,0,0.35);
+    border: 2px solid rgba(255,255,255,0.2);
+    border-radius: 12px; padding: 7px 12px;
+    font-size: 0.85rem; white-space: nowrap;
+  }
+  .pill b { color: #ffd93d; }
+
+  h1 { font-size: 1.4rem; color: #ffd93d; letter-spacing: 1px; }
+  h2 { font-size: 1.1rem; margin-bottom: 8px; color: #c9c2ff;
+       text-transform: uppercase; letter-spacing: 1px; }
+
+  /* ---------- naming ---------- */
+  #naming { text-align: center; padding: 30px 16px; }
+  #naming p { color: #c9c2ff; line-height: 1.6; margin-bottom: 16px; }
+  #robotname {
+    font-family: inherit; font-size: 1.15rem; text-align: center;
+    padding: 11px 14px; width: 200px;
+    border-radius: 12px; border: 2px solid rgba(255,255,255,0.3);
+    background: rgba(0,0,0,0.35); color: #fff;
+  }
+
+  /* ---------- the robot and his numbers ---------- */
+  .middle { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  #bot {
+    width: 200px; height: 220px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(0,0,0,0.3), rgba(107,203,255,0.09));
+    border: 2px solid rgba(255,255,255,0.18);
+    flex: none;
+  }
+  #stats { flex: 1; min-width: 240px; }
+
+  .stat { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+  .stat .face { width: 22px; font-size: 1.05rem; text-align: center; }
+  .stat .nm { width: 74px; font-size: 0.8rem; color: #c9c2ff; }
+  .stat .track {
+    flex: 1; height: 13px; border-radius: 7px;
+    background: rgba(0,0,0,0.45); overflow: hidden;
+  }
+  .stat .track span {
+    display: block; height: 100%; border-radius: 7px;
+    transition: width 0.35s;
+  }
+  .stat .val { width: 30px; text-align: right; font-weight: bold; font-size: 0.85rem; }
+
+  /* ---------- what to do today ---------- */
+  #jobs {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px; margin-top: 6px;
+  }
+  .job {
+    font-family: inherit; text-align: left;
+    padding: 11px 12px; border-radius: 14px; cursor: pointer;
+    color: #fff;
+    background: rgba(255,255,255,0.08);
+    border: 2px solid rgba(255,255,255,0.2);
+  }
+  .job:active { transform: scale(0.97); }
+  .job:disabled { opacity: 0.45; cursor: default; }
+  .job .nm { font-weight: bold; font-size: 0.92rem; }
+  .job .what { font-size: 0.72rem; color: #c9c2ff; display: block; margin-top: 2px; }
+
+  #diary {
+    margin-top: 14px; padding: 12px 14px;
+    background: rgba(0,0,0,0.3);
+    border-left: 4px solid #ffd93d;
+    border-radius: 10px;
+    font-size: 0.9rem; line-height: 1.6;
+    min-height: 62px;
+  }
+  #diary .day { color: #ffd93d; font-weight: bold; }
+
+  /* ---------- the invasion ---------- */
+  #fight { width: 100%; height: 340px; border-radius: 18px;
+           background: #0b0820; border: 2px solid rgba(255,255,255,0.18); }
+  .fightbar { display: flex; gap: 8px; align-items: center;
+              flex-wrap: wrap; margin-top: 10px; }
+
+  /* ---------- the end ---------- */
+  #over { text-align: center; padding: 24px 16px; }
+  #over h1 { font-size: 1.8rem; margin-bottom: 8px; }
+  #overtext { color: #c9c2ff; line-height: 1.7; margin-bottom: 18px; }
+  #overtext b { color: #ffd93d; }
+
+  #say {
+    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+    background: rgba(16,13,38,0.95); border: 2px solid #ffd93d;
+    border-radius: 14px; padding: 9px 16px; font-size: 0.9rem;
+    opacity: 0; transition: opacity 0.25s; pointer-events: none;
+    z-index: 30; max-width: 92vw; text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <div class="topbar">
+    <a class="btn" href="../../index.html">← Home</a>
+    <h1 id="title">🤖 RAISE A ROBOT</h1>
+    <span class="pill spacer" id="daypill" hidden>Day <b id="day">1</b> of <b id="days">12</b></span>
+    <span class="pill" id="energypill" hidden>🔋 <b id="energy">100</b>%</span>
+  </div>
+
+  <!-- ============ 1. NAME HIM ============ -->
+  <div id="naming">
+    <canvas id="bot0" width="200" height="220" style="width:200px;height:220px"></canvas>
+    <h2>A robot arrives</h2>
+    <p>Somebody left a small robot on your doorstep. In twelve days the
+       invasion comes &mdash; and he's the only one who can stand in front
+       of you.<br>Raise him well.</p>
+    <p>
+      <input id="robotname" maxlength="12" autocomplete="off"
+             spellcheck="false" placeholder="Name him">
+    </p>
+    <p><button class="btn gold big" id="btn-begin">START RAISING HIM</button></p>
+  </div>
+
+  <!-- ============ 2. RAISE HIM ============ -->
+  <div id="raising" hidden>
+    <div class="middle">
+      <canvas id="bot" width="200" height="220"></canvas>
+      <div id="stats"></div>
+    </div>
+
+    <h2 style="margin-top:16px">What shall we do today?</h2>
+    <div id="jobs"></div>
+    <div id="diary"></div>
+  </div>
+
+  <!-- ============ 3. THE INVASION ============ -->
+  <div id="invasion" hidden>
+    <canvas id="fight" width="720" height="340"></canvas>
+    <div class="fightbar">
+      <span class="pill">🤖 <b id="bothp">0</b></span>
+      <span class="pill">🌊 Wave <b id="wave">1</b> of <b id="waves">8</b></span>
+      <span class="pill">❤️ <b id="lives">3</b></span>
+      <button class="btn" id="btn-repair">🔧 Repair (3)</button>
+      <button class="btn gold" id="btn-super">⚡ SUPER</button>
+    </div>
+  </div>
+
+  <!-- ============ 4. HOW IT WENT ============ -->
+  <div id="over" hidden>
+    <h1 id="overtitle">…</h1>
+    <p id="overtext"></p>
+    <button class="btn gold big" id="btn-again">Raise another robot</button>
+  </div>
+
+</div>
+
+<div id="say"></div>
+
+<script src="../../shared/player.js"></script>
+<script src="../../shared/admin-panel.js"></script>
+<script>
+/* =====================================================================
+   RAISE A ROBOT
+
+   Ollie's idea: you raise a robot, and later on he's the one standing
+   between you and the invasion.
+
+   The whole point is that the second half is decided by the first. Every
+   day you spend teaching him is aim he'll have when it matters; every
+   day you spend bolting plates on is a hit he can take. Nothing in the
+   battle is random luck - it's the twelve days you already spent.
+   ===================================================================== */
+
+const SAVE_PREFIX = "ollie-robot-p-";
+function whoAmI() {
+  const name = (typeof OlliePlayer !== "undefined" && OlliePlayer.name()) || "";
+  return name || "Player";
+}
+const SAVE_KEY = SAVE_PREFIX + whoAmI().toLowerCase();
+
+const DAYS  = 12;
+const WAVES = 8;
+
+/* ---------------------------------------------------------------
+   WHAT MAKES A ROBOT
+
+   Five things you can build up, and each one turns into something
+   real when the invasion arrives.
+   --------------------------------------------------------------- */
+const STATS = [
+  { id: "power",  name: "Power",  emoji: "⚡", colour: "#ffd93d",
+    does: "how hard he hits" },
+  { id: "armour", name: "Armour", emoji: "🛡", colour: "#6bcbff",
+    does: "how much he can take" },
+  { id: "speed",  name: "Speed",  emoji: "💨", colour: "#4ade80",
+    does: "how fast he shoots" },
+  { id: "brains", name: "Brains", emoji: "🧠", colour: "#a06bff",
+    does: "how often he hits" },
+  { id: "heart",  name: "Heart",  emoji: "❤️", colour: "#ff6b6b",
+    does: "his super beam" }
+];
+
+/* Each day you pick one of these. They cost energy, and a tired robot
+   learns almost nothing - so resting is a real choice, not a wasted go. */
+const JOBS = [
+  { id: "lift",  name: "🏋️ Training",   stat: "power",  gain: 4, energy: 20,
+    line: "heaved rocks about all afternoon" },
+  { id: "plate", name: "🔧 Bolt plates", stat: "armour", gain: 4, energy: 20,
+    line: "got a shiny new plate on his chest" },
+  { id: "run",   name: "🏃 Running",     stat: "speed",  gain: 4, energy: 20,
+    line: "ran laps of the yard until dark" },
+  { id: "read",  name: "📚 Lessons",     stat: "brains", gain: 4, energy: 20,
+    line: "read three whole books" },
+  { id: "play",  name: "🎮 Play games",  stat: "heart",  gain: 3, energy: 15,
+    line: "beat you at every single game" },
+  { id: "rest",  name: "😴 Rest",        stat: null,     gain: 0, energy: -60,
+    line: "slept like a log and woke up buzzing" }
+];
+
+/* Little things that happen on their own, so no two robots come out the
+   same. Some are good, some are not - that's life in a scrapyard. */
+const EVENTS = [
+  { text: "found a spring in the scrap heap", stat: "speed",  by: 2 },
+  { text: "watched the stars all night", stat: "brains", by: 2 },
+  { text: "got caught in the rain and went rusty", stat: "armour", by: -1 },
+  { text: "helped you carry the shopping", stat: "power",  by: 2 },
+  { text: "made you a card out of tinfoil", stat: "heart",  by: 3 },
+  { text: "tripped over the cat", stat: "speed",  by: -1 },
+  { text: "took himself apart and put himself back together", stat: "brains", by: 3 },
+  { text: "dented himself on the door frame", stat: "armour", by: -1 },
+  { text: "did press-ups all night instead of charging", stat: "power", by: 3 },
+  { text: "sang to you when you were poorly", stat: "heart", by: 2 },
+  { text: "found an old saucepan and wore it as a hat", stat: "armour", by: 2 },
+  { text: "polished himself until he shone", stat: "armour", by: 1 }
+];
+
+/* ---------------------------------------------------------------
+   THE ROBOT HIMSELF
+   --------------------------------------------------------------- */
+let bot = null;
+let best = { waves: 0, won: false, name: "" };
+
+function newRobot(name) {
+  return {
+    name: name || "Rusty",
+    day: 1,
+    energy: 100,
+    power: 3, armour: 3, speed: 3, brains: 3, heart: 3,
+    diary: []
+  };
+}
+
+function statTotal(b) {
+  return STATS.reduce((sum, s) => sum + b[s.id], 0);
+}
+
+// he gets bigger and sturdier the more you put into him
+function sizeOf(b) { return Math.min(1, statTotal(b) / 70); }
+
+function save() {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify({ bot, best })); } catch (e) {}
+}
+
+function load() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { return; }
+  if (!saved || typeof saved !== "object") return;
+
+  const b = saved.bot;
+  if (b && typeof b === "object") {
+    const fresh = newRobot(cleanName(b.name));
+    for (const s of STATS) fresh[s.id] = clamp(Number(b[s.id]), 0, 200, 3);
+    fresh.day = clamp(Math.floor(Number(b.day)), 1, DAYS + 1, 1);
+    fresh.energy = clamp(Number(b.energy), 0, 100, 100);
+    fresh.diary = Array.isArray(b.diary)
+      ? b.diary.slice(-40).map(line => String(line).slice(0, 120)) : [];
+    bot = fresh;
+  }
+
+  const r = saved.best;
+  if (r && typeof r === "object") {
+    best.waves = clamp(Math.floor(Number(r.waves)), 0, WAVES, 0);
+    best.won = r.won === true;
+    best.name = cleanName(r.name);
+  }
+}
+
+function clamp(n, low, high, fallback) {
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(low, Math.min(high, n));
+}
+
+// his name is typed by a person, so tidy it before it goes anywhere
+function cleanName(raw) {
+  return String(raw == null ? "" : raw)
+    .replace(/[^\p{L}\p{N} _'\-!?.]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 12);
+}
+
+/* ---------------------------------------------------------------
+   DRAWING HIM
+
+   The same robot is drawn in the workshop and in the battle, and he
+   really does change shape: more armour makes him wider, more power
+   gives him bigger arms, more brains a bigger head.
+   --------------------------------------------------------------- */
+function drawRobot(ctx, x, y, scale, b, opts) {
+  const o = opts || {};
+  const grow = sizeOf(b);
+  const s = scale * (0.72 + grow * 0.45);
+
+  const wide = 1 + (b.armour / 40);
+  const arms = 1 + (b.power / 40);
+  const head = 1 + (b.brains / 60);
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(o.flip ? -s : s, s);
+
+  const body = "#8fa3c8", dark = "#5b6b8c", glow = o.hurt ? "#ff6b6b" : "#6bf0ff";
+
+  // legs
+  ctx.fillStyle = dark;
+  ctx.fillRect(-13, 12, 9, 22 + b.speed * 0.4);
+  ctx.fillRect(4, 12, 9, 22 + b.speed * 0.4);
+  ctx.fillStyle = body;
+  ctx.fillRect(-16, 32 + b.speed * 0.4, 14, 7);
+  ctx.fillRect(2, 32 + b.speed * 0.4, 14, 7);
+
+  // arms
+  ctx.fillStyle = dark;
+  ctx.fillRect(-20 * wide - 7 * arms, -12, 8 * arms, 26);
+  ctx.fillRect(20 * wide - 1, -12, 8 * arms, 26);
+
+  // body
+  ctx.fillStyle = body;
+  ctx.fillRect(-20 * wide, -18, 40 * wide, 32);
+  ctx.fillStyle = dark;
+  ctx.fillRect(-20 * wide, 6, 40 * wide, 5);
+
+  // a little heart light on his chest
+  ctx.fillStyle = "#ff6b6b";
+  ctx.globalAlpha = 0.5 + Math.min(0.5, b.heart / 30);
+  ctx.beginPath();
+  ctx.arc(0, -4, 3 + Math.min(3, b.heart / 8), 0, 7);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // head
+  ctx.fillStyle = body;
+  ctx.fillRect(-11 * head, -38, 22 * head, 20);
+  ctx.fillStyle = "#2b2b45";
+  ctx.fillRect(-8 * head, -33, 16 * head, 9);
+  ctx.fillStyle = glow;
+  ctx.fillRect(-6 * head, -31, 4, 5);
+  ctx.fillRect(2 * head, -31, 4, 5);
+
+  // aerial
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, -38); ctx.lineTo(0, -46);
+  ctx.stroke();
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.arc(0, -48, 3, 0, 7); ctx.fill();
+
+  ctx.restore();
+}
+
+function drawBotPanel(canvasId) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // a workshop floor
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  ctx.fillRect(0, 175, canvas.width, 45);
+
+  const shown = bot || newRobot("Rusty");
+  drawRobot(ctx, canvas.width / 2, 150, 1.5, shown, {});
+
+  ctx.fillStyle = "#ffd93d";
+  ctx.font = "bold 15px 'Trebuchet MS', Verdana, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(shown.name, canvas.width / 2, 205);
+}
+
+/* ---------------------------------------------------------------
+   THE RAISING SCREEN
+   --------------------------------------------------------------- */
+const statsEl = document.getElementById("stats");
+const jobsEl  = document.getElementById("jobs");
+const diaryEl = document.getElementById("diary");
+const sayEl   = document.getElementById("say");
+
+let sayTimer = null;
+function say(text, seconds) {
+  sayEl.textContent = text;
+  sayEl.style.opacity = "1";
+  clearTimeout(sayTimer);
+  sayTimer = setTimeout(() => { sayEl.style.opacity = "0"; }, (seconds || 2.2) * 1000);
+}
+
+function buildStats() {
+  statsEl.textContent = "";
+  for (const s of STATS) {
+    const row = document.createElement("div");
+    row.className = "stat";
+
+    const face = document.createElement("span");
+    face.className = "face";
+    face.textContent = s.emoji;
+
+    const name = document.createElement("span");
+    name.className = "nm";
+    name.textContent = s.name;
+
+    const track = document.createElement("span");
+    track.className = "track";
+    const fill = document.createElement("span");
+    fill.id = "bar-" + s.id;
+    fill.style.background = s.colour;
+    track.appendChild(fill);
+
+    const val = document.createElement("span");
+    val.className = "val";
+    val.id = "val-" + s.id;
+
+    row.appendChild(face); row.appendChild(name);
+    row.appendChild(track); row.appendChild(val);
+    statsEl.appendChild(row);
+  }
+}
+
+function buildJobs() {
+  jobsEl.textContent = "";
+  for (const job of JOBS) {
+    const button = document.createElement("button");
+    button.className = "job";
+    button.type = "button";
+    button.id = "job-" + job.id;
+
+    const name = document.createElement("span");
+    name.className = "nm";
+    name.textContent = job.name;
+
+    const what = document.createElement("span");
+    what.className = "what";
+    const stat = STATS.find(s => s.id === job.stat);
+    what.textContent = stat
+      ? "+" + job.gain + " " + stat.name + " · uses " + job.energy + "% battery"
+      : "gets his battery back";
+
+    button.appendChild(name);
+    button.appendChild(what);
+    button.addEventListener("click", () => doJob(job.id));
+    jobsEl.appendChild(button);
+  }
+}
+
+function refresh() {
+  if (!bot) return;
+  document.getElementById("day").textContent = Math.min(bot.day, DAYS);
+  document.getElementById("days").textContent = DAYS;
+  document.getElementById("energy").textContent = Math.round(bot.energy);
+  document.getElementById("title").textContent = "🤖 " + bot.name.toUpperCase();
+
+  for (const s of STATS) {
+    const bar = document.getElementById("bar-" + s.id);
+    const val = document.getElementById("val-" + s.id);
+    if (!bar) continue;
+    bar.style.width = Math.min(100, (bot[s.id] / 22) * 100) + "%";
+    val.textContent = bot[s.id];
+  }
+
+  for (const job of JOBS) {
+    const button = document.getElementById("job-" + job.id);
+    if (button) button.disabled = bot.day > DAYS;
+  }
+
+  diaryEl.textContent = "";
+  for (const line of bot.diary.slice(-4)) {
+    const p = document.createElement("div");
+    const at = line.indexOf(":");
+    const day = document.createElement("span");
+    day.className = "day";
+    day.textContent = line.slice(0, at + 1) + " ";
+    p.appendChild(day);
+    p.appendChild(document.createTextNode(line.slice(at + 1).trim()));
+    diaryEl.appendChild(p);
+  }
+  drawBotPanel("bot");
+}
+
+/* One day of raising him. A tired robot gets much less out of a day,
+   which is the whole reason to ever choose Rest. */
+function doJob(id) {
+  const job = JOBS.find(j => j.id === id);
+  if (!job || !bot || bot.day > DAYS) return false;
+
+  let line = bot.name + " " + job.line;
+
+  if (job.stat) {
+    const tired = bot.energy < job.energy;
+    const share = tired ? 0.34 : 1;
+    const gained = Math.max(1, Math.round(job.gain * share));
+    bot[job.stat] += gained;
+    bot.energy = Math.max(0, bot.energy - job.energy);
+    line += tired ? " (but he was worn out) +" + gained : ". +" + gained;
+    line += " " + STATS.find(s => s.id === job.stat).name;
+  } else {
+    bot.energy = Math.min(100, bot.energy - job.energy);
+  }
+
+  // ...and something happens on its own, about half the time
+  if (Math.random() < 0.4) {
+    const event = EVENTS[Math.floor(Math.random() * EVENTS.length)];
+    bot[event.stat] = Math.max(0, bot[event.stat] + event.by);
+    line += " — he also " + event.text
+          + " (" + (event.by > 0 ? "+" : "") + event.by + " "
+          + STATS.find(s => s.id === event.stat).name + ")";
+  }
+
+  bot.diary.push("Day " + bot.day + ": " + line);
+  bot.day++;
+  save();
+
+  if (bot.day > DAYS) {
+    refresh();
+    say("The invasion is here!", 3);
+    setTimeout(startInvasion, 900);
+  } else {
+    refresh();
+  }
+  return true;
+}
+
+/* ---------------------------------------------------------------
+   THE INVASION
+
+   Everything here comes out of the five numbers above. Nothing is
+   rolled for, apart from whether a shot hits - and even that is his
+   Brains.
+   --------------------------------------------------------------- */
+const fight = document.getElementById("fight");
+const fx = fight.getContext("2d");
+
+let battle = null;
+
+function statsToFighter(b) {
+  return {
+    maxHp:    40 + b.armour * 14,
+    damage:   5 + b.power * 2.4,
+    rate:     0.9 + b.speed * 0.13,        // shots a second
+    accuracy: Math.min(0.95, 0.5 + b.brains * 0.035),
+    charge:   0.35 + b.heart * 0.045       // how fast the super fills
+  };
+}
+
+function startInvasion() {
+  const kit = statsToFighter(bot);
+  battle = {
+    kit,
+    hp: kit.maxHp,
+    lives: 3,
+    repairs: 3,
+    wave: 1,
+    super: 0,
+    cooldown: 0,
+    invaders: [],
+    bolts: [],
+    sparks: [],
+    beam: 0,
+    over: false,
+    hurtFlash: 0,
+    time: 0
+  };
+  spawnWave();
+  show("invasion");
+  drawFightBar();
+  say("Here they come! Tap 🔧 to patch him up.", 3);
+}
+
+function spawnWave() {
+  const wave = battle.wave;
+  const many = 2 + wave;
+  for (let i = 0; i < many; i++) {
+    battle.invaders.push({
+      x: 640 + i * (56 + Math.random() * 40),
+      y: 250 - Math.random() * 30,
+      hp: 18 + wave * 7,
+      maxHp: 18 + wave * 7,
+      speed: 42 + wave * 4.5 + Math.random() * 12,
+      damage: 4 + wave * 1.6,
+      cooldown: 1 + Math.random() * 2,
+      size: 0.8 + Math.random() * 0.35
+    });
+  }
+}
+
+function fightStep(dt) {
+  if (!battle || battle.over) return;
+  battle.time += dt;
+  battle.hurtFlash = Math.max(0, battle.hurtFlash - dt);
+  battle.beam = Math.max(0, battle.beam - dt);
+  battle.super = Math.min(100, battle.super + battle.kit.charge * dt * 8);
+
+  // ---- your robot shoots the nearest invader ----
+  battle.cooldown -= dt;
+  const target = battle.invaders.filter(v => v.hp > 0)
+                   .sort((a, b) => a.x - b.x)[0];
+  if (target && battle.cooldown <= 0 && battle.hp > 0) {
+    battle.cooldown = 1 / battle.kit.rate;
+    const hits = Math.random() < battle.kit.accuracy;
+    battle.bolts.push({ x: 140, y: 232, vx: 520, hits, from: "bot" });
+  }
+
+  // ---- invaders walk in and shoot back ----
+  for (const v of battle.invaders) {
+    if (v.hp <= 0) continue;
+    v.x -= v.speed * dt;
+    v.cooldown -= dt;
+    if (v.cooldown <= 0 && v.x < 700) {
+      v.cooldown = 1.6 + Math.random() * 1.6;
+      battle.bolts.push({ x: v.x - 14, y: v.y - 18, vx: -300, hits: true, from: "them" });
+    }
+    // got past your robot? that's one of your hearts gone
+    if (v.x < 90) {
+      v.hp = 0;
+      battle.lives--;
+      battle.hurtFlash = 0.5;
+      bang(v.x, v.y);
+      if (battle.lives <= 0) return endBattle(false);
+    }
+  }
+
+  // ---- bolts ----
+  for (let i = battle.bolts.length - 1; i >= 0; i--) {
+    const bolt = battle.bolts[i];
+    bolt.x += bolt.vx * dt;
+
+    if (bolt.from === "bot") {
+      const hit = battle.invaders.find(v => v.hp > 0
+                    && Math.abs(v.x - bolt.x) < 22 && Math.abs(v.y - 18 - bolt.y) < 40);
+      if (hit) {
+        if (bolt.hits) { hit.hp -= battle.kit.damage; bang(hit.x, hit.y - 16); }
+        battle.bolts.splice(i, 1);
+        continue;
+      }
+    } else if (bolt.x < 160 && bolt.x > 110) {
+      battle.hp -= 3 + battle.wave * 1.2;      // they hit harder later on
+      battle.hurtFlash = 0.3;
+      battle.bolts.splice(i, 1);
+      if (battle.hp <= 0) { battle.hp = 0; return endBattle(false); }
+      continue;
+    }
+    if (bolt.x < -40 || bolt.x > 820) battle.bolts.splice(i, 1);
+  }
+
+  // ---- sparks ----
+  for (let i = battle.sparks.length - 1; i >= 0; i--) {
+    const s = battle.sparks[i];
+    s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 320 * dt; s.life -= dt;
+    if (s.life <= 0) battle.sparks.splice(i, 1);
+  }
+
+  // ---- wave cleared? ----
+  battle.invaders = battle.invaders.filter(v => v.hp > 0);
+  if (!battle.invaders.length) {
+    if (battle.wave >= WAVES) return endBattle(true);
+    battle.wave++;
+    spawnWave();
+    say("Wave " + battle.wave + "!", 1.5);
+  }
+  drawFightBar();
+}
+
+function bang(x, y) {
+  for (let i = 0; i < 9; i++) {
+    battle.sparks.push({ x, y,
+      vx: (Math.random() - 0.5) * 260, vy: (Math.random() - 0.7) * 260,
+      life: 0.3 + Math.random() * 0.3 });
+  }
+}
+
+function useRepair() {
+  if (!battle || battle.over || battle.repairs <= 0) return false;
+  battle.repairs--;
+  battle.hp = Math.min(battle.kit.maxHp, battle.hp + battle.kit.maxHp * 0.35);
+  say("Patched up! 🔧", 1.4);
+  drawFightBar();
+  return true;
+}
+
+function useSuper() {
+  if (!battle || battle.over || battle.super < 100) return false;
+  battle.super = 0;
+  battle.beam = 0.45;
+
+  // the beam sweeps everything in front of him
+  let cleared = 0;
+  for (const v of battle.invaders) {
+    v.hp -= 26 + bot.heart * 1.6;
+    if (v.hp <= 0) cleared++;
+    bang(v.x, v.y - 16);
+  }
+  say(cleared ? "⚡ ZAP! " + cleared + " down" : "⚡ ZAP!", 1.6);
+  drawFightBar();
+  return true;
+}
+
+function endBattle(won) {
+  battle.over = true;
+  const reached = won ? WAVES : battle.wave;
+  if (reached > best.waves || (won && !best.won)) {
+    best.waves = Math.max(best.waves, reached);
+    best.won = best.won || won;
+    best.name = bot.name;
+  }
+  save();
+
+  document.getElementById("overtitle").textContent =
+    won ? "🎉 HE SAVED YOU!" : "💥 THEY GOT THROUGH";
+
+  const text = document.getElementById("overtext");
+  text.textContent = "";
+
+  const first = document.createElement("div");
+  first.appendChild(document.createTextNode(won
+    ? bot.name + " held them off for all " + WAVES + " waves. You're safe."
+    : bot.name + " went down on wave " + battle.wave + " of " + WAVES + "."));
+  text.appendChild(first);
+
+  // which of the five actually decided it?
+  const ranked = STATS.slice().sort((a, b) => bot[b.id] - bot[a.id]);
+  const strong = ranked[0], weak = ranked[ranked.length - 1];
+  const second = document.createElement("div");
+  second.appendChild(document.createTextNode("His best was "));
+  const b1 = document.createElement("b");
+  b1.textContent = strong.emoji + " " + strong.name + " (" + bot[strong.id] + ")";
+  second.appendChild(b1);
+  second.appendChild(document.createTextNode(" — " + strong.does + ". "));
+  second.appendChild(document.createTextNode("His weakest was "));
+  const b2 = document.createElement("b");
+  b2.textContent = weak.emoji + " " + weak.name + " (" + bot[weak.id] + ")";
+  second.appendChild(b2);
+  second.appendChild(document.createTextNode("."));
+  text.appendChild(second);
+
+  const third = document.createElement("div");
+  third.textContent = won
+    ? "Try it again and see if you can do it with a different robot."
+    : "Raise another one — more " + weak.name.toLowerCase() + " next time?";
+  text.appendChild(third);
+
+  show("over");
+}
+
+function drawFightBar() {
+  if (!battle) return;
+  document.getElementById("bothp").textContent = Math.max(0, Math.round(battle.hp));
+  document.getElementById("wave").textContent = battle.wave;
+  document.getElementById("waves").textContent = WAVES;
+  document.getElementById("lives").textContent = Math.max(0, battle.lives);
+  document.getElementById("btn-repair").textContent = "🔧 Repair (" + battle.repairs + ")";
+  document.getElementById("btn-repair").disabled = battle.repairs <= 0;
+  const superBtn = document.getElementById("btn-super");
+  superBtn.disabled = battle.super < 100;
+  superBtn.textContent = battle.super >= 100
+    ? "⚡ SUPER!" : "⚡ " + Math.floor(battle.super) + "%";
+}
+
+function drawBattle() {
+  if (!battle) return;
+  fx.clearRect(0, 0, fight.width, fight.height);
+
+  // sky and ground
+  const grad = fx.createLinearGradient(0, 0, 0, fight.height);
+  grad.addColorStop(0, "#150f33");
+  grad.addColorStop(1, "#2a1c55");
+  fx.fillStyle = grad;
+  fx.fillRect(0, 0, fight.width, fight.height);
+  fx.fillStyle = "#241a44";
+  fx.fillRect(0, 262, fight.width, fight.height - 262);
+  fx.fillStyle = "#3a2a6b";
+  fx.fillRect(0, 262, fight.width, 3);
+
+  // you, cowering behind
+  fx.font = "30px 'Trebuchet MS', Verdana, sans-serif";
+  fx.textAlign = "center";
+  fx.fillText("🧍", 46, 258);
+
+  // your robot
+  if (battle.hp > 0) {
+    drawRobot(fx, 130, 250, 1.5, bot, { hurt: battle.hurtFlash > 0 });
+  }
+
+  // the super beam
+  if (battle.beam > 0) {
+    fx.fillStyle = "rgba(107,240,255," + (battle.beam * 1.6) + ")";
+    fx.fillRect(150, 214, fight.width, 30);
+  }
+
+  // invaders
+  for (const v of battle.invaders) {
+    fx.save();
+    fx.translate(v.x, v.y);
+    fx.scale(v.size, v.size);
+    fx.fillStyle = "#8c3b5c";
+    fx.fillRect(-16, -34, 32, 30);
+    fx.fillStyle = "#ff6b6b";
+    fx.fillRect(-10, -28, 8, 6);
+    fx.fillRect(3, -28, 8, 6);
+    fx.fillStyle = "#5b2740";
+    fx.fillRect(-13, -4, 9, 16);
+    fx.fillRect(4, -4, 9, 16);
+    fx.restore();
+
+    const share = Math.max(0, v.hp / v.maxHp);
+    fx.fillStyle = "rgba(0,0,0,0.6)";
+    fx.fillRect(v.x - 16, v.y - 46, 32, 5);
+    fx.fillStyle = "#ff6b6b";
+    fx.fillRect(v.x - 16, v.y - 46, 32 * share, 5);
+  }
+
+  // bolts
+  for (const bolt of battle.bolts) {
+    fx.fillStyle = bolt.from === "bot" ? "#6bf0ff" : "#ffa76b";
+    fx.fillRect(bolt.x - 8, bolt.y - 2, 16, 4);
+  }
+
+  // sparks
+  for (const s of battle.sparks) {
+    fx.fillStyle = "rgba(255,217,61," + Math.max(0, s.life * 2) + ")";
+    fx.fillRect(s.x - 2, s.y - 2, 4, 4);
+  }
+
+  // his health bar
+  const share = Math.max(0, battle.hp / battle.kit.maxHp);
+  fx.fillStyle = "rgba(0,0,0,0.6)";
+  fx.fillRect(96, 196, 70, 7);
+  fx.fillStyle = share > 0.4 ? "#4ade80" : "#ff6b6b";
+  fx.fillRect(96, 196, 70 * share, 7);
+}
+
+/* ---------------------------------------------------------------
+   SCREENS AND THE LOOP
+   --------------------------------------------------------------- */
+function show(which) {
+  for (const id of ["naming", "raising", "invasion", "over"]) {
+    document.getElementById(id).hidden = (id !== which);
+  }
+  document.getElementById("daypill").hidden = which !== "raising";
+  document.getElementById("energypill").hidden = which !== "raising";
+  if (which === "raising") refresh();
+  if (which === "naming") drawBotPanel("bot0");
+}
+
+let last = performance.now();
+function loop() {
+  requestAnimationFrame(loop);
+  const now = performance.now();
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+
+  if (!document.getElementById("invasion").hidden) {
+    fightStep(dt);
+    drawBattle();
+  }
+}
+
+/* ---------------------------------------------------------------
+   BUTTONS
+   --------------------------------------------------------------- */
+document.getElementById("btn-begin").addEventListener("click", () => {
+  const typed = cleanName(document.getElementById("robotname").value);
+  bot = newRobot(typed || "Rusty");
+  bot.diary.push("Day 0: " + bot.name + " arrived on your doorstep, "
+                 + "beeped twice, and followed you inside.");
+  save();
+  show("raising");
+});
+
+document.getElementById("robotname").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); document.getElementById("btn-begin").click(); }
+});
+
+document.getElementById("btn-repair").addEventListener("click", useRepair);
+document.getElementById("btn-super").addEventListener("click", useSuper);
+document.getElementById("btn-again").addEventListener("click", () => {
+  bot = null;
+  battle = null;
+  document.getElementById("robotname").value = "";
+  show("naming");
+});
+
+addEventListener("pagehide", save);
+
+/* ---------------------------------------------------------------
+   GO!
+   --------------------------------------------------------------- */
+buildStats();
+buildJobs();
+load();
+
+if (bot && bot.day <= DAYS) show("raising");
+else { bot = null; show("naming"); }
+loop();
+
+/* ---------------------------------------------------------------
+   ADMIN
+   --------------------------------------------------------------- */
+function number(word, fallback, low, high) {
+  const n = parseFloat(word);
+  if (!isFinite(n)) return fallback;
+  return Math.max(low, Math.min(high, n));
+}
+
+const ADMIN_COMMANDS = [
+  { name: "stats", alias: ["maxout"], args: "<number>",
+    help: "Set every one of his numbers",
+    run: words => { if (!bot) return { bad: "No robot yet" };
+                    const to = Math.round(number(words[0], 25, 0, 200));
+                    STATS.forEach(s => { bot[s.id] = to; });
+                    refresh(); save();
+                    return "All his numbers set to " + to; } },
+
+  { name: "energy", args: "<number>",
+    help: "Charge his battery",
+    run: words => { if (!bot) return { bad: "No robot yet" };
+                    bot.energy = number(words[0], 100, 0, 100);
+                    refresh(); save();
+                    return "Battery at " + bot.energy + "%"; } },
+
+  { name: "skip", alias: ["invasion"], args: "",
+    help: "Straight to the invasion",
+    run: () => { if (!bot) return { bad: "No robot yet" };
+                 bot.day = DAYS + 1; save(); startInvasion();
+                 return "The invasion begins"; } },
+
+  { name: "heal", args: "",
+    help: "Patch your robot right up",
+    run: () => { if (!battle) return { bad: "You're not fighting" };
+                 battle.hp = battle.kit.maxHp; battle.repairs = 3;
+                 drawFightBar(); return "Good as new"; } },
+
+  { name: "charge", args: "",
+    help: "Fill the super beam now",
+    run: () => { if (!battle) return { bad: "You're not fighting" };
+                 battle.super = 100; drawFightBar(); return "⚡ Ready"; } },
+
+  { name: "wave", args: "<number>",
+    help: "Jump to a wave",
+    run: words => { if (!battle) return { bad: "You're not fighting" };
+                    battle.wave = Math.round(number(words[0], 1, 1, WAVES));
+                    battle.invaders = []; spawnWave(); drawFightBar();
+                    return "Wave " + battle.wave; } },
+
+  { name: "zap", alias: ["clear"], args: "",
+    help: "Wipe out the invaders on screen",
+    run: () => { if (!battle) return { bad: "You're not fighting" };
+                 const many = battle.invaders.length;
+                 battle.invaders.forEach(v => { v.hp = 0; bang(v.x, v.y - 16); });
+                 return many + " invaders gone"; } },
+
+  { name: "reset", args: "",
+    help: "Start again with a brand new robot",
+    run: () => { bot = null; battle = null; save(); show("naming");
+                 return "A new robot will arrive"; } }
+];
+
+if (typeof OlliePlayer !== "undefined" && OlliePlayer.isAdmin()
+    && typeof OllieAdmin !== "undefined") {
+  OllieAdmin.start({ commands: ADMIN_COMMANDS });
+}
+</script>
+
+</body>
+</html>
