@@ -118,6 +118,19 @@
     50%      { translate: 0 -6px; }
   }
 
+  /* the super auto clicker: the star spins like mad so you can tell */
+  #star.super {
+    animation: bob 3.4s ease-in-out infinite, whizz 0.5s linear infinite;
+    filter: drop-shadow(0 10px 22px rgba(0,0,0,0.55))
+            drop-shadow(0 0 40px rgba(255,240,90,0.95));
+  }
+  @keyframes whizz {
+    to { rotate: 360deg; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #star.super { animation: none; }
+  }
+
   .tap-hint {
     color: #9d95cc;
     font-size: 0.95rem;
@@ -361,7 +374,8 @@ let game = {
   autoLevel: 0,       // how many "Shooting Stars" you've bought
   totalClicks: 0,
   soundOn: true,
-  cheats: 0            // how many times an admin has fiddled with it
+  cheats: 0,           // how many times an admin has fiddled with it
+  superClicker: false  // the admins-only quintillion-taps-a-millisecond one
 };
 
 /* ---------------------------------------------------------------
@@ -443,6 +457,7 @@ function load() {
     game.totalClicks = safeNumber(saved.totalClicks, 0);
     game.soundOn     = saved.soundOn !== false;
     game.cheats      = Math.floor(safeNumber(saved.cheats, 0));
+    game.superClicker = saved.superClicker === true;
 
     // Work these two out from the levels rather than trusting the saved
     // numbers. If they ever disagreed - an older save, or someone
@@ -466,11 +481,39 @@ function safeNumber(value, fallback) {
    1500000 -> 1.5M      (ready for when the upgrades get silly)
    --------------------------------------------------------------- */
 
+/* The big names, in order. Once the super auto clicker is running you
+   go past "billion" in the first second, so the list keeps going all
+   the way up - and past the end of it we give up on names and write
+   the number the way scientists do (1.2e36 means 1.2 with 36 noughts). */
+const BIG_NAMES = [
+  [1e33, "Dc"],   // decillion
+  [1e30, "No"],   // nonillion
+  [1e27, "Oc"],   // octillion
+  [1e24, "Sp"],   // septillion
+  [1e21, "Sx"],   // sextillion
+  [1e18, "Qi"],   // QUINTILLION
+  [1e15, "Qa"],   // quadrillion
+  [1e12, "T"],    // trillion
+  [1e9,  "B"],    // billion
+  [1e6,  "M"]     // million
+];
+
 function pretty(n) {
+  if (!isFinite(n)) return "∞";
   n = Math.floor(n);
-  if (n < 1000000)    return n.toLocaleString("en-GB");
-  if (n < 1000000000) return (n / 1000000).toFixed(2).replace(/\.?0+$/, "") + "M";
-  return (n / 1000000000).toFixed(2).replace(/\.?0+$/, "") + "B";
+  if (n < 1e6) return n.toLocaleString("en-GB");
+
+  if (n >= 1e36) return n.toExponential(2).replace("e+", "e");
+
+  for (const [size, name] of BIG_NAMES) {
+    if (n >= size) return (n / size).toFixed(2).replace(/\.?0+$/, "") + name;
+  }
+  return String(n);
+}
+
+// what the super auto clicker is worth every second
+function superRate() {
+  return game.superClicker ? SUPER_TAPS_PER_MS * 1000 * game.perClick : 0;
 }
 
 function refresh() {
@@ -637,13 +680,13 @@ setInterval(() => {
   tapTimes = tapTimes.filter(t => now - t < 3000);   // last 3 seconds
 
   if (tapTimes.length < 2) {
-    rateEl.textContent = game.perSecond > 0
-      ? pretty(game.perSecond) + " coins per second"
+    rateEl.textContent = game.perSecond > 0 || game.superClicker
+      ? pretty(superRate() + game.perSecond) + " coins per second"
       : "";
     return;
   }
   const fromTapping = (tapTimes.length / 3) * game.perClick;
-  rateEl.textContent = pretty(Math.round(fromTapping + game.perSecond))
+  rateEl.textContent = pretty(fromTapping + game.perSecond + superRate())
                      + " coins per second";
 }, 400);
 
@@ -660,14 +703,41 @@ setInterval(() => {
 
 let lastTick = performance.now();
 
+/* THE SUPER AUTO CLICKER (admins only)
+
+   One QUINTILLION taps every millisecond. That's
+
+     1,000,000,000,000,000,000  taps  x  1000 milliseconds
+
+   every single second, and each of those taps pays out whatever a tap
+   is worth to you. The counter goes past "billion" before you've let
+   go of the button.
+
+   The taps are worked out from the CLOCK, the same as the ordinary
+   auto tapper - so it pays the same whether the timer is running fast
+   or slow, and it never pays for time when the page wasn't open. */
+const SUPER_TAPS_PER_MS = 1e18;
+
 setInterval(() => {
   const now = performance.now();
-  const secondsPassed = (now - lastTick) / 1000;
+  const msPassed = now - lastTick;
   lastTick = now;
 
-  if (game.perSecond <= 0) return;
+  let earned = false;
 
-  game.coins += game.perSecond * secondsPassed;
+  if (game.superClicker) {
+    const taps = SUPER_TAPS_PER_MS * msPassed;
+    game.totalClicks += taps;
+    game.coins += taps * game.perClick;
+    earned = true;
+  }
+
+  if (game.perSecond > 0) {
+    game.coins += game.perSecond * (msPassed / 1000);
+    earned = true;
+  }
+
+  if (!earned) return;
   refresh();
   saveSoon();
 }, 100);
@@ -845,7 +915,8 @@ function wipeScore(name) {
   if (tidy === PLAYER_NAME.toLowerCase()) {
     game.coins = 0; game.perClick = 1; game.perSecond = 0;
     game.clickLevel = 0; game.autoLevel = 0; game.totalClicks = 0;
-    game.cheats = 0;
+    game.cheats = 0; game.superClicker = false;
+    star.classList.remove("super");
     refresh(); save();
     return true;
   }
@@ -881,6 +952,20 @@ const ADMIN_COMMANDS = [
                     game.perSecond = game.autoLevel; countCheat();
                     refresh(); save();
                     return "Earning " + pretty(game.perSecond) + " a second"; } },
+
+  { name: "superclicker", alias: ["super", "turbo"], args: "[on/off]",
+    help: "ONE QUINTILLION taps every millisecond",
+    state: () => game.superClicker ? "ON" : "off",
+    run: words => {
+      game.superClicker = words[0] === "off" ? false
+                        : words[0] === "on" ? true : !game.superClicker;
+      if (game.superClicker) countCheat();
+      star.classList.toggle("super", game.superClicker);
+      refresh(); save();
+      return game.superClicker
+        ? "🚀 SUPER AUTO CLICKER ON - a quintillion taps a millisecond!"
+        : "Super auto clicker off";
+    } },
 
   { name: "rich", args: "",
     help: "A million coins, right now",
@@ -930,6 +1015,11 @@ const ADMIN_COMMANDS = [
 if (typeof OlliePlayer !== "undefined" && OlliePlayer.isAdmin()
     && typeof OllieAdmin !== "undefined") {
   OllieAdmin.start({ commands: ADMIN_COMMANDS });
+  star.classList.toggle("super", !!game.superClicker);
+} else if (game.superClicker) {
+  // not an admin any more, so no super clicker either
+  game.superClicker = false;
+  save();
 }
 </script>
 
