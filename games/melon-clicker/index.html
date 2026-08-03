@@ -330,7 +330,27 @@
    back tomorrow, and your coins are still there.
    ===================================================================== */
 
-const SAVE_KEY = "ollie-melon-clicker-v1";
+/* Everybody in the house gets their own coins.
+
+   The game used to keep one save for the whole device. Now each player
+   who signs in on the home page gets their own, so Ollie's score and
+   Ella's score don't tread on each other - and an admin can reset just
+   one person's if they've been cheating.
+
+   The old single save is still read the first time, so nobody who was
+   already playing loses what they'd built up. */
+const OLD_SAVE_KEY = "ollie-melon-clicker-v1";
+const SAVE_PREFIX  = "ollie-melon-clicker-p-";
+
+function whoAmI() {
+  const name = (typeof OlliePlayer !== "undefined" && OlliePlayer.name()) || "";
+  return name || "Player";
+}
+
+function keyFor(name) { return SAVE_PREFIX + String(name).toLowerCase(); }
+
+const PLAYER_NAME = whoAmI();
+const SAVE_KEY    = keyFor(PLAYER_NAME);
 
 // ---- the whole game state lives in here ----
 let game = {
@@ -340,7 +360,8 @@ let game = {
   clickLevel: 0,      // how many "Star Power" upgrades you've bought
   autoLevel: 0,       // how many "Shooting Stars" you've bought
   totalClicks: 0,
-  soundOn: true
+  soundOn: true,
+  cheats: 0            // how many times an admin has fiddled with it
 };
 
 /* ---------------------------------------------------------------
@@ -397,7 +418,10 @@ function save() {
 
 function load() {
   try {
-    const raw = localStorage.getItem(SAVE_KEY);
+    // your own save first, then the old shared one from before we
+    // started keeping them separately
+    const raw = localStorage.getItem(SAVE_KEY)
+             || localStorage.getItem(OLD_SAVE_KEY);
     if (!raw) return;
     const saved = JSON.parse(raw);
 
@@ -418,6 +442,7 @@ function load() {
                          safeNumber(saved.perSecond, 0)));
     game.totalClicks = safeNumber(saved.totalClicks, 0);
     game.soundOn     = saved.soundOn !== false;
+    game.cheats      = Math.floor(safeNumber(saved.cheats, 0));
 
     // Work these two out from the levels rather than trusting the saved
     // numbers. If they ever disagreed - an older save, or someone
@@ -789,53 +814,117 @@ function bigNumber(word, fallback) {
   return Math.min(n, 1e12);              // stay inside what maths can count
 }
 
+/* Everybody's saved score on this device, so an admin can look at
+   somebody else's and reset it if they've been cheating. */
+function everyonesScores() {
+  const found = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key || key.indexOf(SAVE_PREFIX) !== 0) continue;
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(key)); } catch (e) { continue; }
+    if (!saved || typeof saved !== "object") continue;
+    found.push({
+      key: key,
+      name: key.slice(SAVE_PREFIX.length),
+      coins: safeNumber(saved.coins, 0),
+      cheats: safeNumber(saved.cheats, 0)
+    });
+  }
+  return found.sort((a, b) => b.coins - a.coins);
+}
+
+// mark this save as fiddled with, so it's honest about it afterwards
+function countCheat() { game.cheats = (game.cheats || 0) + 1; }
+
+function wipeScore(name) {
+  const tidy = String(name || "").toLowerCase();
+  const key = keyFor(tidy);
+
+  // resetting the person playing right now? empty the live game too
+  if (tidy === PLAYER_NAME.toLowerCase()) {
+    game.coins = 0; game.perClick = 1; game.perSecond = 0;
+    game.clickLevel = 0; game.autoLevel = 0; game.totalClicks = 0;
+    game.cheats = 0;
+    refresh(); save();
+    return true;
+  }
+
+  if (localStorage.getItem(key) === null) return false;
+  try { localStorage.removeItem(key); } catch (e) { return false; }
+  return true;
+}
+
 const ADMIN_COMMANDS = [
   { name: "coins", alias: ["setcoins"], args: "<number>",
     help: "Set your coins to any number",
-    run: words => { game.coins = bigNumber(words[0], game.coins);
+    run: words => { game.coins = bigNumber(words[0], game.coins); countCheat();
                     refresh(); save();
                     return "Coins set to " + pretty(game.coins); } },
 
   { name: "add", args: "<number>",
     help: "Add coins to what you have",
-    run: words => { game.coins += bigNumber(words[0], 100);
+    run: words => { game.coins += bigNumber(words[0], 100); countCheat();
                     refresh(); save();
                     return "Now on " + pretty(game.coins) + " coins"; } },
 
   { name: "perclick", alias: ["click"], args: "<number>",
     help: "Coins for every tap",
     run: words => { game.clickLevel = Math.max(0, Math.round(bigNumber(words[0], 1)) - 1);
-                    game.perClick = 1 + game.clickLevel;
+                    game.perClick = 1 + game.clickLevel; countCheat();
                     refresh(); save();
                     return "Every tap gives " + pretty(game.perClick); } },
 
   { name: "persecond", alias: ["auto"], args: "<number>",
     help: "Coins every second on their own",
     run: words => { game.autoLevel = Math.max(0, Math.round(bigNumber(words[0], 1)));
-                    game.perSecond = game.autoLevel;
+                    game.perSecond = game.autoLevel; countCheat();
                     refresh(); save();
                     return "Earning " + pretty(game.perSecond) + " a second"; } },
 
   { name: "rich", args: "",
     help: "A million coins, right now",
-    run: () => { game.coins += 1000000; refresh(); save();
+    run: () => { game.coins += 1000000; countCheat(); refresh(); save();
                  return "💰 A million more coins"; } },
 
   { name: "maxout", alias: ["max"], args: "",
     help: "Buy 25 of both upgrades at once",
-    run: () => { game.clickLevel += 25; game.autoLevel += 25;
+    run: () => { game.clickLevel += 25; game.autoLevel += 25; countCheat();
                  game.perClick = 1 + game.clickLevel;
                  game.perSecond = game.autoLevel;
                  refresh(); save();
                  return "Star Power " + game.clickLevel
                         + ", Shooting Stars " + game.autoLevel; } },
 
+  { name: "scores", alias: ["players", "who"], args: "",
+    help: "Everybody's score on this device",
+    run: () => {
+      const all = everyonesScores();
+      if (!all.length) return "Nobody has played on here yet";
+      return all.map(p => p.name + ": " + pretty(p.coins)
+                          + (p.cheats ? " ⚠️" : "")).join("  ·  ");
+    } },
+
+  { name: "wipe", alias: ["resetplayer"], args: "<who>",
+    help: "Reset somebody's score to zero",
+    run: words => {
+      const who = words.join(" ");
+      if (!who) return { bad: "Who? Try  ;wipe Sam" };
+      if (!wipeScore(who)) return { bad: "No score saved for " + who };
+      return who + "'s score is back to zero";
+    } },
+
+  { name: "cheaters", args: "",
+    help: "Who has had admin help with their score",
+    run: () => {
+      const naughty = everyonesScores().filter(p => p.cheats > 0);
+      if (!naughty.length) return "Everybody's score looks honest 👍";
+      return naughty.map(p => p.name + " (" + p.cheats + " times)").join(", ");
+    } },
+
   { name: "reset", alias: ["zero"], args: "",
     help: "Back to nothing, like a new game",
-    run: () => { game.coins = 0; game.perClick = 1; game.perSecond = 0;
-                 game.clickLevel = 0; game.autoLevel = 0; game.totalClicks = 0;
-                 refresh(); save();
-                 return "All back to zero"; } }
+    run: () => { wipeScore(PLAYER_NAME); return "All back to zero"; } }
 ];
 
 if (typeof OlliePlayer !== "undefined" && OlliePlayer.isAdmin()
