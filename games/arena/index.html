@@ -2319,6 +2319,58 @@ const ADMIN_COMMANDS = [
     help: "Show this list of commands",
     run: () => { toggleAdminPanel(true); return "Here you go"; } },
 
+  // ---- looking after your game ----
+  { name: "kick", args: "<who>",
+    help: "Send somebody out of your game",
+    run: c => {
+      if (net.mode !== "host") return { bad: "Only the host can do that" };
+      const who = c.words.join(" ");
+      const other = playerByName(who);
+      if (!other) return { bad: 'Nobody here called "' + who + '"' };
+      const name = other.name;
+      netSend({ t: "kicked", from: net.me, to: other.id });
+      dropConnection(other.id);
+      return "Kicked " + name;
+    } },
+
+  { name: "ban", args: "<who>",
+    help: "Kick them AND stop them coming back",
+    run: c => {
+      if (net.mode !== "host") return { bad: "Only the host can do that" };
+      const who = c.words.join(" ");
+      if (!cleanNickname(who)) return { bad: "Who? Try  ;ban Sam" };
+
+      const other = playerByName(who);
+      banName(who);
+      if (other) {
+        netSend({ t: "kicked", from: net.me, to: other.id, why: "banned" });
+        dropConnection(other.id);
+      }
+      return "Banned " + cleanNickname(who) + (other ? " (and kicked them out)" : "");
+    } },
+
+  { name: "unban", args: "<who>",
+    help: "Let somebody back in again",
+    run: c => {
+      const who = c.words.join(" ");
+      if (!unbanName(who)) return { bad: cleanNickname(who) + " isn't banned" };
+      return cleanNickname(who) + " can come back now";
+    } },
+
+  { name: "bans", alias: ["banned"], args: "",
+    help: "Who is banned at the moment",
+    run: () => bans.length ? "Banned: " + bans.join(", ") : "Nobody is banned" },
+
+  { name: "who", alias: ["players"], args: "",
+    help: "Who is here, and who is an admin",
+    run: () => {
+      const here = [myName() + (admin.unlocked ? " 🛠" : "") + " (you)"];
+      for (const other of net.others.values()) {
+        here.push(other.name + (other.admin ? " 🛠" : ""));
+      }
+      return here.join(", ");
+    } },
+
   { name: "lock", args: "",
     help: "Give the admin powers back up",
     run: () => { lockAdmin("Locked - type the code again for another go");
@@ -3478,6 +3530,106 @@ const net = {
   transport: null      // swapped for a fake one in tests
 };
 
+/* =====================================================================
+   KICKING AND BANNING
+
+   Only the HOST can do this, and that's the honest line: the host is
+   the one running the game, so they can shut their own door. Nobody
+   can reach into somebody else's game and change it.
+
+   Bans are kept by name, because a computer gets a brand new random id
+   every time it connects - the name is the only thing that lasts.
+   ===================================================================== */
+const BAN_KEY = "ollie-star-arena-bans";
+let bans = [];
+
+try {
+  const saved = JSON.parse(localStorage.getItem(BAN_KEY));
+  if (Array.isArray(saved)) {
+    bans = saved.map(n => cleanNickname(n).toLowerCase()).filter(Boolean).slice(0, 50);
+  }
+} catch (e) { /* no ban list yet */ }
+
+function saveBans() {
+  try { localStorage.setItem(BAN_KEY, JSON.stringify(bans)); } catch (e) {}
+}
+
+function isBanned(name) {
+  const tidy = cleanNickname(name).toLowerCase();
+  return !!tidy && bans.indexOf(tidy) >= 0;
+}
+
+function banName(name) {
+  const tidy = cleanNickname(name).toLowerCase();
+  if (!tidy || isBanned(tidy)) return false;
+  bans.push(tidy);
+  bans = bans.slice(-50);
+  saveBans();
+  return true;
+}
+
+function unbanName(name) {
+  const tidy = cleanNickname(name).toLowerCase();
+  const at = bans.indexOf(tidy);
+  if (at < 0) return false;
+  bans.splice(at, 1);
+  saveBans();
+  return true;
+}
+
+// find a player by what they're called, however it was typed
+function playerByName(name) {
+  const tidy = cleanNickname(name).toLowerCase();
+  if (!tidy) return null;
+  for (const other of net.others.values()) {
+    if (other.name.toLowerCase() === tidy) return other;
+  }
+  return null;
+}
+
+function sendTo(id, msg) {
+  for (const conn of net.conns) {
+    if (conn.peer === id && conn.open) { try { conn.send(msg); } catch (e) {} }
+  }
+  if (net.transport && net.transport.sendTo) net.transport.sendTo(id, msg);
+}
+
+function dropConnection(id) {
+  for (const conn of net.conns.slice()) {
+    if (conn.peer !== id) continue;
+    try { conn.close(); } catch (e) {}
+    net.conns = net.conns.filter(c => c !== conn);
+  }
+  net.left.add(id);
+  removeOtherPlayer(id);
+}
+
+/* Somebody kicked US: back to the start screen, with the reason. */
+function leaveGame(why) {
+  if (!playing && net.mode === "solo") return;    // already out
+  netSend({ t: "bye" });
+  for (const conn of net.conns.slice()) { try { conn.close(); } catch (e) {} }
+  net.conns = [];
+  net.mode = "solo";
+
+  /* Mark everyone as gone BEFORE removing them. Their last few position
+     messages are still in flight, and without this the next one to land
+     builds them again - so you get kicked out and then find a ghost
+     standing in the empty arena with you. */
+  [...net.others.keys()].forEach(id => net.left.add(id));
+  [...net.others.keys()].forEach(removeOtherPlayer);   // copy first, it shrinks
+
+  playing = false;
+  document.body.classList.remove("playing");
+  startScreen.style.display = "";
+  if (pointerLocked) document.exitPointerLock();
+  refreshPlayerList();
+
+  const note = document.getElementById("adminstate");
+  if (note) note.textContent = why || "";
+  say(why || "You left the game", 4);
+}
+
 /* ---- sending ----
    Guests send to the host. The host sends to everyone. */
 function netSend(msg) {
@@ -3512,15 +3664,51 @@ function netReceive(msg) {
     }
   }
 
+  if (msg.t === "kicked") {
+    if (msg.to === undefined || msg.to === net.me) {
+      leaveGame(msg.why === "banned"
+        ? "You're banned from this game 🚫"
+        : "The host removed you from the game");
+    } else {
+      const gone = net.others.get(msg.to);
+      if (gone) say(gone.name + " was removed by the host", 2.5);
+    }
+    return;
+  }
+
   let other = net.others.get(msg.from);
 
-  if (msg.t === "hello" || (!other && msg.t === "state")) {
-    if (!other) {
-      other = addOtherPlayer(msg.from, msg.colour, msg.name, msg.look);
-      say(other.name + " joined! 👋", 2);
+  if (msg.t === "hello") {
+    /* The host keeps the door. Somebody banned is turned away here,
+       before they are ever in the game. */
+    if (net.mode === "host" && isBanned(msg.name)) {
+      sendTo(msg.from, { t: "kicked", from: net.me, why: "banned" });
+      dropConnection(msg.from);
+      say(cleanNickname(msg.name) + " tried to join, but they're banned", 2.5);
+      return;
     }
+
+    /* Only the hello carries their name, look and admin badge. If a
+       position message got here first we'll have made them already,
+       with no name at all - so build them again, properly this time.
+       (That's how somebody ended up called "Friend" forever, and you
+       can't kick "Friend" by name.) */
+    const wasHere = !!other;
+    if (wasHere) removeOtherPlayer(msg.from);
+
+    other = addOtherPlayer(msg.from, msg.colour, msg.name, msg.look);
+    if (!wasHere) say(other.name + " joined! 👋", 2);
+
+  } else if (!other && msg.t === "state") {
+    other = addOtherPlayer(msg.from, msg.colour, msg.name, msg.look);
+    say(other.name + " joined! 👋", 2);
   }
+
   if (!other) return;
+
+  // Admins say so. Somebody doing admin things WITHOUT this badge
+  // didn't get their powers the proper way.
+  if (msg.admin !== undefined) setAdminBadge(other, !!msg.admin);
 
   switch (msg.t) {
     case "state":
@@ -3653,8 +3841,30 @@ function refreshPlayerList() {
     el.appendChild(document.createTextNode("· " + text));
   };
 
-  add(myName() + " (you)");
-  for (const o of net.others.values()) add(o.name);
+  add(myName() + (admin.unlocked ? " 🛠" : "") + " (you)");
+  for (const o of net.others.values()) add(o.name + (o.admin ? " 🛠" : ""));
+}
+
+/* Put (or take away) the little spanner over somebody's head. The name
+   tag is a picture, so it has to be drawn again when it changes. */
+function setAdminBadge(other, isAdmin) {
+  if (!!other.admin === !!isAdmin) return;
+  other.admin = !!isAdmin;
+
+  if (other.parts && other.parts.tag) {
+    const old = other.parts.tag;
+    const tag = makeNameTag((other.admin ? "🛠 " : "") + other.name,
+                            other.admin ? "#ffd93d" : "#ffffff");
+    tag.position.y = old.position.y;
+    other.mesh.remove(old);
+    if (old.material.map) old.material.map.dispose();
+    old.material.dispose();
+    other.mesh.add(tag);
+    other.parts.tag = tag;
+  }
+
+  if (other.admin) say(other.name + " is an admin 🛠", 2.5);
+  refreshPlayerList();
 }
 
 // a bolt that's only for show - it can't hurt anyone
@@ -3678,7 +3888,8 @@ function netTick(dt) {
   if (stateTimer <= 0) {
     stateTimer = 1 / 15;
     netSend({ t: "state", x: player.pos.x, y: player.pos.y, z: player.pos.z,
-              yaw: player.yaw, health: player.health, dead: player.dead });
+              yaw: player.yaw, health: player.health, dead: player.dead,
+              admin: admin.unlocked });
   }
 
   // slide everyone else towards where they said they were, so they
@@ -3753,7 +3964,8 @@ document.getElementById("btn-host").addEventListener("click", () => {
     net.conns.push(conn);
     conn.on("open", () => {
       status.textContent = "Your friend is here! 🎉";
-      conn.send({ t: "hello", from: net.me, name: myName(), look: myLook });
+      conn.send({ t: "hello", from: net.me, name: myName(), look: myLook,
+                  admin: admin.unlocked });
       conn.send({ t: "world", from: net.me,
                   blocks: blocks.map(bl => ({ x: bl.x, y: bl.y, z: bl.z })) });
     });
@@ -3795,7 +4007,8 @@ document.getElementById("btn-connect").addEventListener("click", () => {
     conn.on("open", () => {
       net.mode = "guest";
       status.textContent = "Connected! 🎉";
-      conn.send({ t: "hello", from: net.me, name: myName(), look: myLook });
+      conn.send({ t: "hello", from: net.me, name: myName(), look: myLook,
+                  admin: admin.unlocked });
       beginGame();
     });
     conn.on("data", netReceive);
