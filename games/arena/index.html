@@ -1314,6 +1314,123 @@ function tryBuild() {
   return !!made;
 }
 
+/* =====================================================================
+   KICKING AND BANNING
+
+   Only the HOST can do this, and that's the honest line: the host is
+   the one running the game, so they can shut their own door. Nobody
+   can reach into somebody else's game and change it.
+
+   Bans are kept by name, because a computer gets a brand new random id
+   every time it connects - the name is the only thing that lasts.
+   ===================================================================== */
+const BAN_KEY = "ollie-star-arena-bans";
+let bans = [];
+
+try {
+  const saved = JSON.parse(localStorage.getItem(BAN_KEY));
+  if (Array.isArray(saved)) {
+    bans = saved.map(n => cleanNickname(n).toLowerCase()).filter(Boolean).slice(0, 50);
+  }
+} catch (e) { /* no ban list yet */ }
+
+function saveBans() {
+  try { localStorage.setItem(BAN_KEY, JSON.stringify(bans)); } catch (e) {}
+}
+
+function isBanned(name) {
+  const tidy = cleanNickname(name).toLowerCase();
+  return !!tidy && bans.indexOf(tidy) >= 0;
+}
+
+function banName(name) {
+  const tidy = cleanNickname(name).toLowerCase();
+  if (!tidy || isBanned(tidy)) return false;
+  bans.push(tidy);
+  bans = bans.slice(-50);
+  saveBans();
+  return true;
+}
+
+function unbanName(name) {
+  const tidy = cleanNickname(name).toLowerCase();
+  const at = bans.indexOf(tidy);
+  if (at < 0) return false;
+  bans.splice(at, 1);
+  saveBans();
+  return true;
+}
+
+/* Bots can be banned as well as people. A banned bot isn't built at
+   the start of the game and never comes back if it's already here -
+   handy if one of them keeps camping in your favourite corner. */
+function botByName(name) {
+  const tidy = cleanNickname(name).toLowerCase();
+  if (!tidy) return null;
+  return robots.find(r => r.name.toLowerCase() === tidy) || null;
+}
+
+function banBot(bot) {
+  bot.banned = true;
+  bot.alive = false;
+  bot.group.visible = false;
+  bot.respawnIn = Infinity;
+}
+
+// find a player by what they're called, however it was typed
+function playerByName(name) {
+  const tidy = cleanNickname(name).toLowerCase();
+  if (!tidy) return null;
+  for (const other of net.others.values()) {
+    if (other.name.toLowerCase() === tidy) return other;
+  }
+  return null;
+}
+
+function sendTo(id, msg) {
+  for (const conn of net.conns) {
+    if (conn.peer === id && conn.open) { try { conn.send(msg); } catch (e) {} }
+  }
+  if (net.transport && net.transport.sendTo) net.transport.sendTo(id, msg);
+}
+
+function dropConnection(id) {
+  for (const conn of net.conns.slice()) {
+    if (conn.peer !== id) continue;
+    try { conn.close(); } catch (e) {}
+    net.conns = net.conns.filter(c => c !== conn);
+  }
+  net.left.add(id);
+  removeOtherPlayer(id);
+}
+
+/* Somebody kicked US: back to the start screen, with the reason. */
+function leaveGame(why) {
+  if (!playing && net.mode === "solo") return;    // already out
+  netSend({ t: "bye" });
+  for (const conn of net.conns.slice()) { try { conn.close(); } catch (e) {} }
+  net.conns = [];
+  net.mode = "solo";
+
+  /* Mark everyone as gone BEFORE removing them. Their last few position
+     messages are still in flight, and without this the next one to land
+     builds them again - so you get kicked out and then find a ghost
+     standing in the empty arena with you. */
+  [...net.others.keys()].forEach(id => net.left.add(id));
+  [...net.others.keys()].forEach(removeOtherPlayer);   // copy first, it shrinks
+
+  playing = false;
+  document.body.classList.remove("playing");
+  startScreen.style.display = "";
+  if (pointerLocked) document.exitPointerLock();
+  refreshPlayerList();
+
+  const note = document.getElementById("adminstate");
+  if (note) note.textContent = why || "";
+  say(why || "You left the game", 4);
+}
+
+
 // ---------------------------------------------------------------
 // ROBOTS - the ones you're fighting
 // ---------------------------------------------------------------
@@ -1685,6 +1802,9 @@ function makeRobot() {
 
   robotCount++;
   const name = "Bot " + robotCount;
+
+  // banned before the game even started? then it doesn't turn up
+  if (isBanned(name)) return null;
 
   // every bot gets a bit of kit, so no two look quite the same
   const kit = ROBOT_KITS[Math.floor(Math.random() * ROBOT_KITS.length)];
@@ -2120,12 +2240,20 @@ function resolveTarget(word) {
 
   // is it one of your friends? say why we can't
   for (const other of net.others.values()) {
-    if (other.name.toLowerCase().replace(/\s+/g, "") === w) return { friend: other.name };
+    if (other.name.toLowerCase().replace(/\s+/g, "") === w) return { friend: other };
   }
   return null;
 }
 
 function livingBots() { return robots.filter(r => r.alive); }
+
+/* Is this word meant to be a name, or is it something else the command
+   wants - like the "on" in ";heal on"? Commands that take a target and
+   nothing else can treat any leftover word as a name. */
+function looksLikeTarget(cmd, word) {
+  return !!cmd.target && (cmd.args || "").indexOf("[on/off]") < 0
+         && !/^[-+]?[\d.]+$/.test(String(word));
+}
 
 function targetNames(t) {
   const bits = [];
@@ -2229,11 +2357,22 @@ const ADMIN_COMMANDS = [
 
   { name: "kill", args: "[who]", target: "bots",
     help: "Knock somebody out",
-    run: c => { knockOut(c.target, false); return "Knocked out " + targetNames(c.target); } },
+    run: c => { knockOut(c.target, false); return "Knocked out " + targetNames(c.target); },
+    // a real player is knocked out by asking THEIR game to do it
+    person: (other, bang) => {
+      if (other.isHost) return { bad: "You can't knock out the host 🛡" };
+      netSend({ t: "hit", target: other.id, dmg: 999, kill: true, bang: !!bang });
+      return "Knocked out " + other.name;
+    } },
 
   { name: "explode", args: "[who]", target: "bots",
     help: "Knock them out with a bang",
-    run: c => { knockOut(c.target, true); return "💥 " + targetNames(c.target); } },
+    run: c => { knockOut(c.target, true); return "💥 " + targetNames(c.target); },
+    person: (other) => {
+      if (other.isHost) return { bad: "You can't knock out the host 🛡" };
+      netSend({ t: "hit", target: other.id, dmg: 999, kill: true, bang: true });
+      return "💥 " + other.name;
+    } },
 
   { name: "respawn", alias: ["reset", "re"], args: "",
     help: "Start again from the spawn point",
@@ -2265,9 +2404,13 @@ const ADMIN_COMMANDS = [
 
   { name: "wake", alias: ["revive"], args: "", key: "KeyJ",
     help: "Bring every robot back at once",
-    run: () => { robots.forEach(r => { r.alive = true; r.health = 100;
-                                       r.respawnIn = 0; r.group.visible = true; });
-                 return "All robots back up"; } },
+    run: () => { robots.forEach(r => {
+                   if (r.banned) return;             // still banned, still away
+                   r.alive = true; r.health = 100;
+                   r.respawnIn = 0; r.group.visible = true;
+                 });
+                 const up = robots.filter(r => r.alive).length;
+                 return up + " robots back up"; } },
 
   { name: "peace", args: "<seconds>",
     help: "Stop all the fighting for a bit",
@@ -2334,11 +2477,28 @@ const ADMIN_COMMANDS = [
     } },
 
   { name: "ban", args: "<who>",
-    help: "Kick them AND stop them coming back",
+    help: "Ban a player or a bot, for good",
     run: c => {
-      if (net.mode !== "host") return { bad: "Only the host can do that" };
       const who = c.words.join(" ");
-      if (!cleanNickname(who)) return { bad: "Who? Try  ;ban Sam" };
+      if (!cleanNickname(who)) return { bad: "Who? Try  ;ban Sam  or  ;ban Bot 2" };
+
+      /* Bots belong to your own game, so anybody with the panel can ban
+         one. Banning a PERSON is the host's job, because the host is
+         the one whose door it is. */
+      const bot = botByName(who);
+      if (bot) {
+        banName(who);
+        banBot(bot);
+        return "Banned " + bot.name + " - it won't come back";
+      }
+
+      // playing on your own? there's no door to hold, so just write it
+      // down for next time
+      if (net.mode === "guest") return { bad: "Only the host can ban a player" };
+      if (net.mode === "solo") {
+        banName(who);
+        return "Banned " + cleanNickname(who) + " - written down for next time";
+      }
 
       const other = playerByName(who);
       banName(who);
@@ -2350,11 +2510,20 @@ const ADMIN_COMMANDS = [
     } },
 
   { name: "unban", args: "<who>",
-    help: "Let somebody back in again",
+    help: "Let a player or a bot back in again",
     run: c => {
       const who = c.words.join(" ");
       if (!unbanName(who)) return { bad: cleanNickname(who) + " isn't banned" };
-      return cleanNickname(who) + " can come back now";
+
+      // a bot that's still standing there can come straight back
+      const bot = botByName(who);
+      if (bot) {
+        bot.banned = false;
+        bot.respawnIn = 1;
+        return bot.name + " is coming back";
+      }
+      return cleanNickname(who) + " can come back now"
+             + " (bots come back next time you open the game)";
     } },
 
   { name: "bans", alias: ["banned"], args: "",
@@ -2364,11 +2533,12 @@ const ADMIN_COMMANDS = [
   { name: "who", alias: ["players"], args: "",
     help: "Who is here, and who is an admin",
     run: () => {
-      const here = [myName() + (admin.unlocked ? " 🛠" : "") + " (you)"];
+      const here = [myName() + (admin.unlocked ? " 🛠" : "")
+                    + (net.mode === "host" ? " 🛡" : "") + " (you)"];
       for (const other of net.others.values()) {
-        here.push(other.name + (other.admin ? " 🛠" : ""));
+        here.push(other.name + (other.admin ? " 🛠" : "") + (other.isHost ? " 🛡" : ""));
       }
-      return here.join(", ");
+      return here.join(", ") + "  —  (🛠 = admin, 🛡 = host)";
     } },
 
   { name: "lock", args: "",
@@ -2414,8 +2584,26 @@ function runCommand(line) {
   let target = null;
   if (cmd.target) {
     const guess = resolveTarget(words[0]);
+
+    /* Typed a name that isn't anybody? Say so. Falling back to the
+       default meant ";kill Bananamn" quietly knocked out every bot you
+       had, which is not what anyone meant to do. */
+    if (!guess && words.length && looksLikeTarget(cmd, words[0])) {
+      adminLog('Nobody here called "' + words[0] + '"', true);
+      return false;
+    }
+
     if (guess && guess.friend) {
-      adminLog("Can't reach " + guess.friend + "'s game - your powers only "
+      /* Some commands know how to ask a friend's game politely - ";kill"
+         sends the same sort of message a bolt does, and their computer
+         decides. Everything else really can't reach them. */
+      if (cmd.person) {
+        const answer = cmd.person(guess.friend, words[1]);
+        if (answer && answer.bad) { adminLog(answer.bad, true); return false; }
+        adminLog(answer, false);
+        return true;
+      }
+      adminLog("Can't reach " + guess.friend.name + "'s game - your powers only "
                + "change your own", true);
       return false;
     }
@@ -3015,6 +3203,7 @@ function updateRobots(dt) {
   for (const r of robots) {
     // ---- knocked out? come back shortly ----
     if (!r.alive) {
+      if (r.banned) continue;          // banned bots stay away for good
       r.respawnIn -= dt;
       if (r.respawnIn <= 0) {
         r.alive = true;
@@ -3530,106 +3719,6 @@ const net = {
   transport: null      // swapped for a fake one in tests
 };
 
-/* =====================================================================
-   KICKING AND BANNING
-
-   Only the HOST can do this, and that's the honest line: the host is
-   the one running the game, so they can shut their own door. Nobody
-   can reach into somebody else's game and change it.
-
-   Bans are kept by name, because a computer gets a brand new random id
-   every time it connects - the name is the only thing that lasts.
-   ===================================================================== */
-const BAN_KEY = "ollie-star-arena-bans";
-let bans = [];
-
-try {
-  const saved = JSON.parse(localStorage.getItem(BAN_KEY));
-  if (Array.isArray(saved)) {
-    bans = saved.map(n => cleanNickname(n).toLowerCase()).filter(Boolean).slice(0, 50);
-  }
-} catch (e) { /* no ban list yet */ }
-
-function saveBans() {
-  try { localStorage.setItem(BAN_KEY, JSON.stringify(bans)); } catch (e) {}
-}
-
-function isBanned(name) {
-  const tidy = cleanNickname(name).toLowerCase();
-  return !!tidy && bans.indexOf(tidy) >= 0;
-}
-
-function banName(name) {
-  const tidy = cleanNickname(name).toLowerCase();
-  if (!tidy || isBanned(tidy)) return false;
-  bans.push(tidy);
-  bans = bans.slice(-50);
-  saveBans();
-  return true;
-}
-
-function unbanName(name) {
-  const tidy = cleanNickname(name).toLowerCase();
-  const at = bans.indexOf(tidy);
-  if (at < 0) return false;
-  bans.splice(at, 1);
-  saveBans();
-  return true;
-}
-
-// find a player by what they're called, however it was typed
-function playerByName(name) {
-  const tidy = cleanNickname(name).toLowerCase();
-  if (!tidy) return null;
-  for (const other of net.others.values()) {
-    if (other.name.toLowerCase() === tidy) return other;
-  }
-  return null;
-}
-
-function sendTo(id, msg) {
-  for (const conn of net.conns) {
-    if (conn.peer === id && conn.open) { try { conn.send(msg); } catch (e) {} }
-  }
-  if (net.transport && net.transport.sendTo) net.transport.sendTo(id, msg);
-}
-
-function dropConnection(id) {
-  for (const conn of net.conns.slice()) {
-    if (conn.peer !== id) continue;
-    try { conn.close(); } catch (e) {}
-    net.conns = net.conns.filter(c => c !== conn);
-  }
-  net.left.add(id);
-  removeOtherPlayer(id);
-}
-
-/* Somebody kicked US: back to the start screen, with the reason. */
-function leaveGame(why) {
-  if (!playing && net.mode === "solo") return;    // already out
-  netSend({ t: "bye" });
-  for (const conn of net.conns.slice()) { try { conn.close(); } catch (e) {} }
-  net.conns = [];
-  net.mode = "solo";
-
-  /* Mark everyone as gone BEFORE removing them. Their last few position
-     messages are still in flight, and without this the next one to land
-     builds them again - so you get kicked out and then find a ghost
-     standing in the empty arena with you. */
-  [...net.others.keys()].forEach(id => net.left.add(id));
-  [...net.others.keys()].forEach(removeOtherPlayer);   // copy first, it shrinks
-
-  playing = false;
-  document.body.classList.remove("playing");
-  startScreen.style.display = "";
-  if (pointerLocked) document.exitPointerLock();
-  refreshPlayerList();
-
-  const note = document.getElementById("adminstate");
-  if (note) note.textContent = why || "";
-  say(why || "You left the game", 4);
-}
-
 /* ---- sending ----
    Guests send to the host. The host sends to everyone. */
 function netSend(msg) {
@@ -3708,6 +3797,11 @@ function netReceive(msg) {
 
   // Admins say so. Somebody doing admin things WITHOUT this badge
   // didn't get their powers the proper way.
+  if (msg.host !== undefined) {
+    const changed = !!other.isHost !== !!msg.host;
+    other.isHost = !!msg.host;
+    if (changed) refreshPlayerList();          // before the badge redraws it
+  }
   if (msg.admin !== undefined) setAdminBadge(other, !!msg.admin);
 
   switch (msg.t) {
@@ -3731,9 +3825,20 @@ function netReceive(msg) {
     }
 
     case "hit":
+      /* The HOST can't be knocked out by an admin's kill command. It's
+         their game - so their own computer simply says no, whatever the
+         message says. (An ordinary shot still hurts them, of course.)
+         Admins get no such protection: being an admin doesn't make you
+         bulletproof, only ";god" does. */
+      if (msg.kill && net.mode === "host") {
+        say("Somebody tried to knock you out - but you're the host 🛡", 2.5);
+        break;
+      }
+
       // someone says they hit US. Only we can change our own health.
       if (msg.target === net.me && !player.dead && player.safeFor <= 0
           && !admin.invincible) {
+        if (msg.bang) sparkle(new THREE.Vector3(player.pos.x, 1.2, player.pos.z), 0xffa76b);
         player.health -= msg.dmg;
         flash();
         updateHud();
@@ -3841,8 +3946,11 @@ function refreshPlayerList() {
     el.appendChild(document.createTextNode("· " + text));
   };
 
-  add(myName() + (admin.unlocked ? " 🛠" : "") + " (you)");
-  for (const o of net.others.values()) add(o.name + (o.admin ? " 🛠" : ""));
+  add(myName() + (admin.unlocked ? " 🛠" : "")
+      + (net.mode === "host" ? " 🛡" : "") + " (you)");
+  for (const o of net.others.values()) {
+    add(o.name + (o.admin ? " 🛠" : "") + (o.isHost ? " 🛡" : ""));
+  }
 }
 
 /* Put (or take away) the little spanner over somebody's head. The name
@@ -3889,7 +3997,7 @@ function netTick(dt) {
     stateTimer = 1 / 15;
     netSend({ t: "state", x: player.pos.x, y: player.pos.y, z: player.pos.z,
               yaw: player.yaw, health: player.health, dead: player.dead,
-              admin: admin.unlocked });
+              admin: admin.unlocked, host: net.mode === "host" });
   }
 
   // slide everyone else towards where they said they were, so they
@@ -3965,7 +4073,7 @@ document.getElementById("btn-host").addEventListener("click", () => {
     conn.on("open", () => {
       status.textContent = "Your friend is here! 🎉";
       conn.send({ t: "hello", from: net.me, name: myName(), look: myLook,
-                  admin: admin.unlocked });
+                  admin: admin.unlocked, host: net.mode === "host" });
       conn.send({ t: "world", from: net.me,
                   blocks: blocks.map(bl => ({ x: bl.x, y: bl.y, z: bl.z })) });
     });
@@ -4008,7 +4116,7 @@ document.getElementById("btn-connect").addEventListener("click", () => {
       net.mode = "guest";
       status.textContent = "Connected! 🎉";
       conn.send({ t: "hello", from: net.me, name: myName(), look: myLook,
-                  admin: admin.unlocked });
+                  admin: admin.unlocked, host: net.mode === "host" });
       beginGame();
     });
     conn.on("data", netReceive);
