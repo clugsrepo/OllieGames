@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Verity</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: "Trebuchet MS", Verdana, sans-serif;
+    background: #070b18; color: #fff;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+  }
+  [hidden] { display: none !important; }
+  canvas { display: block; }
+
+  /* ---------- the bits on top ---------- */
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+
+  .pill {
+    position: fixed;
+    background: rgba(10,16,34,0.78);
+    border: 2px solid rgba(120,200,255,0.28);
+    border-radius: 14px; padding: 8px 14px;
+    font-size: 0.9rem; white-space: nowrap;
+  }
+  .pill b { color: #7fe3ff; font-size: 1.05rem; }
+  #levelpill { top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); }
+  #heartpill { top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); }
+  #keypill   { top: max(56px, calc(env(safe-area-inset-top) + 46px));
+               right: max(12px, env(safe-area-inset-right)); font-size: 0.95rem; }
+  #timepill  { top: max(56px, calc(env(safe-area-inset-top) + 46px));
+               left: max(12px, env(safe-area-inset-left)); font-size: 0.78rem; }
+
+  #home {
+    position: fixed; top: max(12px, env(safe-area-inset-top)); left: 50%;
+    transform: translateX(-50%);
+    z-index: 30;
+    color: #7fe3ff; background: rgba(10,16,34,0.78);
+    border: 2px solid rgba(127,227,255,0.55); border-radius: 12px;
+    padding: 9px 16px; font-size: 0.85rem; font-weight: bold;
+    text-decoration: none;
+  }
+
+  /* Verity's speech bubble follows her about the screen */
+  #bubble {
+    position: fixed; z-index: 8;
+    max-width: min(280px, 66vw);
+    transform: translate(-50%, -100%);
+    background: #eaf6ff; color: #10203a;
+    border-radius: 14px; padding: 8px 12px;
+    font-size: 0.86rem; line-height: 1.35; font-weight: bold;
+    box-shadow: 0 8px 22px rgba(0,0,0,0.5);
+    opacity: 0; transition: opacity 0.25s;
+    pointer-events: none; text-align: center;
+  }
+  #bubble::after {
+    content: ""; position: absolute; left: 50%; bottom: -8px;
+    margin-left: -7px;
+    border: 7px solid transparent; border-top-color: #eaf6ff; border-bottom: 0;
+  }
+  /* when she's near the top of the screen the bubble goes UNDER her
+     instead, so it never sits on top of the score pills */
+  #bubble.below { transform: translate(-50%, 0); }
+  #bubble.below::after {
+    bottom: auto; top: -8px;
+    border-top-color: transparent; border-top: 0; border-bottom-color: #eaf6ff;
+    border-bottom-width: 7px; border-bottom-style: solid;
+  }
+
+  /* ---------- start and finish ---------- */
+  .panel {
+    position: fixed; inset: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(4,8,20,0.86);
+    padding: 16px; overflow-y: auto;
+  }
+  .box {
+    background: rgba(10,18,40,0.97);
+    border: 3px solid #7fe3ff; border-radius: 22px;
+    padding: 26px 24px; text-align: center;
+    max-width: 440px; width: 100%;
+  }
+  .box h1 { font-size: 2rem; color: #7fe3ff; margin-bottom: 6px; letter-spacing: 2px; }
+  .box p { color: #cfe0f5; line-height: 1.6; margin-bottom: 14px; font-size: 0.95rem; }
+  .box p b { color: #7fe3ff; }
+  .btn {
+    font-family: inherit; font-size: 1.05rem; font-weight: bold;
+    padding: 13px 26px; border-radius: 14px; cursor: pointer;
+    color: #06223a; background: #7fe3ff; border: none;
+    margin: 4px;
+  }
+  .btn:active { transform: scale(0.96); }
+  .btn.alt { color: #fff; background: rgba(255,255,255,0.12);
+             border: 2px solid rgba(255,255,255,0.3); }
+  #hello { width: 96px; height: 96px; margin: 0 auto 10px; display: block; }
+
+  /* ---------- controls ---------- */
+  #pad {
+    position: fixed; z-index: 6;
+    left: max(18px, env(safe-area-inset-left));
+    bottom: max(20px, env(safe-area-inset-bottom));
+    width: 168px; height: 168px;
+  }
+  #pad button {
+    position: absolute; width: 56px; height: 56px;
+    font-size: 1.3rem; font-family: inherit;
+    color: #fff; background: rgba(127,227,255,0.16);
+    border: 2px solid rgba(127,227,255,0.7);
+    border-radius: 14px; cursor: pointer;
+  }
+  #pad button:active { transform: scale(0.92); }
+  #pad-up    { left: 56px; top: 0; }
+  #pad-left  { left: 0;    top: 56px; }
+  #pad-right { left: 112px; top: 56px; }
+  #pad-down  { left: 56px; top: 112px; }
+
+  #ask {
+    position: fixed; z-index: 6;
+    right: max(16px, env(safe-area-inset-right));
+    bottom: max(74px, calc(env(safe-area-inset-bottom) + 74px));
+    min-width: 104px; padding: 14px 16px;
+    font-family: inherit; font-size: 0.95rem; font-weight: bold;
+    color: #06223a; background: #ffe08a;
+    border: 3px solid #fff3c4; border-radius: 16px; cursor: pointer;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.45);
+  }
+  #ask:active { transform: scale(0.94); }
+  #ask:disabled { opacity: 0.45; }
+  #ask small { display: block; font-weight: normal; font-size: 0.7rem; }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div class="pill" id="levelpill">🗺 Room <b id="level">1</b>/<span id="levels">6</span></div>
+  <div class="pill" id="heartpill">❤️ <b id="hearts">3</b></div>
+  <div class="pill" id="keypill" hidden>🔑 <span id="keys"></span></div>
+  <div class="pill" id="timepill">⏱ <b id="time">0.0s</b> · Best: <span id="best">—</span></div>
+</div>
+
+<a id="home" href="../../index.html">← Home</a>
+
+<div id="bubble"></div>
+
+<div id="pad" hidden>
+  <button id="pad-up" type="button">▲</button>
+  <button id="pad-left" type="button">◀</button>
+  <button id="pad-right" type="button">▶</button>
+  <button id="pad-down" type="button">▼</button>
+</div>
+
+<button id="ask" type="button" hidden>ASK VERITY<small id="sparks">✨✨✨</small></button>
+
+<div class="panel" id="start">
+  <div class="box">
+    <canvas id="hello" width="192" height="192"></canvas>
+    <h1>VERITY</h1>
+    <p>Verity is a little ball of light with a smile, and she is very good
+       at helping.</p>
+    <p>You're lost in six dark rooms. Verity floats along beside you and
+       lights the way, shouts if you're about to tread on something
+       spiky, and if you get properly stuck you can <b>ask her</b> —
+       she'll work out the way and show you.</p>
+    <p id="how-desktop"><b>W A S D</b> or the arrows to walk ·
+       <b>H</b> to ask Verity</p>
+    <p id="how-touch" hidden>The arrows to walk · <b>ASK VERITY</b> when you're stuck</p>
+    <p><button class="btn" id="btn-play">OFF WE GO</button></p>
+  </div>
+</div>
+
+<div class="panel" id="done" hidden>
+  <div class="box">
+    <h1 id="donetitle">🎉 OUT!</h1>
+    <p id="donetext"></p>
+    <p>
+      <button class="btn" id="btn-again">Go again</button>
+      <a class="btn alt" href="../../index.html">Home</a>
+    </p>
+  </div>
+</div>
+
+<script src="../../shared/player.js"></script>
+<script src="../../shared/admin-panel.js"></script>
+<script>
+/* =====================================================================
+   VERITY
+
+   Ollie's idea: an AI that's a ball with a smile, and she can help you.
+
+   So the helping IS the game. You're in a dark maze and Verity is:
+
+     * your light      - you only see what she and you are close to;
+     * your lookout    - she spots spikes next to you before you tread
+                         on one, and says so;
+     * your way out    - press ASK and she works out the actual shortest
+                         way to whatever you need next and lights it up.
+
+   That last one is a real search, not a cheat: BFS ("look one step
+   further out, all the way round, again and again") over the squares
+   you're allowed to walk on, which is the same way a satnav thinks. If
+   a locked door is in the way she goes and finds the key first.
+
+   Being helpful costs her something, though, or there'd be no game:
+   three sparks, one per ask, and they trickle back.
+   ===================================================================== */
+
+const SAVE_PREFIX = "ollie-verity-p-";
+function whoAmI() {
+  const name = (typeof OlliePlayer !== "undefined" && OlliePlayer.name()) || "";
+  return name || "Player";
+}
+const SAVE_KEY = SAVE_PREFIX + whoAmI().toLowerCase();
+
+const STEP_TIME   = 0.13;   // seconds to slide from one square to the next
+const MAX_SPARKS  = 3;
+const SPARK_EVERY = 14;     // seconds to earn one back
+const HINT_TIME   = 5;      // how long the trail stays lit
+const START_HEARTS = 3;
+const SEE_YOU     = 2.4;    // how far YOU can see, in squares
+const SEE_VERITY  = 3.3;    // how far Verity lights up
+
+/* ---------------------------------------------------------------
+   THE ROOMS
+
+     #  wall          .  floor        @  you start here
+     E  the way out   ^  spikes       +  a spare spark
+     y b r  keys      Y B R  the doors they open
+   --------------------------------------------------------------- */
+const LEVELS = [
+  {
+    name: "Hello",
+    map: [
+      "###########",
+      "#@#.......#",
+      "#.###.#.#.#",
+      "#...#.#.#.#",
+      "###.###.#.#",
+      "#.......#E#",
+      "###########"
+    ]
+  },
+  {
+    name: "Locked",
+    map: [
+      "#############",
+      "#@#.........#",
+      "#.###.#####.#",
+      "#...#Y..#...#",
+      "###.###.#.###",
+      "#y#.#...#...#",
+      "#.#.#.#####.#",
+      "#.....#E....#",
+      "#############"
+    ]
+  },
+  {
+    name: "Ouch",
+    map: [
+      "#############",
+      "#@#^^.......#",
+      "#.###.#####.#",
+      "#...#...#...#",
+      "###.###.#.###",
+      "#^#.#...#...#",
+      "#^#.#.#####.#",
+      "#.^...#E....#",
+      "#############"
+    ]
+  },
+  {
+    name: "Two doors",
+    map: [
+      "###############",
+      "#@#y...Y......#",
+      "#.###.#######.#",
+      "#...#...#.....#",
+      "###.###.#.#####",
+      "#b#.#...#....B#",
+      "#^#.#.#######.#",
+      "#.#.#.#..E#...#",
+      "#.#.#.#.###.###",
+      "#^....#.....^^#",
+      "###############"
+    ]
+  },
+  {
+    name: "The long way",
+    map: [
+      "#################",
+      "#@#y^......Y....#",
+      "#.###.#########.#",
+      "#...#...#...#...#",
+      "###.###.#.#.#.###",
+      "#^#.#...#.#E#...#",
+      "#^#.#.###.#####.#",
+      "#^#.#.#...#.....#",
+      "#.#.#.#.###.#####",
+      "#^+...#.....^.^.#",
+      "#################"
+    ]
+  },
+  {
+    name: "Both keys",
+    map: [
+      "#################",
+      "#@#y......#...^.#",
+      "#.#######.#.#.#^#",
+      "#...#...#.^.#.#b#",
+      "###.#.#.#####^###",
+      "#^#...#.....#+^.#",
+      "#.#########.###^#",
+      "#.#.......#.....#",
+      "#^#B#####.#####.#",
+      "#...#E..#.....#.#",
+      "#.#####.###.###Y#",
+      "#.........#.....#",
+      "#################"
+    ]
+  }
+];
+
+const KEY_KINDS = {
+  y: { colour: "#ffe066", name: "yellow", door: "Y" },
+  b: { colour: "#74c0fc", name: "blue",   door: "B" },
+  r: { colour: "#ff8787", name: "red",    door: "R" }
+};
+const DOOR_OF = { Y: "y", B: "b", R: "r" };
+
+/* ---------------------------------------------------------------
+   WHERE EVERYTHING IS RIGHT NOW
+   --------------------------------------------------------------- */
+const canvas = document.createElement("canvas");
+canvas.id = "game";
+document.body.insertBefore(canvas, document.getElementById("hud"));
+const ctx = canvas.getContext("2d");
+
+let level = 0;             // which room, counting from 0
+let grid = [];             // rows of single characters
+let cols = 0, rows = 0;
+let seen = [];             // have you ever had a look at this square?
+let sparksOnFloor = [];
+
+const you = {
+  x: 1, y: 1,              // the square you're standing on
+  fromX: 1, fromY: 1,      // the one you're sliding out of
+  slide: 1,                // 0 = just left it, 1 = arrived
+  facing: 1                // -1 left, 1 right, for which way the eyes look
+};
+
+const verity = {
+  x: 1, y: 1,              // in squares, but she floats freely
+  mood: 0.8,               // 1 = big grin, 0 = worried
+  blink: 0,
+  bob: 0,
+  saying: "",
+  sayLeft: 0
+};
+
+let held = {};             // { y: true } for keys you're carrying
+let hearts = START_HEARTS;
+let sparks = MAX_SPARKS;
+let sparkTimer = 0;
+let hintPath = [];
+let hintLeft = 0;
+let clock = 0;
+let playing = false, won = false;
+let warnedAbout = "";      // so she doesn't shout about the same spikes forever
+
+let best = { time: 0, done: false };
+
+const cheats = { light: false, ghost: false, freehints: false };
+
+/* ---------------------------------------------------------------
+   LOADING A ROOM
+   --------------------------------------------------------------- */
+function loadLevel(n) {
+  level = Math.max(0, Math.min(LEVELS.length - 1, n));
+  grid = LEVELS[level].map.map(row => row.split(""));
+  rows = grid.length;
+  cols = grid[0].length;
+
+  seen = [];
+  for (let y = 0; y < rows; y++) seen.push(new Array(cols).fill(false));
+
+  held = {};
+  hintPath = []; hintLeft = 0;
+  warnedAbout = "";
+
+  // find where you start, and take the @ off the map
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      if (grid[y][x] === "@") {
+        you.x = you.fromX = x;
+        you.y = you.fromY = y;
+        you.slide = 1;
+        grid[y][x] = ".";
+      }
+    }
+  }
+  verity.x = you.x; verity.y = you.y;
+  resize();
+  refreshHud();
+  if (playing) lookOut();          // spikes right next to the start? say so
+}
+
+function tileAt(x, y) {
+  if (x < 0 || y < 0 || x >= cols || y >= rows) return "#";
+  return grid[y][x];
+}
+
+/* Can you stand here? Walls never; a door only once you have its key. */
+function canWalk(x, y, keys) {
+  const t = tileAt(x, y);
+  if (t === "#") return false;
+  if (DOOR_OF[t]) return !!(keys || held)[DOOR_OF[t]];
+  return true;
+}
+
+/* ---------------------------------------------------------------
+   HOW VERITY WORKS OUT THE WAY
+
+   Breadth-first search: start where you are, look at everywhere one
+   step away, then everywhere two steps away, and so on. The first time
+   it reaches the target it has come the shortest way, so walking the
+   trail backwards gives the route.
+   --------------------------------------------------------------- */
+function findPath(fromX, fromY, wants, keys) {
+  const from = new Array(rows * cols).fill(-1);
+  const start = fromY * cols + fromX;
+  from[start] = start;
+  let queue = [[fromX, fromY]];
+
+  while (queue.length) {
+    const next = [];
+    for (const [x, y] of queue) {
+      if (wants(x, y) && !(x === fromX && y === fromY)) {
+        // walk the breadcrumbs back to the beginning
+        const path = [];
+        let at = y * cols + x;
+        while (at !== start) {
+          path.push({ x: at % cols, y: Math.floor(at / cols) });
+          at = from[at];
+        }
+        path.push({ x: fromX, y: fromY });
+        return path.reverse();
+      }
+      const around = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
+      for (const [nx, ny] of around) {
+        if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+        const at = ny * cols + nx;
+        if (from[at] !== -1) continue;
+        if (!canWalk(nx, ny, keys)) continue;
+        from[at] = y * cols + x;
+        next.push([nx, ny]);
+      }
+    }
+    queue = next;
+  }
+  return null;
+}
+
+/* What do you need next: the way out if you can get there, otherwise
+   the nearest key you haven't picked up. */
+function whatNext() {
+  const out = findPath(you.x, you.y, (x, y) => tileAt(x, y) === "E", held);
+  if (out) return { path: out, why: "the way out" };
+
+  const key = findPath(you.x, you.y,
+    (x, y) => KEY_KINDS[tileAt(x, y)] && !held[tileAt(x, y)], held);
+  if (key) {
+    const kind = KEY_KINDS[tileAt(key[key.length - 1].x, key[key.length - 1].y)];
+    return { path: key, why: "the " + kind.name + " key" };
+  }
+  return null;
+}
+
+function askVerity(free) {
+  if (!playing) return { bad: "You're not playing" };
+  if (!free && !cheats.freehints && sparks < 1) {
+    say("I'm all out of sparks — give me a moment!", 2.4, 0.25);
+    refreshHud();                     // and grey the button out to match
+    return { bad: "No sparks left" };
+  }
+
+  const plan = whatNext();
+  if (!plan) {
+    say("I can't find a way from here. Sorry!", 2.4, 0);
+    return { bad: "No way from here" };
+  }
+
+  if (!free && !cheats.freehints) { sparks--; }
+  hintPath = plan.path;
+  hintLeft = HINT_TIME;
+  say("This way — I'll show you " + plan.why + "!", 2.6, 1);
+  refreshHud();
+  return true;
+}
+
+/* ---------------------------------------------------------------
+   VERITY TALKING
+   --------------------------------------------------------------- */
+const bubble = document.getElementById("bubble");
+function say(words, seconds, mood) {
+  verity.saying = words;
+  verity.sayLeft = seconds === undefined ? 2.2 : seconds;
+  if (mood !== undefined) verity.mood = mood;
+  bubble.textContent = words;
+  bubble.style.opacity = "1";
+}
+
+/* ---------------------------------------------------------------
+   WALKING
+   --------------------------------------------------------------- */
+let queued = null;
+
+function tryStep(dx, dy) {
+  if (!playing || you.slide < 1) { if (playing) queued = [dx, dy]; return; }
+  const nx = you.x + dx, ny = you.y + dy;
+  if (dx !== 0) you.facing = dx > 0 ? 1 : -1;
+
+  if (!cheats.ghost && !canWalk(nx, ny)) {
+    const t = tileAt(nx, ny);
+    if (DOOR_OF[t]) {
+      const kind = KEY_KINDS[DOOR_OF[t]];
+      say("That door wants the " + kind.name + " key.", 2.2, 0.3);
+    }
+    return;
+  }
+
+  you.fromX = you.x; you.fromY = you.y;
+  you.x = nx; you.y = ny;
+  you.slide = 0;
+}
+
+function arrived() {
+  const t = tileAt(you.x, you.y);
+
+  if (KEY_KINDS[t]) {
+    held[t] = true;
+    grid[you.y][you.x] = ".";
+    say("The " + KEY_KINDS[t].name + " key! Well spotted.", 2.2, 1);
+    refreshHud();
+  } else if (t === "+") {
+    grid[you.y][you.x] = ".";
+    sparks = Math.min(MAX_SPARKS, sparks + 1);
+    say("A spare spark — thank you!", 2, 1);
+    refreshHud();
+  } else if (t === "^") {
+    hearts--;
+    say(hearts > 0 ? "Ouch! Careful..." : "Oh dear. Let's start this room again.",
+        2.4, 0);
+    refreshHud();
+    if (hearts <= 0) {
+      hearts = START_HEARTS;
+      setTimeout(() => { if (playing) { loadLevel(level); say("Right — from the top!", 2.2, 0.7); } }, 700);
+      return;
+    }
+  } else if (t === "E") {
+    nextLevel();
+    return;
+  }
+
+  lookOut();
+}
+
+/* she checks the squares around you and warns you about spikes */
+function lookOut() {
+  const around = [[you.x + 1, you.y], [you.x - 1, you.y],
+                  [you.x, you.y + 1], [you.x, you.y - 1]];
+  const spiky = around.filter(([x, y]) => tileAt(x, y) === "^");
+  if (!spiky.length) { warnedAbout = ""; return; }
+
+  const where = spiky.map(p => p.join(",")).join(" ");
+  if (where === warnedAbout) return;
+  warnedAbout = where;
+  say(spiky.length > 1 ? "Careful — spikes both sides!" : "Careful — spikes!", 2.2, 0.15);
+}
+
+function nextLevel() {
+  if (level + 1 >= LEVELS.length) { finish(); return; }
+  loadLevel(level + 1);
+  hearts = Math.min(START_HEARTS, hearts + 1);
+  say("Out! Room " + (level + 1) + " next. Come on.", 2.6, 1);
+  refreshHud();
+}
+
+function finish() {
+  playing = false;
+  won = true;
+
+  const beaten = !best.done || clock < best.time;
+  if (beaten) { best.time = clock; best.done = true; save(); }
+
+  document.getElementById("donetitle").textContent = "🎉 ALL SIX!";
+  document.getElementById("donetext").textContent =
+    "Verity got you out of every room in " + clock.toFixed(1) + " seconds. " +
+    (beaten ? "That's your best yet!" : "Your best is still " + best.time.toFixed(1) + "s.");
+  document.getElementById("done").hidden = false;
+  document.getElementById("ask").hidden = true;
+  bubble.style.opacity = "0";
+  refreshHud();
+}
+
+function startGame() {
+  loadLevel(0);
+  hearts = START_HEARTS;
+  sparks = MAX_SPARKS;
+  sparkTimer = 0;
+  clock = 0;
+  won = false;
+  playing = true;
+  document.getElementById("start").hidden = true;
+  document.getElementById("done").hidden = true;
+  document.getElementById("ask").hidden = false;
+  document.getElementById("pad").hidden = !HAS_TOUCH;
+  say("Hello! I'm Verity. Stuck? Just ask.", 3, 1);
+  refreshHud();
+}
+
+/* ---------------------------------------------------------------
+   REMEMBERING YOUR BEST
+   --------------------------------------------------------------- */
+function save() {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(best)); } catch (e) {}
+}
+function load() {
+  let raw = null;
+  try { raw = localStorage.getItem(SAVE_KEY); } catch (e) { return; }
+  if (!raw) return;
+  let saved = null;
+  try { saved = JSON.parse(raw); } catch (e) { return; }
+  if (!saved || typeof saved !== "object") return;
+
+  // anything odd in there and we simply don't believe it
+  const time = Number(saved.time);
+  if (isFinite(time) && time > 0 && time < 1e7 && saved.done === true) {
+    best = { time: time, done: true };
+  }
+}
+
+function refreshHud() {
+  document.getElementById("level").textContent = String(level + 1);
+  document.getElementById("levels").textContent = String(LEVELS.length);
+  document.getElementById("hearts").textContent = String(hearts);
+  document.getElementById("best").textContent = best.done ? best.time.toFixed(1) + "s" : "—";
+
+  const keypill = document.getElementById("keypill");
+  const got = Object.keys(held).filter(k => held[k]);
+  keypill.hidden = got.length === 0;
+  document.getElementById("keys").textContent =
+    got.map(k => KEY_KINDS[k].name).join(" · ");
+
+  document.getElementById("sparks").textContent =
+    "✨".repeat(sparks) + "·".repeat(MAX_SPARKS - sparks);
+  document.getElementById("ask").disabled = !cheats.freehints && sparks < 1;
+}
+
+/* ---------------------------------------------------------------
+   DRAWING IT
+   --------------------------------------------------------------- */
+let cell = 40, originX = 0, originY = 0;
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  canvas.width = Math.floor(w * Math.min(window.devicePixelRatio, 2));
+  canvas.height = Math.floor(h * Math.min(window.devicePixelRatio, 2));
+  canvas.style.width = w + "px";
+  canvas.style.height = h + "px";
+  ctx.setTransform(canvas.width / w, 0, 0, canvas.height / h, 0, 0);
+
+  // leave room for the pills at the top and the buttons at the bottom
+  const room = HAS_TOUCH ? 210 : 130;
+  cell = Math.max(16, Math.floor(Math.min((w - 28) / cols, (h - room) / rows)));
+  originX = Math.floor((w - cols * cell) / 2);
+  originY = Math.floor((h - rows * cell) / 2) - (HAS_TOUCH ? 34 : 8);
+  if (originY < 74) originY = 74;
+}
+addEventListener("resize", resize);
+
+/* how brightly lit is this square? 0 dark, 1 right under the light */
+function brightness(x, y) {
+  if (cheats.light) return 1;
+  const px = you.fromX + (you.x - you.fromX) * you.slide;
+  const py = you.fromY + (you.y - you.fromY) * you.slide;
+  const dYou = Math.hypot(x - px, y - py);
+  const dHer = Math.hypot(x - verity.x, y - verity.y);
+  const lit = Math.max(1 - dYou / SEE_YOU, 1.05 - dHer / SEE_VERITY);
+  return Math.max(0, Math.min(1, lit));
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/* Verity herself: a ball of light, two eyes and a smile that means it.
+   It takes whichever canvas to draw on, because she says hello on the
+   start screen too. */
+function drawVerity(g, cx, cy, r, mood, blink, glow) {
+  if (glow) {
+    const halo = g.createRadialGradient(cx, cy, r * 0.5, cx, cy, r * 5.5);
+    halo.addColorStop(0, "rgba(150,225,255,0.30)");
+    halo.addColorStop(1, "rgba(150,225,255,0)");
+    g.fillStyle = halo;
+    g.beginPath(); g.arc(cx, cy, r * 5.5, 0, Math.PI * 2); g.fill();
+  }
+
+  const skin = g.createRadialGradient(cx - r * 0.3, cy - r * 0.35, r * 0.1, cx, cy, r);
+  skin.addColorStop(0, "#e9fbff");
+  skin.addColorStop(0.55, "#8fe6ff");
+  skin.addColorStop(1, "#3aa9dd");
+  g.fillStyle = skin;
+  g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
+
+  // eyes
+  g.fillStyle = "#0a2135";
+  const eye = r * 0.16, gap = r * 0.34, up = r * 0.16;
+  for (const side of [-1, 1]) {
+    if (blink > 0.5) {
+      g.fillRect(cx + side * gap - eye, cy - up, eye * 2, Math.max(1, r * 0.06));
+    } else {
+      g.beginPath();
+      g.arc(cx + side * gap, cy - up, eye, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+
+  // the smile: happy curves down below, worried curves up
+  const curve = (mood - 0.5) * 2;            // -1 worried .. 1 delighted
+  g.strokeStyle = "#0a2135";
+  g.lineWidth = Math.max(1.6, r * 0.11);
+  g.lineCap = "round";
+  g.beginPath();
+  const mouthY = cy + r * 0.26;
+  g.moveTo(cx - r * 0.36, mouthY);
+  g.quadraticCurveTo(cx, mouthY + curve * r * 0.42, cx + r * 0.36, mouthY);
+  g.stroke();
+
+  // a cheerful glint
+  g.fillStyle = "rgba(255,255,255,0.75)";
+  g.beginPath();
+  g.ellipse(cx - r * 0.36, cy - r * 0.44, r * 0.18, r * 0.12, -0.6, 0, Math.PI * 2);
+  g.fill();
+}
+
+function draw(time) {
+  const w = window.innerWidth, h = window.innerHeight;
+  ctx.fillStyle = "#070b18";
+  ctx.fillRect(0, 0, w, h);
+
+  const px = you.fromX + (you.x - you.fromX) * you.slide;
+  const py = you.fromY + (you.y - you.fromY) * you.slide;
+
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const lit = brightness(x, y);
+      if (lit > 0.06) seen[y][x] = true;
+      if (!seen[y][x]) continue;
+
+      const sx = originX + x * cell, sy = originY + y * cell;
+      const t = grid[y][x];
+      const shade = 0.22 + lit * 0.78;      // remembered squares stay dim
+
+      if (t === "#") {
+        // walls stay dark and solid; it's the floor that catches the light
+        ctx.fillStyle = "rgba(" + Math.round(20 + 24 * shade) + "," +
+                                  Math.round(26 + 32 * shade) + "," +
+                                  Math.round(48 + 48 * shade) + ",1)";
+        roundRect(sx + 1, sy + 1, cell - 2, cell - 2, Math.max(2, cell * 0.16));
+        ctx.fill();
+        continue;
+      }
+
+      ctx.fillStyle = "rgba(" + Math.round(46 + 106 * shade) + "," +
+                                Math.round(58 + 128 * shade) + "," +
+                                Math.round(84 + 140 * shade) + ",1)";
+      ctx.fillRect(sx, sy, cell, cell);
+
+      const mid = cell / 2;
+      if (t === "E") {
+        ctx.fillStyle = "rgba(140,255,190," + shade + ")";
+        roundRect(sx + cell * 0.16, sy + cell * 0.16, cell * 0.68, cell * 0.68, cell * 0.2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(6,30,20," + shade + ")";
+        ctx.font = "bold " + Math.floor(cell * 0.46) + "px Trebuchet MS, sans-serif";
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText("↑", sx + mid, sy + mid + 1);
+      } else if (KEY_KINDS[t]) {
+        ctx.fillStyle = KEY_KINDS[t].colour;
+        ctx.globalAlpha = shade;
+        ctx.beginPath(); ctx.arc(sx + mid, sy + mid, cell * 0.2, 0, Math.PI * 2); ctx.fill();
+        ctx.fillRect(sx + mid - cell * 0.04, sy + mid, cell * 0.08, cell * 0.26);
+        ctx.fillRect(sx + mid, sy + mid + cell * 0.16, cell * 0.13, cell * 0.07);
+        ctx.globalAlpha = 1;
+      } else if (DOOR_OF[t]) {
+        ctx.fillStyle = KEY_KINDS[DOOR_OF[t]].colour;
+        ctx.globalAlpha = 0.35 + shade * 0.5;
+        roundRect(sx + 2, sy + 2, cell - 4, cell - 4, Math.max(2, cell * 0.14));
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      } else if (t === "^") {
+        ctx.fillStyle = "rgba(255,120,120," + shade + ")";
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          const bx = sx + cell * (0.2 + i * 0.3);
+          ctx.moveTo(bx, sy + cell * 0.76);
+          ctx.lineTo(bx + cell * 0.1, sy + cell * 0.24);
+          ctx.lineTo(bx + cell * 0.2, sy + cell * 0.76);
+          ctx.closePath(); ctx.fill();
+        }
+      } else if (t === "+") {
+        ctx.fillStyle = "rgba(255,224,138," + shade + ")";
+        ctx.font = Math.floor(cell * 0.5) + "px Trebuchet MS, sans-serif";
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText("✨", sx + mid, sy + mid);
+      }
+    }
+  }
+
+  // the trail she lit up for you
+  if (hintLeft > 0) {
+    const fade = Math.min(1, hintLeft / 1.2);
+    for (let i = 1; i < hintPath.length; i++) {
+      const p = hintPath[i];
+      const wobble = Math.sin(time * 4 - i * 0.5) * 0.5 + 0.5;
+      ctx.fillStyle = "rgba(255,224,138," + (fade * (0.3 + wobble * 0.45)) + ")";
+      ctx.beginPath();
+      ctx.arc(originX + p.x * cell + cell / 2, originY + p.y * cell + cell / 2,
+              cell * 0.13, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // you
+  const cx = originX + px * cell + cell / 2;
+  const cy = originY + py * cell + cell / 2;
+  ctx.fillStyle = "#ffd6a5";
+  ctx.beginPath(); ctx.arc(cx, cy - cell * 0.06, cell * 0.24, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#ff9f68";
+  roundRect(cx - cell * 0.2, cy + cell * 0.1, cell * 0.4, cell * 0.28, cell * 0.1);
+  ctx.fill();
+  ctx.fillStyle = "#3a2416";
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(cx + side * cell * 0.08 + you.facing * cell * 0.03,
+            cy - cell * 0.08, cell * 0.033, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Verity, floating just off your shoulder
+  const vx = originX + verity.x * cell + cell / 2;
+  const vy = originY + verity.y * cell + cell / 2 - cell * 0.42
+           + Math.sin(verity.bob) * cell * 0.09;
+  drawVerity(ctx, vx, vy, cell * 0.3, verity.mood, verity.blink, true);
+
+  // put her speech bubble over her head - or under it, if her head is
+  // up among the pills
+  if (verity.sayLeft > 0) {
+    const above = vy - cell * 0.5;
+    const under = above < 116;
+    bubble.classList.toggle("below", under);
+    // it's centred on her, so keep half of it on the screen at each side
+    const half = bubble.offsetWidth / 2 + 8;
+    bubble.style.left = Math.max(half, Math.min(w - half, vx)) + "px";
+    bubble.style.top = (under ? vy + cell * 0.55 : above) + "px";
+  }
+}
+
+/* ---------------------------------------------------------------
+   THE CLOCK
+   --------------------------------------------------------------- */
+let last = performance.now();
+function loop() {
+  requestAnimationFrame(loop);
+  const now = performance.now();
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+
+  if (playing) {
+    clock += dt;
+    document.getElementById("time").textContent = clock.toFixed(1) + "s";
+
+    if (sparks < MAX_SPARKS && !cheats.freehints) {
+      sparkTimer += dt;
+      if (sparkTimer >= SPARK_EVERY) { sparkTimer = 0; sparks++; refreshHud(); }
+    }
+  }
+
+  // sliding between squares
+  if (you.slide < 1) {
+    you.slide = Math.min(1, you.slide + dt / STEP_TIME);
+    if (you.slide >= 1) {
+      arrived();
+      if (queued) { const q = queued; queued = null; tryStep(q[0], q[1]); }
+    }
+  } else if (playing) {
+    if (isDown("up"))         tryStep(0, -1);
+    else if (isDown("down"))  tryStep(0, 1);
+    else if (isDown("left"))  tryStep(-1, 0);
+    else if (isDown("right")) tryStep(1, 0);
+  }
+
+  // Verity drifts along after you, a little behind and to the side
+  const px = you.fromX + (you.x - you.fromX) * you.slide;
+  const py = you.fromY + (you.y - you.fromY) * you.slide;
+  const wantX = px - you.facing * 0.62, wantY = py - 0.34;
+  verity.x += (wantX - verity.x) * Math.min(1, dt * 5.5);
+  verity.y += (wantY - verity.y) * Math.min(1, dt * 5.5);
+  verity.bob += dt * 2.6;
+
+  verity.blink -= dt;
+  if (verity.blink < -2.6) verity.blink = 0.18 + Math.random() * 0.05;
+
+  if (verity.sayLeft > 0) {
+    verity.sayLeft -= dt;
+    if (verity.sayLeft <= 0) { bubble.style.opacity = "0"; verity.saying = ""; }
+  }
+  verity.mood += (0.8 - verity.mood) * Math.min(1, dt * 0.7);   // back to cheerful
+
+  if (hintLeft > 0) hintLeft -= dt;
+
+  draw(now / 1000);
+}
+
+/* ---------------------------------------------------------------
+   CONTROLS
+   --------------------------------------------------------------- */
+const HAS_TOUCH = ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
+
+const down = { up: false, down: false, left: false, right: false };
+function isDown(which) { return down[which]; }
+
+const KEY_MAP = {
+  KeyW: "up", ArrowUp: "up",
+  KeyS: "down", ArrowDown: "down",
+  KeyA: "left", ArrowLeft: "left",
+  KeyD: "right", ArrowRight: "right"
+};
+
+addEventListener("keydown", e => {
+  const which = KEY_MAP[e.code];
+  if (which) {
+    e.preventDefault();
+    down[which] = true;
+    const step = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[which];
+    tryStep(step[0], step[1]);
+  } else if (e.code === "KeyH" && !e.repeat) {
+    e.preventDefault();
+    askVerity(false);
+  }
+});
+addEventListener("keyup", e => {
+  const which = KEY_MAP[e.code];
+  if (which) down[which] = false;
+});
+
+// the arrow pad on a phone
+for (const [id, which, dx, dy] of [["pad-up", "up", 0, -1], ["pad-down", "down", 0, 1],
+                                   ["pad-left", "left", -1, 0], ["pad-right", "right", 1, 0]]) {
+  const el = document.getElementById(id);
+  el.addEventListener("pointerdown", e => {
+    e.preventDefault(); down[which] = true; tryStep(dx, dy);
+  });
+  const stop = () => { down[which] = false; };
+  el.addEventListener("pointerup", stop);
+  el.addEventListener("pointerleave", stop);
+  el.addEventListener("pointercancel", stop);
+}
+
+document.getElementById("ask").addEventListener("click", () => askVerity(false));
+document.getElementById("btn-play").addEventListener("click", startGame);
+document.getElementById("btn-again").addEventListener("click", startGame);
+
+document.getElementById("how-desktop").hidden = HAS_TOUCH;
+document.getElementById("how-touch").hidden = !HAS_TOUCH;
+
+/* ---------------------------------------------------------------
+   GO!
+   --------------------------------------------------------------- */
+load();
+loadLevel(0);
+refreshHud();
+
+// she bobs about and says hello on the start screen
+(function helloVerity() {
+  const g = document.getElementById("hello").getContext("2d");
+  let t = 0;
+  (function tick() {
+    requestAnimationFrame(tick);
+    t += 0.03;
+    g.clearRect(0, 0, 192, 192);
+    drawVerity(g, 96, 96 + Math.sin(t) * 5, 52, 0.95,
+               Math.sin(t * 1.7) > 0.97 ? 1 : 0, true);
+  })();
+})();
+
+loop();
+
+/* ---------------------------------------------------------------
+   ADMIN
+   --------------------------------------------------------------- */
+function number(word, fallback, low, high) {
+  const n = Number(word);
+  if (!isFinite(n)) return fallback;
+  return Math.max(low, Math.min(high, n));
+}
+
+const ADMIN_COMMANDS = [
+  { name: "light", alias: ["seeall"], args: "[on/off]",
+    help: "Light up the whole room",
+    state: () => cheats.light ? "ON" : "off",
+    run: words => { cheats.light = words[0] === "off" ? false
+                                 : (words[0] === "on" ? true : !cheats.light);
+                    return "Lights " + (cheats.light ? "ON" : "off"); } },
+
+  { name: "ghost", args: "[on/off]",
+    help: "Walk straight through walls and doors",
+    state: () => cheats.ghost ? "ON" : "off",
+    run: words => { cheats.ghost = words[0] === "off" ? false
+                                 : (words[0] === "on" ? true : !cheats.ghost);
+                    return "Ghost " + (cheats.ghost ? "ON" : "off"); } },
+
+  { name: "hints", args: "[on/off]",
+    help: "Ask Verity as often as you like, free",
+    state: () => cheats.freehints ? "FREE" : "off",
+    run: words => { cheats.freehints = words[0] === "off" ? false
+                                     : (words[0] === "on" ? true : !cheats.freehints);
+                    refreshHud();
+                    return "Free hints " + (cheats.freehints ? "ON" : "off"); } },
+
+  { name: "sparks", args: "<number>",
+    help: "How many asks you have saved up",
+    run: words => { sparks = number(words[0], MAX_SPARKS, 0, MAX_SPARKS);
+                    refreshHud(); return "Sparks: " + sparks; } },
+
+  { name: "hearts", args: "<number>",
+    help: "How many bumps you can take",
+    run: words => { hearts = number(words[0], START_HEARTS, 1, 99);
+                    refreshHud(); return "Hearts: " + hearts; } },
+
+  { name: "keys", args: "",
+    help: "Every key at once",
+    run: () => { for (const k of Object.keys(KEY_KINDS)) held[k] = true;
+                 refreshHud(); return "All the keys are yours"; } },
+
+  { name: "room", alias: ["level"], args: "<1-" + LEVELS.length + ">",
+    help: "Jump straight to a room",
+    run: words => { if (!playing) return { bad: "You're not playing" };
+                    loadLevel(number(words[0], 1, 1, LEVELS.length) - 1);
+                    return "Room " + (level + 1) + ": " + LEVELS[level].name; } },
+
+  { name: "show", alias: ["path"], args: "",
+    help: "Verity shows the way, no spark needed",
+    run: () => { const r = askVerity(true);
+                 return r === true ? "There you go" : r; } },
+
+  { name: "best", args: "",
+    help: "Forget your best time",
+    run: () => { best = { time: 0, done: false }; save(); refreshHud();
+                 return "Best time wiped"; } }
+];
+
+if (typeof OlliePlayer !== "undefined" && OlliePlayer.isAdmin()
+    && typeof OllieAdmin !== "undefined") {
+  OllieAdmin.start({ commands: ADMIN_COMMANDS });
+}
+</script>
+
+</body>
+</html>
