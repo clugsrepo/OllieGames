@@ -239,6 +239,7 @@
        like — and she'll answer you <b>out loud</b>. Ask where to go and
        she'll work out the way and show you. She never runs out and she
        never minds being asked.</p>
+    <p id="brainy" hidden>🧠 Verity is thinking with a <b>real AI</b> today.</p>
     <p id="how-desktop"><b>W A S D</b> or the arrows to walk ·
        <b>H</b> to talk to her · 🔊 to hush her</p>
     <p id="how-touch" hidden>The arrows to walk · <b>ASK VERITY</b> to talk
@@ -797,16 +798,100 @@ function answerFor(raw) {
     "Hmm. I'm only little. Ask me about the way out, or the spikes."]) };
 }
 
+/* ---------------------------------------------------------------
+   HER REAL BRAIN, IF SHE HAS ONE
+
+   Everything above works with no internet and no money. If a grown-up
+   sets up the little server in tools/verity-brain and puts its address
+   below, Verity sends the question there instead and a real AI answers.
+
+   The address of the server goes here - NOT the secret key. The key
+   lives on the server, where nobody can read it. See the README.
+   --------------------------------------------------------------- */
+const BRAIN_URL  = "";        // e.g. "https://verity-brain.someone.workers.dev"
+const BRAIN_WAIT = 9000;      // give up after nine seconds and answer myself
+const BRAIN_KEY  = "ollie-verity-brain";   // an admin can point her somewhere
+
+function brainAddress() {
+  let saved = "";
+  try { saved = localStorage.getItem(BRAIN_KEY) || ""; } catch (e) {}
+  const url = saved || BRAIN_URL;
+  return /^https:\/\/[^\s"']+$/.test(url) ? url : "";
+}
+
+/* everything true she can see, so the AI answers from the real maze
+   instead of guessing */
+function whatSheCanSee() {
+  return {
+    room: level + 1,
+    rooms: LEVELS.length,
+    roomName: LEVELS[level].name,
+    hearts: hearts,
+    seconds: Math.round(clock),
+    stepsToExit: stepsToExit(),
+    spikes: spikesNearby().length > 0,
+    doorsLeft: doorsLeftHere(),
+    keys: Object.keys(held).filter(k => held[k])
+                .map(k => KEY_KINDS[k].name).join(" and ")
+  };
+}
+
+let brainCall = 0;                 // so a slow answer can't overwrite a new one
+function askBrain(question, fallback) {
+  const url = brainAddress();
+  const mine = ++brainCall;
+  const stop = new AbortController();
+  const timer = setTimeout(() => stop.abort(), BRAIN_WAIT);
+
+  const giveUp = () => { if (mine === brainCall) say(fallback, 5, 0.9); };
+
+  fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question: question, player: whoAmI(),
+                           seen: whatSheCanSee() }),
+    signal: stop.signal
+  })
+    .then(r => r.ok ? r.json() : Promise.reject(new Error("no")))
+    .then(data => {
+      if (mine !== brainCall) return;                 // a newer question won
+      const words = tidySpeech(data && data.reply);
+      say(words || fallback, Math.max(3, Math.min(9, (words || fallback).length * 0.05)), 0.95);
+    })
+    .catch(giveUp)
+    .then(() => clearTimeout(timer), () => clearTimeout(timer));
+}
+
+/* whatever comes back is from another computer, so it gets cleaned up
+   before it goes anywhere near the screen (and say() only ever uses
+   textContent, so it can never be anything but words) */
+function tidySpeech(raw) {
+  return String(raw == null ? "" : raw)
+    .replace(/[^\P{C}]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 400);
+}
+
 /* you typed something and pressed send */
 function askQuestion(raw) {
   const q = tidyQuestion(raw);
   const answer = answerFor(q);
 
+  // Showing you the way is always worked out here: instant, free, and
+  // always right. Only chatting ever goes off to the brain.
   if (answer.show) {
     const gone = askVerity();
     return gone === true ? { text: verity.saying, showed: true }
                          : { text: verity.saying, showed: false };
   }
+
+  if (q && brainAddress()) {
+    say(oneOf(["Let me think…", "Hmm, one moment…", "Thinking…"]), 9, 0.85);
+    askBrain(q, answer.text);
+    return { text: answer.text, showed: false, thinking: true };
+  }
+
   say(answer.text, Math.max(2.6, Math.min(7, answer.text.length * 0.055)), 0.95);
   return { text: answer.text, showed: false };
 }
@@ -1345,6 +1430,7 @@ setVoice(voiceOn);
 document.getElementById("btn-play").addEventListener("click", startGame);
 document.getElementById("btn-again").addEventListener("click", startGame);
 
+document.getElementById("brainy").hidden = !brainAddress();
 document.getElementById("how-desktop").hidden = HAS_TOUCH;
 document.getElementById("how-touch").hidden = !HAS_TOUCH;
 
@@ -1414,6 +1500,23 @@ const ADMIN_COMMANDS = [
     help: "Verity shows the way",
     run: () => { const r = askVerity();
                  return r === true ? "There you go" : r; } },
+
+  { name: "brain", args: "<address|off>",
+    help: "Point Verity at a real AI (just on this device)",
+    state: () => brainAddress() ? "ON" : "off",
+    run: words => {
+      const url = String(words[0] || "").trim();
+      if (!url || url === "off") {
+        try { localStorage.removeItem(BRAIN_KEY); } catch (e) {}
+        return "Brain off - back to her own answers";
+      }
+      if (!/^https:\/\/[^\s"']+$/.test(url)) {
+        return { bad: "That needs to be an https:// address" };
+      }
+      try { localStorage.setItem(BRAIN_KEY, url); }
+      catch (e) { return { bad: "Couldn't remember that" }; }
+      return "Brain ON: " + url;
+    } },
 
   { name: "voice", args: "[on/off]",
     help: "Verity reads her lines out loud",

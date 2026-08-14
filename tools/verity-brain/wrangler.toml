@@ -1,0 +1,29 @@
+# Cloudflare Worker settings for Verity's brain.
+# See README.md in this folder for the full setup.
+
+name = "verity-brain"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+[vars]
+# Only these sites may ask Verity questions. Comma-separated.
+# Add "http://localhost:8000" if you want to test from a local server.
+ALLOWED_ORIGINS = "https://clugsrepo.github.io"
+
+# Which Claude to use. Haiku is fast and cheap and plenty for Verity;
+# "claude-opus-5" is cleverer and about five times the price.
+MODEL = "claude-haiku-4-5"
+
+# How many questions the whole world may ask in one day. Only enforced
+# if the COUNTER namespace below is set up.
+DAILY_LIMIT = "2000"
+
+# Optional: somewhere to keep the daily count.
+#   wrangler kv namespace create COUNTER
+# then paste the id it prints in here and uncomment these two lines.
+# [[kv_namespaces]]
+# binding = "COUNTER"
+# id = ""
+
+# The API key is NOT here on purpose. Store it encrypted instead:
+#   wrangler secret put ANTHROPIC_API_KEY
