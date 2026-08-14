@@ -206,7 +206,7 @@
   <button id="pad-down" type="button">▼</button>
 </div>
 
-<button id="ask" type="button" hidden>ASK VERITY<small id="sparks">✨✨✨</small></button>
+<button id="ask" type="button" hidden>ASK VERITY<small id="askfree">always free ✨</small></button>
 <button id="voice" type="button" hidden aria-label="Verity's voice is on">🔊</button>
 
 <div id="askbox" hidden>
@@ -237,7 +237,8 @@
        spiky.</p>
     <p>Press <b>ASK VERITY</b> and type her a question — anything you
        like — and she'll answer you <b>out loud</b>. Ask where to go and
-       she'll work out the way and show you.</p>
+       she'll work out the way and show you. She never runs out and she
+       never minds being asked.</p>
     <p id="how-desktop"><b>W A S D</b> or the arrows to walk ·
        <b>H</b> to talk to her · 🔊 to hush her</p>
     <p id="how-touch" hidden>The arrows to walk · <b>ASK VERITY</b> to talk
@@ -278,8 +279,8 @@
    you're allowed to walk on, which is the same way a satnav thinks. If
    a locked door is in the way she goes and finds the key first.
 
-   Being helpful costs her something, though, or there'd be no game:
-   three sparks, one per ask, and they trickle back.
+   She never runs out and she never charges you for it - Ollie was very
+   clear about that. Ask her as often as you like.
    ===================================================================== */
 
 const SAVE_PREFIX = "ollie-verity-p-";
@@ -290,8 +291,6 @@ function whoAmI() {
 const SAVE_KEY = SAVE_PREFIX + whoAmI().toLowerCase();
 
 const STEP_TIME   = 0.13;   // seconds to slide from one square to the next
-const MAX_SPARKS  = 3;
-const SPARK_EVERY = 14;     // seconds to earn one back
 const HINT_TIME   = 5;      // how long the trail stays lit
 const START_HEARTS = 3;
 const SEE_YOU     = 2.4;    // how far YOU can see, in squares
@@ -301,7 +300,7 @@ const SEE_VERITY  = 3.3;    // how far Verity lights up
    THE ROOMS
 
      #  wall          .  floor        @  you start here
-     E  the way out   ^  spikes       +  a spare spark
+     E  the way out   ^  spikes       +  a spare heart
      y b r  keys      Y B R  the doors they open
    --------------------------------------------------------------- */
 const LEVELS = [
@@ -416,7 +415,6 @@ let level = 0;             // which room, counting from 0
 let grid = [];             // rows of single characters
 let cols = 0, rows = 0;
 let seen = [];             // have you ever had a look at this square?
-let sparksOnFloor = [];
 
 const you = {
   x: 1, y: 1,              // the square you're standing on
@@ -436,8 +434,6 @@ const verity = {
 
 let held = {};             // { y: true } for keys you're carrying
 let hearts = START_HEARTS;
-let sparks = MAX_SPARKS;
-let sparkTimer = 0;
 let hintPath = [];
 let hintLeft = 0;
 let clock = 0;
@@ -446,7 +442,7 @@ let warnedAbout = "";      // so she doesn't shout about the same spikes forever
 
 let best = { time: 0, done: false };
 
-const cheats = { light: false, ghost: false, freehints: false };
+const cheats = { light: false, ghost: false };
 
 /* ---------------------------------------------------------------
    LOADING A ROOM
@@ -552,13 +548,8 @@ function whatNext() {
   return null;
 }
 
-function askVerity(free) {
+function askVerity() {
   if (!playing) return { bad: "You're not playing" };
-  if (!free && !cheats.freehints && sparks < 1) {
-    say("I'm all out of sparks — give me a moment!", 2.4, 0.25);
-    refreshHud();                     // and grey the button out to match
-    return { bad: "No sparks left" };
-  }
 
   const plan = whatNext();
   if (!plan) {
@@ -566,7 +557,6 @@ function askVerity(free) {
     return { bad: "No way from here" };
   }
 
-  if (!free && !cheats.freehints) { sparks--; }
   hintPath = plan.path;
   hintLeft = HINT_TIME;
   say("This way — I'll show you " + plan.why + "!", 2.6, 1);
@@ -813,7 +803,7 @@ function askQuestion(raw) {
   const answer = answerFor(q);
 
   if (answer.show) {
-    const gone = askVerity(false);
+    const gone = askVerity();
     return gone === true ? { text: verity.saying, showed: true }
                          : { text: verity.saying, showed: false };
   }
@@ -855,8 +845,8 @@ function arrived() {
     refreshHud();
   } else if (t === "+") {
     grid[you.y][you.x] = ".";
-    sparks = Math.min(MAX_SPARKS, sparks + 1);
-    say("A spare spark — thank you!", 2, 1);
+    hearts++;
+    say("A spare heart! Pop that in your pocket.", 2.2, 1);
     refreshHud();
   } else if (t === "^") {
     hearts--;
@@ -919,8 +909,6 @@ function finish() {
 function startGame() {
   loadLevel(0);
   hearts = START_HEARTS;
-  sparks = MAX_SPARKS;
-  sparkTimer = 0;
   clock = 0;
   won = false;
   playing = true;
@@ -967,11 +955,7 @@ function refreshHud() {
   document.getElementById("keys").textContent =
     got.map(k => KEY_KINDS[k].name).join(" · ");
 
-  document.getElementById("sparks").textContent =
-    "✨".repeat(sparks) + "·".repeat(MAX_SPARKS - sparks);
-  // the button is never dead: talking to her is free, it's only being
-  // SHOWN the way that costs a spark
-  document.getElementById("sparks").style.opacity = sparks < 1 ? "0.45" : "1";
+  // nothing to count any more - she helps as often as you ask
 }
 
 /* ---------------------------------------------------------------
@@ -1203,11 +1187,6 @@ function loop() {
   if (playing && !askOpen) {          // no clock while you're typing to her
     clock += dt;
     document.getElementById("time").textContent = clock.toFixed(1) + "s";
-
-    if (sparks < MAX_SPARKS && !cheats.freehints) {
-      sparkTimer += dt;
-      if (sparkTimer >= SPARK_EVERY) { sparkTimer = 0; sparks++; refreshHud(); }
-    }
   }
 
   // sliding between squares
@@ -1415,19 +1394,6 @@ const ADMIN_COMMANDS = [
                                  : (words[0] === "on" ? true : !cheats.ghost);
                     return "Ghost " + (cheats.ghost ? "ON" : "off"); } },
 
-  { name: "hints", args: "[on/off]",
-    help: "Ask Verity as often as you like, free",
-    state: () => cheats.freehints ? "FREE" : "off",
-    run: words => { cheats.freehints = words[0] === "off" ? false
-                                     : (words[0] === "on" ? true : !cheats.freehints);
-                    refreshHud();
-                    return "Free hints " + (cheats.freehints ? "ON" : "off"); } },
-
-  { name: "sparks", args: "<number>",
-    help: "How many asks you have saved up",
-    run: words => { sparks = number(words[0], MAX_SPARKS, 0, MAX_SPARKS);
-                    refreshHud(); return "Sparks: " + sparks; } },
-
   { name: "hearts", args: "<number>",
     help: "How many bumps you can take",
     run: words => { hearts = number(words[0], START_HEARTS, 1, 99);
@@ -1445,8 +1411,8 @@ const ADMIN_COMMANDS = [
                     return "Room " + (level + 1) + ": " + LEVELS[level].name; } },
 
   { name: "show", alias: ["path"], args: "",
-    help: "Verity shows the way, no spark needed",
-    run: () => { const r = askVerity(true);
+    help: "Verity shows the way",
+    run: () => { const r = askVerity();
                  return r === true ? "There you go" : r; } },
 
   { name: "voice", args: "[on/off]",
