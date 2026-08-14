@@ -129,8 +129,61 @@
     box-shadow: 0 8px 20px rgba(0,0,0,0.45);
   }
   #ask:active { transform: scale(0.94); }
-  #ask:disabled { opacity: 0.45; }
   #ask small { display: block; font-weight: normal; font-size: 0.7rem; }
+
+  #voice {
+    position: fixed; z-index: 7;
+    right: max(16px, env(safe-area-inset-right));
+    bottom: max(150px, calc(env(safe-area-inset-bottom) + 150px));
+    width: 46px; height: 46px; border-radius: 14px;
+    font-size: 1.1rem; cursor: pointer;
+    color: #fff; background: rgba(10,16,34,0.8);
+    border: 2px solid rgba(127,227,255,0.55);
+  }
+  #voice:active { transform: scale(0.93); }
+
+  /* ---------- the box you type your question into ---------- */
+  #askbox {
+    position: fixed; z-index: 25;
+    left: 50%; transform: translateX(-50%);
+    bottom: max(16px, env(safe-area-inset-bottom));
+    width: min(520px, calc(100vw - 24px));
+    background: rgba(10,18,40,0.97);
+    border: 3px solid #7fe3ff; border-radius: 18px;
+    padding: 12px;
+    box-shadow: 0 14px 40px rgba(0,0,0,0.6);
+  }
+  #askbox .row { display: flex; gap: 8px; }
+  #question {
+    flex: 1; min-width: 0;
+    font-family: inherit; font-size: 1rem;
+    padding: 12px 14px; border-radius: 12px;
+    color: #fff; background: rgba(255,255,255,0.08);
+    border: 2px solid rgba(127,227,255,0.45);
+  }
+  #question:focus { outline: none; border-color: #7fe3ff; }
+  #question::placeholder { color: rgba(207,224,245,0.55); }
+  #askbox button {
+    font-family: inherit; font-size: 0.95rem; font-weight: bold;
+    padding: 12px 15px; border-radius: 12px; cursor: pointer;
+    color: #06223a; background: #7fe3ff; border: none;
+  }
+  #askbox button.alt {
+    color: #06223a; background: #ffe08a;
+  }
+  #askbox button.quiet {
+    color: #cfe0f5; background: rgba(255,255,255,0.1);
+    border: 2px solid rgba(255,255,255,0.22);
+  }
+  #askbox button:active { transform: scale(0.95); }
+  #asktips {
+    margin-top: 9px; display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  #asktips button {
+    font-size: 0.76rem; font-weight: normal; padding: 7px 11px;
+    color: #cfe0f5; background: rgba(127,227,255,0.13);
+    border: 1px solid rgba(127,227,255,0.4); border-radius: 999px;
+  }
 </style>
 </head>
 <body>
@@ -154,6 +207,24 @@
 </div>
 
 <button id="ask" type="button" hidden>ASK VERITY<small id="sparks">✨✨✨</small></button>
+<button id="voice" type="button" hidden aria-label="Verity's voice is on">🔊</button>
+
+<div id="askbox" hidden>
+  <div class="row">
+    <input id="question" type="text" maxlength="80" autocomplete="off"
+           spellcheck="false" enterkeyhint="send"
+           placeholder="Ask Verity anything…" aria-label="Ask Verity anything">
+    <button id="btn-send" type="button">Ask</button>
+    <button id="btn-shut" type="button" class="quiet" aria-label="Close">✕</button>
+  </div>
+  <div id="asktips">
+    <button type="button" data-q="where do I go?">where do I go?</button>
+    <button type="button" data-q="am I close?">am I close?</button>
+    <button type="button" data-q="are there spikes?">are there spikes?</button>
+    <button type="button" data-q="what about the keys?">the keys?</button>
+    <button type="button" data-q="tell me a joke">tell me a joke</button>
+  </div>
+</div>
 
 <div class="panel" id="start">
   <div class="box">
@@ -162,12 +233,15 @@
     <p>Verity is a little ball of light with a smile, and she is very good
        at helping.</p>
     <p>You're lost in six dark rooms. Verity floats along beside you and
-       lights the way, shouts if you're about to tread on something
-       spiky, and if you get properly stuck you can <b>ask her</b> —
+       lights the way, and shouts if you're about to tread on something
+       spiky.</p>
+    <p>Press <b>ASK VERITY</b> and type her a question — anything you
+       like — and she'll answer you <b>out loud</b>. Ask where to go and
        she'll work out the way and show you.</p>
     <p id="how-desktop"><b>W A S D</b> or the arrows to walk ·
-       <b>H</b> to ask Verity</p>
-    <p id="how-touch" hidden>The arrows to walk · <b>ASK VERITY</b> when you're stuck</p>
+       <b>H</b> to talk to her · 🔊 to hush her</p>
+    <p id="how-touch" hidden>The arrows to walk · <b>ASK VERITY</b> to talk
+       to her · 🔊 to hush her</p>
     <p><button class="btn" id="btn-play">OFF WE GO</button></p>
   </div>
 </div>
@@ -502,14 +576,249 @@ function askVerity(free) {
 
 /* ---------------------------------------------------------------
    VERITY TALKING
+
+   Everything she says goes through say(), which puts the words in her
+   bubble AND reads them out loud. The reading-out is the browser's own
+   speech, the same one that reads pages to people who can't see them -
+   so it works with nothing downloaded and nothing switched on.
    --------------------------------------------------------------- */
 const bubble = document.getElementById("bubble");
+const VOICE_KEY = "ollie-verity-voice";
+let voiceOn = true;
+try { voiceOn = localStorage.getItem(VOICE_KEY) !== "off"; } catch (e) {}
+
+let chosenVoice = null;
+function pickVoice() {
+  if (!("speechSynthesis" in window)) return;
+  let voices = [];
+  try { voices = speechSynthesis.getVoices() || []; } catch (e) { return; }
+  const english = voices.filter(v => /^en/i.test(v.lang || ""));
+  // a bright one if there is one, otherwise whatever English there is
+  chosenVoice = english.find(v => /female|zira|samantha|karen|serena|google uk english female/i.test(v.name))
+             || english[0] || voices[0] || null;
+}
+if ("speechSynthesis" in window) {
+  pickVoice();
+  try { speechSynthesis.addEventListener("voiceschanged", pickVoice); } catch (e) {}
+}
+
+function speak(words) {
+  if (!voiceOn || !("speechSynthesis" in window)) return;
+  try {
+    speechSynthesis.cancel();              // don't talk over herself
+    const line = new SpeechSynthesisUtterance(words);
+    if (chosenVoice) line.voice = chosenVoice;
+    line.pitch = 1.35;                     // small, round and cheerful
+    line.rate = 1.02;
+    line.volume = 0.9;
+    speechSynthesis.speak(line);
+  } catch (e) { /* no voice on this device - the bubble still says it */ }
+}
+
+function setVoice(on) {
+  voiceOn = !!on;
+  try { localStorage.setItem(VOICE_KEY, voiceOn ? "on" : "off"); } catch (e) {}
+  if (!voiceOn && "speechSynthesis" in window) {
+    try { speechSynthesis.cancel(); } catch (e) {}
+  }
+  const btn = document.getElementById("voice");
+  if (btn) {
+    btn.textContent = voiceOn ? "🔊" : "🔇";
+    btn.setAttribute("aria-label", voiceOn ? "Verity's voice is on" : "Verity's voice is off");
+  }
+  return voiceOn;
+}
+
 function say(words, seconds, mood) {
   verity.saying = words;
   verity.sayLeft = seconds === undefined ? 2.2 : seconds;
   if (mood !== undefined) verity.mood = mood;
   bubble.textContent = words;
   bubble.style.opacity = "1";
+  speak(words);
+}
+
+/* ---------------------------------------------------------------
+   ASKING HER THINGS
+
+   Be straight about what this is: Verity is not a thinking machine.
+   There's no room in a web page for one of those. What she does is
+   look for words she knows in what you typed, and then answer from
+   what she can actually SEE - the real maze, your real hearts, the
+   real clock. So her answers are true, even though her understanding
+   is only word-matching. Ask her and she'll tell you so herself.
+   --------------------------------------------------------------- */
+let variety = 0;
+function oneOf(list) { return list[(variety++) % list.length]; }
+
+function tidyQuestion(raw) {
+  return String(raw == null ? "" : raw)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N} ]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+}
+
+function stepsToExit() {
+  const path = findPath(you.x, you.y, (x, y) => tileAt(x, y) === "E", held);
+  return path ? path.length - 1 : null;
+}
+
+function spikesNearby() {
+  const round = [];
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (tileAt(you.x + dx, you.y + dy) === "^") round.push([dx, dy]);
+    }
+  }
+  return round;
+}
+
+function doorsLeftHere() {
+  let shut = 0;
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const t = grid[y][x];
+      if (DOOR_OF[t] && !held[DOOR_OF[t]]) shut++;
+    }
+  }
+  return shut;
+}
+
+/* what she makes of what you typed */
+function answerFor(raw) {
+  const q = tidyQuestion(raw);
+  const padded = " " + q + " ";
+  /* has() matches the START of a word, so "spike" finds "spikes" and
+     "key" finds "keys". word() wants the whole word, for the short ones
+     that would otherwise hide inside a longer word - "hi" in "hint". */
+  const has = (...bits) => bits.some(b => padded.includes(" " + b));
+  const word = (...bits) => bits.some(b => padded.includes(" " + b + " "));
+
+  if (!q) return { text: oneOf(["Ask me anything you like!",
+                                "I'm listening. Try \"where do I go?\""]) };
+
+  // ---- who and what she is ----
+  if (has("your name", "who are you", "whats your name", "what are you called"))
+    return { text: "I'm Verity! I'm the little light that goes with you." };
+
+  if (has("are you real", "are you a real", "are you an ai", "are you a robot",
+          "are you alive", "do you think", "are you human", "are you a person",
+          "artificial", "are you clever", "are you smart", "can you think")
+      || word("ai", "robot"))
+    return { text: "Not really. I'm a bit of a program — I don't think, I just "
+                 + "know this maze very well and I'm always glad to help." };
+
+  if (has("who made you", "who built you", "who created", "where are you from"))
+    return { text: "Ollie thought me up. A ball with a smile, who helps." };
+
+  if (has("how old"))
+    return { text: "Brand new! You're my very first person." };
+
+  // ---- being nice to each other ----
+  if (has("hello", "hallo", "hiya", "good morning", "good evening")
+      || word("hi", "hey", "yo"))
+    return { text: "Hello " + whoAmI() + "! Ready when you are." };
+
+  if (has("thank", "cheers") || word("ta"))
+    return { text: oneOf(["Any time.", "That's what I'm for!", "Don't mention it."]) };
+
+  if (has("love you", "best friend", "you re nice", "youre nice", "good girl",
+          "good job", "well done", "clever"))
+    return { text: "That's very kind. I like helping you." };
+
+  if (has("sorry"))
+    return { text: "Nothing to be sorry about. Come on, let's find the way." };
+
+  if (has("goodbye", "see you") || word("bye"))
+    return { text: "I'm not going anywhere — I'm your light!" };
+
+  if (has("joke", "funny", "make me laugh"))
+    return { text: oneOf([
+      "Why did the maze go to the doctor? It had a nasty turn!",
+      "What do you call a wall that tells jokes? A stand-up wall!",
+      "Why was the key so tired? It had been in a lock-in."]) };
+
+  if (has("sing", "song", "music"))
+    return { text: "🎵 Round and round and left and right, follow the little ball of light! 🎵" };
+
+  // ---- what to do ----
+  if (has("how do i play", "how do you play", "what do i do", "rules", "instructions",
+          "how does this work"))
+    return { text: "Walk about and find the way out of six rooms. It's dark, so "
+                 + "stay near me, and ask when you're stuck." };
+
+  if (has("what is that", "whats that", "what are those"))
+    return { text: "Spikes are the red ones, keys are the round bright ones, and "
+                 + "the green square with the arrow is the way out." };
+
+  // ---- things she can actually look up ----
+  if (has("spike", "safe", "danger", "dangerous", "careful", "hurt"))
+    return { text: spikesNearby().length
+      ? "Yes — spikes right beside you. Mind where you tread!"
+      : "Nothing sharp near you at the moment. You're fine." };
+
+  if (has("heart", "lives", "life", "health"))
+    return { text: hearts === 1 ? "One heart left. Please be careful."
+                                : hearts + " hearts left. Plenty." };
+
+  if (has("how long", "what time", "the clock", "my time", "how fast"))
+    return { text: "You've been going " + clock.toFixed(0) + " seconds"
+                 + (best.done ? ". Your best is " + best.time.toFixed(1) + "." : ".") };
+
+  if (has("what room", "which room", "where am i", "what level", "which level"))
+    return { text: "Room " + (level + 1) + " of " + LEVELS.length
+                 + " — this one's called \"" + LEVELS[level].name + "\"." };
+
+  if (has("how far", "nearly there", "am i close", "how much further", "how many steps",
+          "nearly done", "close to the end")) {
+    const steps = stepsToExit();
+    if (steps === null) return { text: "There's a locked door between us and the way out. "
+                                     + "Key first!" };
+    return { text: steps < 8 ? "Very close — about " + steps + " steps!"
+                             : "About " + steps + " steps, the way I'd go." };
+  }
+
+  if (has("key", "keys", "door", "locked", "unlock")) {
+    const got = Object.keys(held).filter(k => held[k]).map(k => KEY_KINDS[k].name);
+    const shut = doorsLeftHere();
+    if (!shut && !got.length) return { text: "No locked doors in this room. Straight out!" };
+    if (!shut) return { text: "You've got the " + got.join(" and the ")
+                            + " key, and nothing left to unlock." };
+    return { text: (shut === 1 ? "There's a door" : "There are " + shut + " doors")
+                 + " still locked. Shall I show you the key? Say \"show me\"." };
+  }
+
+  // ---- the big one: show me the way ----
+  if (has("where do i go", "which way", "where to", "show me", "the way", "way out",
+          "how do i get out", "get out", "im lost", "i m lost", "stuck",
+          "help", "exit", "path", "route", "find", "hint", "clue")
+      || word("out", "go", "where", "lost"))
+    return { show: true };
+
+  if (word("yes", "yeah", "yep", "ok", "okay", "no", "nope"))
+    return { text: oneOf(["Right you are.", "Whatever you say!",
+                          "Ask me \"where do I go\" if you want a hand."]) };
+
+  return { text: oneOf([
+    "I don't know that one, sorry. But I do know the way — say \"show me\".",
+    "That's beyond me! Try asking where to go, or about the keys.",
+    "Hmm. I'm only little. Ask me about the way out, or the spikes."]) };
+}
+
+/* you typed something and pressed send */
+function askQuestion(raw) {
+  const q = tidyQuestion(raw);
+  const answer = answerFor(q);
+
+  if (answer.show) {
+    const gone = askVerity(false);
+    return gone === true ? { text: verity.saying, showed: true }
+                         : { text: verity.saying, showed: false };
+  }
+  say(answer.text, Math.max(2.6, Math.min(7, answer.text.length * 0.055)), 0.95);
+  return { text: answer.text, showed: false };
 }
 
 /* ---------------------------------------------------------------
@@ -601,6 +910,8 @@ function finish() {
     (beaten ? "That's your best yet!" : "Your best is still " + best.time.toFixed(1) + "s.");
   document.getElementById("done").hidden = false;
   document.getElementById("ask").hidden = true;
+  document.getElementById("voice").hidden = true;
+  closeAsk();
   bubble.style.opacity = "0";
   refreshHud();
 }
@@ -616,6 +927,8 @@ function startGame() {
   document.getElementById("start").hidden = true;
   document.getElementById("done").hidden = true;
   document.getElementById("ask").hidden = false;
+  document.getElementById("voice").hidden = false;
+  closeAsk();
   document.getElementById("pad").hidden = !HAS_TOUCH;
   say("Hello! I'm Verity. Stuck? Just ask.", 3, 1);
   refreshHud();
@@ -656,7 +969,9 @@ function refreshHud() {
 
   document.getElementById("sparks").textContent =
     "✨".repeat(sparks) + "·".repeat(MAX_SPARKS - sparks);
-  document.getElementById("ask").disabled = !cheats.freehints && sparks < 1;
+  // the button is never dead: talking to her is free, it's only being
+  // SHOWN the way that costs a spark
+  document.getElementById("sparks").style.opacity = sparks < 1 ? "0.45" : "1";
 }
 
 /* ---------------------------------------------------------------
@@ -885,7 +1200,7 @@ function loop() {
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
 
-  if (playing) {
+  if (playing && !askOpen) {          // no clock while you're typing to her
     clock += dt;
     document.getElementById("time").textContent = clock.toFixed(1) + "s";
 
@@ -947,6 +1262,12 @@ const KEY_MAP = {
 };
 
 addEventListener("keydown", e => {
+  // while the question box is open every key belongs to the typing, or
+  // you'd wander off up the corridor spelling "where"
+  if (askOpen) {
+    if (e.code === "Escape") { e.preventDefault(); closeAsk(); }
+    return;
+  }
   const which = KEY_MAP[e.code];
   if (which) {
     e.preventDefault();
@@ -955,7 +1276,7 @@ addEventListener("keydown", e => {
     tryStep(step[0], step[1]);
   } else if (e.code === "KeyH" && !e.repeat) {
     e.preventDefault();
-    askVerity(false);
+    openAsk();
   }
 });
 addEventListener("keyup", e => {
@@ -976,7 +1297,72 @@ for (const [id, which, dx, dy] of [["pad-up", "up", 0, -1], ["pad-down", "down",
   el.addEventListener("pointercancel", stop);
 }
 
-document.getElementById("ask").addEventListener("click", () => askVerity(false));
+/* ---- the question box ---- */
+const askBox = document.getElementById("askbox");
+const questionBox = document.getElementById("question");
+let askOpen = false;
+
+function openAsk() {
+  if (!playing) return false;
+  askOpen = true;
+  askBox.hidden = false;
+  questionBox.value = "";
+  questionBox.focus();
+  return true;
+}
+
+function closeAsk() {
+  askOpen = false;
+  askBox.hidden = true;
+  questionBox.blur();                 // or the next key you press gets typed
+  for (const k of Object.keys(down)) down[k] = false;
+}
+
+function sendQuestion() {
+  const words = questionBox.value;
+  questionBox.value = "";
+  const said = askQuestion(words);
+  questionBox.focus();
+  return said;
+}
+
+document.getElementById("ask").addEventListener("click", () => {
+  if (askOpen) closeAsk(); else openAsk();
+});
+document.getElementById("btn-send").addEventListener("click", sendQuestion);
+document.getElementById("btn-shut").addEventListener("click", closeAsk);
+questionBox.addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); sendQuestion(); }
+  else if (e.key === "Escape") { e.preventDefault(); closeAsk(); }
+  e.stopPropagation();
+});
+for (const tip of document.querySelectorAll("#asktips button")) {
+  tip.addEventListener("click", () => {
+    questionBox.value = tip.getAttribute("data-q");
+    sendQuestion();
+  });
+}
+
+/* On a phone the on-screen keyboard slides up over the bottom of the
+   screen. visualViewport tells us how much of the page is still showing,
+   so the box can sit just above it instead of hiding behind it. */
+if (window.visualViewport) {
+  const followKeyboard = () => {
+    if (!askOpen) { askBox.style.bottom = ""; return; }
+    const hidden = window.innerHeight - window.visualViewport.height
+                 - window.visualViewport.offsetTop;
+    askBox.style.bottom = Math.max(12, hidden + 12) + "px";
+  };
+  window.visualViewport.addEventListener("resize", followKeyboard);
+  window.visualViewport.addEventListener("scroll", followKeyboard);
+  questionBox.addEventListener("focus", () => setTimeout(followKeyboard, 120));
+}
+
+document.getElementById("voice").addEventListener("click", () => {
+  const on = setVoice(!voiceOn);
+  if (on) say("That's better — you can hear me again!", 2.4, 1);
+});
+setVoice(voiceOn);
 document.getElementById("btn-play").addEventListener("click", startGame);
 document.getElementById("btn-again").addEventListener("click", startGame);
 
@@ -1062,6 +1448,18 @@ const ADMIN_COMMANDS = [
     help: "Verity shows the way, no spark needed",
     run: () => { const r = askVerity(true);
                  return r === true ? "There you go" : r; } },
+
+  { name: "voice", args: "[on/off]",
+    help: "Verity reads her lines out loud",
+    state: () => voiceOn ? "ON" : "off",
+    run: words => { const on = setVoice(words[0] === "off" ? false
+                                      : (words[0] === "on" ? true : !voiceOn));
+                    return "Voice " + (on ? "ON" : "off"); } },
+
+  { name: "ask", args: "<question>",
+    help: "Ask Verity something without typing in the box",
+    run: words => { if (!playing) return { bad: "You're not playing" };
+                    return askQuestion(words.join(" ")).text; } },
 
   { name: "best", args: "",
     help: "Forget your best time",
