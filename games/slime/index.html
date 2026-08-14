@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Slime Ball</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: "Trebuchet MS", Verdana, sans-serif;
+    background: #0d1b2a; color: #fff;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+  }
+  [hidden] { display: none !important; }
+  canvas { display: block; }
+
+  /* ---------- the bits on top ---------- */
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+
+  .pill {
+    position: fixed;
+    background: rgba(6,20,30,0.72);
+    border: 2px solid rgba(255,255,255,0.22);
+    border-radius: 14px; padding: 8px 14px;
+    font-size: 0.9rem; white-space: nowrap;
+  }
+  .pill b { color: #b6ff5c; font-size: 1.1rem; }
+  #goopill  { top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); }
+  #sizepill { top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); }
+  #bestpill { top: max(56px, calc(env(safe-area-inset-top) + 46px));
+              left: max(12px, env(safe-area-inset-left)); font-size: 0.78rem; }
+
+  #home {
+    position: fixed; top: max(12px, env(safe-area-inset-top)); left: 50%;
+    transform: translateX(-50%);
+    z-index: 30;
+    color: #b6ff5c; background: rgba(6,20,30,0.72);
+    border: 2px solid rgba(182,255,92,0.6); border-radius: 12px;
+    padding: 9px 16px; font-size: 0.85rem; font-weight: bold;
+    text-decoration: none;
+  }
+
+  #message {
+    position: fixed; left: 50%; top: 42%;
+    transform: translateX(-50%);
+    font-size: clamp(1.3rem, 5vw, 2.2rem); font-weight: bold;
+    color: #fff; text-shadow: 0 3px 14px rgba(0,0,0,0.8);
+    opacity: 0; transition: opacity 0.3s;
+    text-align: center; white-space: nowrap;
+  }
+
+  /* ---------- start and finish ---------- */
+  .panel {
+    position: fixed; inset: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(4,14,22,0.82);
+    padding: 16px; overflow-y: auto;
+  }
+  .box {
+    background: rgba(8,26,38,0.97);
+    border: 3px solid #b6ff5c; border-radius: 22px;
+    padding: 26px 24px; text-align: center;
+    max-width: 420px; width: 100%;
+  }
+  .box h1 { font-size: 2rem; color: #b6ff5c; margin-bottom: 6px; letter-spacing: 1px; }
+  .box p { color: #cfe8d5; line-height: 1.6; margin-bottom: 14px; font-size: 0.95rem; }
+  .box p b { color: #b6ff5c; }
+  .btn {
+    font-family: inherit; font-size: 1.05rem; font-weight: bold;
+    padding: 13px 26px; border-radius: 14px; cursor: pointer;
+    color: #08221a; background: #b6ff5c; border: none;
+    margin: 4px;
+  }
+  .btn:active { transform: scale(0.96); }
+  .btn.alt { color: #fff; background: rgba(255,255,255,0.12);
+             border: 2px solid rgba(255,255,255,0.3); }
+
+  /* ---------- touch ---------- */
+  #touch { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+  #stick {
+    position: absolute;
+    left: max(24px, env(safe-area-inset-left));
+    bottom: max(26px, env(safe-area-inset-bottom));
+    width: 128px; height: 128px; border-radius: 50%;
+    background: rgba(255,255,255,0.09);
+    border: 2px solid rgba(255,255,255,0.25);
+    pointer-events: auto;
+  }
+  .knob {
+    position: absolute; left: 50%; top: 50%;
+    width: 56px; height: 56px; margin: -28px 0 0 -28px;
+    border-radius: 50%;
+    background: rgba(182,255,92,0.5);
+    border: 2px solid #b6ff5c;
+  }
+  #jump {
+    position: absolute;
+    right: max(26px, env(safe-area-inset-right));
+    bottom: max(34px, env(safe-area-inset-bottom));
+    width: 88px; height: 88px; border-radius: 50%;
+    font-size: 1.6rem; font-family: inherit;
+    background: rgba(182,255,92,0.25);
+    border: 3px solid #b6ff5c; color: #fff;
+    pointer-events: auto; cursor: pointer;
+  }
+  #jump:active { transform: scale(0.93); }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div class="pill" id="goopill">🟢 <b id="goo">0</b> / <span id="goototal">20</span></div>
+  <div class="pill" id="sizepill">📏 <b id="size">1.0</b>x</div>
+  <div class="pill" id="bestpill" hidden>Best: <b id="best">—</b></div>
+  <div id="message"></div>
+</div>
+
+<a id="home" href="../../index.html">← Home</a>
+
+<div id="touch" hidden>
+  <div id="stick"><div class="knob" id="knob"></div></div>
+  <button id="jump">⬆</button>
+</div>
+
+<div class="panel" id="start">
+  <div class="box">
+    <h1>🟢 SLIME BALL</h1>
+    <p>You're a big wobbly blob of slime on a floating island.<br>
+       Squelch about and gobble up all <b>20 blobs of goo</b> as fast as you can.</p>
+    <p>Every blob you eat makes you <b>bigger</b> — and a bigger slime
+       wobbles more, bounces higher and squashes flatter.</p>
+    <p id="how-desktop"><b>W A S D</b> to roll · <b>Space</b> to jump ·
+       drag the mouse to look round</p>
+    <p id="how-touch" hidden>Left stick to roll · <b>⬆</b> to jump ·
+       drag anywhere to look round</p>
+    <p><button class="btn" id="btn-play">SQUELCH!</button></p>
+  </div>
+</div>
+
+<div class="panel" id="done" hidden>
+  <div class="box">
+    <h1 id="donetitle">🎉 ALL GOBBLED!</h1>
+    <p id="donetext"></p>
+    <p>
+      <button class="btn" id="btn-again">Go again</button>
+      <a class="btn alt" href="../../index.html">Home</a>
+    </p>
+  </div>
+</div>
+
+<script src="../../shared/player.js"></script>
+<script src="three.min.js"></script>
+<script src="../../shared/admin-panel.js"></script>
+<script>
+/* =====================================================================
+   SLIME BALL
+
+   Ollie's idea: 3D again, but this time you ARE the round thing, and it
+   wobbles like real slime.
+
+   The wobble is the whole game, and it's done in two layers:
+
+     1. SQUASH. The slime keeps one number for how squashed it is. Hit
+        the ground hard and that number gets shoved; a spring pulls it
+        back to normal, overshoots, comes back... which is exactly what
+        jelly does. Squash flat and you bulge out sideways, because
+        slime doesn't shrink - it moves.
+
+     2. RIPPLE. Every point on the ball is nudged in and out by a couple
+        of slow waves, so the surface is never still. A big landing
+        turns the waves right up and they die away again.
+
+   Neither is complicated. Together they look properly gooey.
+   ===================================================================== */
+
+const SAVE_PREFIX = "ollie-slime-p-";
+function whoAmI() {
+  const name = (typeof OlliePlayer !== "undefined" && OlliePlayer.name()) || "";
+  return name || "Player";
+}
+const SAVE_KEY = SAVE_PREFIX + whoAmI().toLowerCase();
+
+const GOO_TOTAL   = 20;
+const ISLAND_R    = 30;        // the island is a circle, 30 across the middle
+const GRAVITY     = 34;
+const MOVE_PUSH   = 46;
+const MAX_SPEED   = 17;
+const JUMP_UP     = 13.5;
+const FALL_OUT    = -26;       // fall past this and you're put back
+
+/* ---------------------------------------------------------------
+   THE WORLD
+   --------------------------------------------------------------- */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1b2a);
+scene.fog = new THREE.Fog(0x0d1b2a, 60, 150);
+
+const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 400);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.domElement.id = "game";
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xbfe9ff, 0x2b4a3a, 1.0));
+const sun = new THREE.DirectionalLight(0xfff6d8, 1.0);
+sun.position.set(24, 40, 18);
+scene.add(sun);
+
+// ---- the island: a big round slab ----
+const island = new THREE.Mesh(
+  new THREE.CylinderGeometry(ISLAND_R, ISLAND_R * 0.82, 7, 48),
+  new THREE.MeshLambertMaterial({ color: 0x2f6b47 }));
+island.position.y = -3.5;
+scene.add(island);
+
+const rim = new THREE.Mesh(
+  new THREE.TorusGeometry(ISLAND_R, 0.4, 8, 60),
+  new THREE.MeshLambertMaterial({ color: 0x7ee0a2 }));
+rim.rotation.x = Math.PI / 2;
+scene.add(rim);
+
+/* ---- platforms, all circular too ----
+   Each one is a disc you can land on: middle, height, and how wide. */
+const PLATFORMS = [
+  { x:  16, y:  4.5, z:  -6, r: 5.0 },
+  { x:  -8, y:  6.5, z: -18, r: 4.2 },
+  { x: -20, y:  3.5, z:   8, r: 5.5 },
+  { x:   4, y:  9.0, z:  16, r: 4.0 },
+  { x:  22, y: 12.0, z:  14, r: 3.6 },
+  { x: -14, y: 11.0, z:  -6, r: 3.4 },
+  { x:   0, y: 15.5, z:  -2, r: 3.0 }
+];
+
+for (const p of PLATFORMS) {
+  const disc = new THREE.Mesh(
+    new THREE.CylinderGeometry(p.r, p.r * 0.86, 1.2, 28),
+    new THREE.MeshLambertMaterial({ color: 0x6a5acd }));
+  disc.position.set(p.x, p.y - 0.6, p.z);
+  scene.add(disc);
+
+  const top = new THREE.Mesh(
+    new THREE.CylinderGeometry(p.r, p.r, 0.12, 28),
+    new THREE.MeshLambertMaterial({ color: 0x9d8cff }));
+  top.position.set(p.x, p.y + 0.06, p.z);
+  scene.add(top);
+}
+
+/* ---- bouncy mushrooms: land on one and you're fired into the sky ---- */
+const BOUNCERS = [
+  { x:  -6, y: 0, z:   6, r: 2.2, push: 26 },
+  { x:  12, y: 0, z:  14, r: 2.2, push: 26 },
+  { x: -18, y: 0, z: -14, r: 2.2, push: 30 },
+  { x:  20, y: 4.5, z: -6, r: 1.8, push: 24 }
+];
+
+const bouncerMeshes = [];
+for (const b of BOUNCERS) {
+  const cap = new THREE.Mesh(
+    new THREE.SphereGeometry(b.r, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.5),
+    new THREE.MeshLambertMaterial({ color: 0xff6b9d }));
+  cap.position.set(b.x, b.y + 0.1, b.z);
+  cap.scale.y = 0.55;
+  scene.add(cap);
+  bouncerMeshes.push(cap);
+  b.mesh = cap;
+  b.squash = 0;
+}
+
+/* ---- blobs of goo to gobble up ---- */
+const goo = [];
+const gooMaterial = new THREE.MeshLambertMaterial({
+  color: 0xdcff5c, emissive: 0x5a5a12 });
+
+function scatterGoo() {
+  goo.forEach(g => scene.remove(g.mesh));
+  goo.length = 0;
+
+  /* Half of them on the island, half up on the platforms, so you have
+     to actually climb about instead of mooching round in a circle. */
+  const spots = [];
+  for (let i = 0; i < GOO_TOTAL; i++) {
+    if (i % 2 === 0 || i < 4) {
+      const angle = (i / GOO_TOTAL) * Math.PI * 2 + i * 0.7;
+      const dist = 5 + ((i * 7) % Math.floor(ISLAND_R - 6));
+      spots.push({ x: Math.cos(angle) * dist, y: 1.2, z: Math.sin(angle) * dist });
+    } else {
+      const p = PLATFORMS[i % PLATFORMS.length];
+      const angle = i * 1.9;
+      spots.push({ x: p.x + Math.cos(angle) * (p.r * 0.5),
+                   y: p.y + 1.2,
+                   z: p.z + Math.sin(angle) * (p.r * 0.5) });
+    }
+  }
+
+  for (const spot of spots) {
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.55, 14, 10), gooMaterial);
+    mesh.position.set(spot.x, spot.y, spot.z);
+    scene.add(mesh);
+    goo.push({ mesh, eaten: false, bob: Math.random() * 6, home: spot.y });
+  }
+}
+
+/* ---------------------------------------------------------------
+   THE SLIME
+
+   A ball whose skin never stops moving. We keep the shape it started
+   as, and every frame we rebuild the surface from that - squashed,
+   stretched and rippled - so the wobble never drifts or piles up.
+   --------------------------------------------------------------- */
+const SLIME_SEGS = 32;
+const slimeGeo = new THREE.SphereGeometry(1, SLIME_SEGS, 24);
+const restPositions = slimeGeo.attributes.position.array.slice();
+
+const slime = new THREE.Mesh(slimeGeo, new THREE.MeshPhongMaterial({
+  color: 0x5cff9d, emissive: 0x0d3a22, shininess: 90,
+  transparent: true, opacity: 0.92
+}));
+scene.add(slime);
+
+// two little eyes, so it's a creature and not just a blob
+const eyeWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const eyeDark  = new THREE.MeshBasicMaterial({ color: 0x102a1a });
+const eyes = [];
+for (let i = 0; i < 2; i++) {
+  const eye = new THREE.Mesh(new THREE.SphereGeometry(0.19, 12, 10), eyeWhite);
+  const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), eyeDark);
+  pupil.position.z = 0.13;
+  eye.add(pupil);
+  scene.add(eye);
+  eyes.push(eye);
+}
+
+const player = {
+  pos: new THREE.Vector3(0, 3, 12),
+  vel: new THREE.Vector3(),
+  radius: 1.2,
+  onGround: false,
+  size: 1,                 // grows as you eat
+  squash: 0,               // -1 flat as a pancake, +1 stretched tall
+  squashVel: 0,
+  jiggle: 0,               // how much the surface is rippling
+  face: new THREE.Vector3(0, 0, -1)
+};
+
+/* The squash spring. Shove it, and it wobbles back to nothing all by
+   itself - the same maths as a bouncy spring or a plucked guitar string. */
+function shakeSlime(by, ripple) {
+  player.squashVel += by;
+  player.jiggle = Math.min(1.3, player.jiggle + (ripple === undefined ? Math.abs(by) * 0.5 : ripple));
+}
+
+function updateSquash(dt) {
+  const stiffness = 150, damping = 7.5;
+  player.squashVel += (-stiffness * player.squash - damping * player.squashVel) * dt;
+  player.squash += player.squashVel * dt;
+  player.squash = Math.max(-0.75, Math.min(0.75, player.squash));
+  player.jiggle = Math.max(0, player.jiggle - dt * 1.1);
+}
+
+/* Rebuild the slime's skin. Squashing flat makes it bulge out sideways,
+   because slime doesn't get smaller - it has to go somewhere. */
+function shapeSlime(time) {
+  const pos = slimeGeo.attributes.position;
+  const tall = 1 + player.squash;
+  const wide = 1 / Math.sqrt(Math.max(0.25, tall));      // keeps it the same size
+
+  for (let i = 0; i < pos.count; i++) {
+    const at = i * 3;
+    const x = restPositions[at], y = restPositions[at + 1], z = restPositions[at + 2];
+
+    // two slow waves running over the surface in different directions
+    const wave = Math.sin(y * 3.1 + time * 5.5) * 0.5
+               + Math.sin(x * 2.7 - time * 4.1) * 0.3
+               + Math.sin(z * 3.4 + time * 6.3) * 0.2;
+    const bump = 1 + wave * 0.11 * (0.42 + player.jiggle);
+
+    pos.array[at]     = x * wide * bump;
+    pos.array[at + 1] = y * tall * bump;
+    pos.array[at + 2] = z * wide * bump;
+  }
+  pos.needsUpdate = true;
+  slimeGeo.computeVertexNormals();
+}
+
+/* ---------------------------------------------------------------
+   WHAT'S UNDER YOUR FEET
+   --------------------------------------------------------------- */
+function groundUnder(x, z, feetY) {
+  // The highest thing you could be standing on at this spot.  feetY is where
+  // the bottom of the slime was a moment ago: anything above that is over
+  // your head, not under your feet, so rolling UNDER a platform must not
+  // count as standing on it - otherwise the island would vanish beneath you.
+  const reach = feetY === undefined ? Infinity : feetY + 0.35;
+  let best = null;
+  const better = (top, made) => {
+    if (top > reach) return;
+    if (!best || top > best.y) best = made();
+  };
+
+  for (const p of PLATFORMS) {
+    const dx = x - p.x, dz = z - p.z;
+    if (dx * dx + dz * dz <= p.r * p.r) {
+      better(p.y, () => ({ y: p.y, kind: "platform" }));
+    }
+  }
+  for (const b of BOUNCERS) {
+    const dx = x - b.x, dz = z - b.z;
+    if (dx * dx + dz * dz <= b.r * b.r) {
+      const top = b.y + b.r * 0.55;
+      better(top, () => ({ y: top, kind: "bouncer", bouncer: b }));
+    }
+  }
+  if (x * x + z * z <= ISLAND_R * ISLAND_R) {
+    better(0, () => ({ y: 0, kind: "island" }));
+  }
+  return best;
+}
+
+/* ---------------------------------------------------------------
+   PLAYING
+   --------------------------------------------------------------- */
+let playing = false, won = false;
+let clock = 0, eaten = 0;
+let best = { time: 0, done: false };
+
+const keys = {};
+const cheats = { fly: false, bouncy: 1 };     // admins can turn these
+let camYaw = 0, camPitch = 0.34;
+const stick = { x: 0, y: 0 };
+let jumpQueued = false, jumpHeld = false;
+
+function resetSlime() {
+  player.pos.set(0, 4, 12);
+  player.vel.set(0, 0, 0);
+  player.size = 1;
+  player.squash = 0;
+  player.squashVel = 0;
+  player.jiggle = 0;
+  player.onGround = false;
+}
+
+function startGame() {
+  resetSlime();
+  scatterGoo();
+  eaten = 0;
+  clock = 0;
+  won = false;
+  playing = true;
+  document.getElementById("start").hidden = true;
+  document.getElementById("done").hidden = true;
+  refreshHud();
+  say("Go on then, squelch!", 2);
+}
+
+function refreshHud() {
+  document.getElementById("goo").textContent = eaten;
+  document.getElementById("goototal").textContent = GOO_TOTAL;
+  document.getElementById("size").textContent = player.size.toFixed(1);
+  const bestPill = document.getElementById("bestpill");
+  bestPill.hidden = !best.done;
+  document.getElementById("best").textContent = best.done
+    ? best.time.toFixed(1) + "s" : "—";
+}
+
+let sayTimer = null;
+const messageEl = document.getElementById("message");
+function say(text, seconds) {
+  messageEl.textContent = text;
+  messageEl.style.opacity = "1";
+  clearTimeout(sayTimer);
+  sayTimer = setTimeout(() => { messageEl.style.opacity = "0"; }, (seconds || 1.6) * 1000);
+}
+
+function eatGoo(blob) {
+  blob.eaten = true;
+  scene.remove(blob.mesh);
+  eaten++;
+
+  // every blob makes you a bit bigger, and gives you a good wobble.
+  // Grow UPWARDS from where you're sitting, or the new bottom would end up
+  // buried under the floor you're standing on.
+  const was = player.radius * player.size;
+  player.size = Math.min(2.6, player.size + 0.055);
+  player.pos.y += player.radius * player.size - was;
+  shakeSlime(-3.5, 0.55);
+  refreshHud();
+
+  if (eaten >= GOO_TOTAL) finish();
+  else if (eaten % 5 === 0) say(eaten + " down, " + (GOO_TOTAL - eaten) + " to go!", 1.6);
+}
+
+function finish() {
+  playing = false;
+  won = true;
+
+  const beaten = !best.done || clock < best.time;
+  if (beaten) { best.time = clock; best.done = true; save(); }
+
+  document.getElementById("donetitle").textContent = "🎉 ALL GOBBLED!";
+  const text = document.getElementById("donetext");
+  text.textContent = "";
+  const line = document.createElement("div");
+  line.appendChild(document.createTextNode("You ate all " + GOO_TOTAL + " blobs in "));
+  const b = document.createElement("b");
+  b.textContent = clock.toFixed(1) + " seconds";
+  line.appendChild(b);
+  line.appendChild(document.createTextNode(", and grew to "
+    + player.size.toFixed(1) + " times your size."));
+  text.appendChild(line);
+
+  const note = document.createElement("div");
+  note.textContent = beaten ? "That's your best time yet! 🏆"
+                            : "Your best is still " + best.time.toFixed(1) + "s.";
+  text.appendChild(note);
+
+  document.getElementById("done").hidden = false;
+  refreshHud();
+}
+
+function save() {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(best)); } catch (e) {}
+}
+
+function load() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SAVE_KEY));
+    if (saved && typeof saved === "object") {
+      const time = Number(saved.time);
+      if (Number.isFinite(time) && time > 0 && time < 100000) {
+        best.time = time;
+        best.done = saved.done === true;
+      }
+    }
+  } catch (e) { /* no best time yet */ }
+}
+
+/* ---------------------------------------------------------------
+   ONE STEP OF THE WORLD
+   --------------------------------------------------------------- */
+function step(dt) {
+  const radius = player.radius * player.size;
+
+  // ---- which way are we pushing? ----
+  let wantX = 0, wantZ = 0;
+  if (keys.KeyW || keys.ArrowUp)    wantZ -= 1;
+  if (keys.KeyS || keys.ArrowDown)  wantZ += 1;
+  if (keys.KeyA || keys.ArrowLeft)  wantX -= 1;
+  if (keys.KeyD || keys.ArrowRight) wantX += 1;
+  wantX += stick.x;
+  wantZ += stick.y;
+
+  const len = Math.hypot(wantX, wantZ);
+  if (len > 1) { wantX /= len; wantZ /= len; }
+
+  // push in the direction the camera is looking
+  const sin = Math.sin(camYaw), cos = Math.cos(camYaw);
+  const pushX = wantX * cos - wantZ * sin;
+  const pushZ = wantX * sin + wantZ * cos;
+
+  if (playing) {
+    const grip = player.onGround ? 1 : 0.35;      // less steering in mid-air
+    player.vel.x += pushX * MOVE_PUSH * grip * dt;
+    player.vel.z += pushZ * MOVE_PUSH * grip * dt;
+  }
+
+  // a big slime is harder to get going and harder to stop
+  const drag = player.onGround ? 3.4 / player.size : 0.5;
+  player.vel.x -= player.vel.x * Math.min(1, drag * dt);
+  player.vel.z -= player.vel.z * Math.min(1, drag * dt);
+
+  const flat = Math.hypot(player.vel.x, player.vel.z);
+  const top = MAX_SPEED / Math.sqrt(player.size);
+  if (flat > top) {
+    player.vel.x *= top / flat;
+    player.vel.z *= top / flat;
+  }
+
+  // ---- jumping ----
+  if (playing && (jumpQueued || jumpHeld || keys.Space) && player.onGround) {
+    player.vel.y = JUMP_UP * cheats.bouncy / Math.sqrt(player.size);
+    player.onGround = false;
+    shakeSlime(9, 0.5);                            // stretch upwards as it goes
+  }
+  jumpQueued = false;
+
+  if (cheats.fly) {
+    // float: hold jump to rise, nothing pulls you down
+    player.vel.y = ((jumpHeld || keys.Space) ? 9 : 0)
+                 - ((keys.ShiftLeft || keys.KeyC) ? 9 : 0);
+  } else {
+    player.vel.y -= GRAVITY * dt;
+  }
+
+  const wereFeetAt = player.pos.y - radius;    // before this frame's move
+  player.pos.x += player.vel.x * dt;
+  player.pos.y += player.vel.y * dt;
+  player.pos.z += player.vel.z * dt;
+
+  // ---- landing ----
+  // half a slime of slack, so a big one that has sunk a little into the
+  // floor still finds it - but a platform overhead is still out of reach
+  const under = groundUnder(player.pos.x, player.pos.z, wereFeetAt + radius * 0.5);
+  const wasInAir = !player.onGround;
+  player.onGround = false;
+
+  if (under && player.pos.y - radius <= under.y && player.vel.y <= 0
+      && player.pos.y - radius > under.y - 2.4) {
+    player.pos.y = under.y + radius;
+
+    if (under.kind === "bouncer") {
+      player.vel.y = under.bouncer.push * cheats.bouncy / Math.sqrt(player.size);
+      under.bouncer.squash = 1;
+      shakeSlime(-16, 0.9);
+      say("BOING!", 0.9);
+    } else {
+      const hitSpeed = -player.vel.y;
+      player.vel.y = 0;
+      player.onGround = true;
+      if (wasInAir && hitSpeed > 3) {
+        // the harder you land, the flatter you go
+        shakeSlime(-Math.min(22, hitSpeed * 1.5), Math.min(1, hitSpeed / 14));
+      }
+    }
+  }
+
+  // ---- fallen off the world ----
+  if (player.pos.y < FALL_OUT) {
+    player.pos.set(0, 6, 12);
+    player.vel.set(0, 0, 0);
+    shakeSlime(-6, 0.6);
+    say("Whoops! Back you come.", 1.6);
+  }
+
+  // ---- gobbling ----
+  for (const blob of goo) {
+    if (blob.eaten) continue;
+    const dx = blob.mesh.position.x - player.pos.x;
+    const dy = blob.mesh.position.y - player.pos.y;
+    const dz = blob.mesh.position.z - player.pos.z;
+    if (dx * dx + dy * dy + dz * dz < (radius + 0.9) * (radius + 0.9)) eatGoo(blob);
+  }
+
+  // ---- stretch when falling fast, on top of everything else ----
+  if (!player.onGround) {
+    const want = Math.max(-0.2, Math.min(0.28, player.vel.y * 0.016));
+    player.squash += (want - player.squash) * Math.min(1, dt * 2.2);
+  }
+  updateSquash(dt);
+
+  // which way is it looking? wherever it's rolling
+  if (flat > 0.6) {
+    player.face.set(player.vel.x, 0, player.vel.z).normalize();
+  }
+}
+
+/* ---------------------------------------------------------------
+   PUTTING IT ON THE SCREEN
+   --------------------------------------------------------------- */
+function draw(time, dt) {
+  const radius = player.radius * player.size;
+
+  slime.position.copy(player.pos);
+  slime.scale.setScalar(radius);
+  shapeSlime(time);
+
+  // eyes sit on the front of the ball, and squash along with it
+  const tall = 1 + player.squash;
+  for (let i = 0; i < 2; i++) {
+    const side = i === 0 ? -1 : 1;
+    const right = new THREE.Vector3(-player.face.z, 0, player.face.x);
+    eyes[i].position.copy(player.pos)
+      .addScaledVector(player.face, radius * 0.74)
+      .addScaledVector(right, radius * 0.34 * side);
+    eyes[i].position.y += radius * 0.26 * tall;
+    eyes[i].scale.setScalar(radius * 0.85);
+    eyes[i].lookAt(eyes[i].position.clone().addScaledVector(player.face, 2));
+  }
+
+  // goo bobs up and down and spins
+  for (const blob of goo) {
+    if (blob.eaten) continue;
+    blob.bob += dt * 2.4;
+    blob.mesh.position.y = blob.home + Math.sin(blob.bob) * 0.22;
+    blob.mesh.rotation.y += dt * 1.6;
+  }
+
+  // mushrooms spring back after being bounced on
+  for (const b of BOUNCERS) {
+    b.squash = Math.max(0, b.squash - dt * 3);
+    b.mesh.scale.y = 0.55 * (1 - b.squash * 0.55);
+  }
+
+  // ---- the camera follows behind ----
+  const wanted = new THREE.Vector3(
+    player.pos.x - Math.sin(camYaw) * 13 * Math.cos(camPitch),
+    player.pos.y + 4 + 13 * Math.sin(camPitch),
+    player.pos.z - Math.cos(camYaw) * 13 * Math.cos(camPitch)
+  );
+  camera.position.lerp(wanted, Math.min(1, dt * 6));
+  camera.lookAt(player.pos.x, player.pos.y + 1, player.pos.z);
+
+  renderer.render(scene, camera);
+}
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+addEventListener("resize", resize);
+
+let last = performance.now();
+function loop() {
+  requestAnimationFrame(loop);
+  const now = performance.now();
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+
+  if (playing) clock += dt;
+  step(dt);
+  draw(now / 1000, dt);
+}
+
+/* ---------------------------------------------------------------
+   CONTROLS
+   --------------------------------------------------------------- */
+const HAS_TOUCH = ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
+document.getElementById("touch").hidden = !HAS_TOUCH;
+document.getElementById("how-desktop").hidden = HAS_TOUCH;
+document.getElementById("how-touch").hidden = !HAS_TOUCH;
+
+addEventListener("keydown", e => {
+  keys[e.code] = true;
+  if (e.code === "Space") { e.preventDefault(); jumpQueued = true; }
+});
+addEventListener("keyup", e => { keys[e.code] = false; });
+
+/* Drag anywhere that isn't a button to swing the camera round. */
+let dragId = null, dragX = 0, dragY = 0;
+renderer.domElement.addEventListener("pointerdown", e => {
+  dragId = e.pointerId; dragX = e.clientX; dragY = e.clientY;
+});
+addEventListener("pointermove", e => {
+  if (e.pointerId !== dragId) return;
+  camYaw   -= (e.clientX - dragX) * 0.006;
+  camPitch = Math.max(-0.15, Math.min(1.1, camPitch + (e.clientY - dragY) * 0.004));
+  dragX = e.clientX; dragY = e.clientY;
+});
+addEventListener("pointerup", e => { if (e.pointerId === dragId) dragId = null; });
+
+// ---- the touch stick ----
+const stickEl = document.getElementById("stick");
+const knobEl = document.getElementById("knob");
+let stickId = null;
+
+stickEl.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  stickId = e.pointerId;
+  moveStick(e);
+});
+addEventListener("pointermove", e => { if (e.pointerId === stickId) moveStick(e); });
+addEventListener("pointerup", e => {
+  if (e.pointerId !== stickId) return;
+  stickId = null;
+  stick.x = stick.y = 0;
+  knobEl.style.transform = "";
+});
+
+function moveStick(e) {
+  const box = stickEl.getBoundingClientRect();
+  let dx = e.clientX - (box.left + box.width / 2);
+  let dy = e.clientY - (box.top + box.height / 2);
+  const reach = box.width / 2;
+  const dist = Math.hypot(dx, dy);
+  if (dist > reach) { dx *= reach / dist; dy *= reach / dist; }
+  stick.x = dx / reach;
+  stick.y = dy / reach;
+  knobEl.style.transform = "translate(" + dx + "px," + dy + "px)";
+}
+
+const jumpBtn = document.getElementById("jump");
+jumpBtn.addEventListener("pointerdown", e => {
+  e.preventDefault(); jumpQueued = true; jumpHeld = true;
+});
+jumpBtn.addEventListener("pointerup", e => { e.preventDefault(); jumpHeld = false; });
+jumpBtn.addEventListener("pointerleave", () => { jumpHeld = false; });
+
+document.getElementById("btn-play").addEventListener("click", startGame);
+document.getElementById("btn-again").addEventListener("click", startGame);
+
+addEventListener("pagehide", save);
+
+/* ---------------------------------------------------------------
+   GO!
+   --------------------------------------------------------------- */
+resize();
+load();
+scatterGoo();
+resetSlime();
+refreshHud();
+loop();
+
+/* ---------------------------------------------------------------
+   ADMIN
+   --------------------------------------------------------------- */
+function number(word, fallback, low, high) {
+  const n = parseFloat(word);
+  if (!isFinite(n)) return fallback;
+  return Math.max(low, Math.min(high, n));
+}
+
+const ADMIN_COMMANDS = [
+  { name: "size", args: "<number>",
+    help: "How big a slime you are",
+    run: words => { const was = player.radius * player.size;
+                    player.size = number(words[0], 1, 0.2, 12);
+                    player.pos.y += player.radius * player.size - was;   // grow upwards
+                    refreshHud(); return "You're " + player.size.toFixed(1) + "x"; } },
+
+  { name: "wobble", alias: ["shake"], args: "",
+    help: "Give yourself a huge wobble",
+    run: () => { shakeSlime(-24, 1.3); return "Wobbleeee"; } },
+
+  { name: "fly", args: "[on/off]",
+    help: "Float about with no gravity",
+    state: () => cheats.fly ? "ON" : "off",
+    run: words => { cheats.fly = words[0] === "off" ? false
+                               : words[0] === "on" ? true : !cheats.fly;
+                    return "Flying " + (cheats.fly ? "on" : "off"); } },
+
+  { name: "bouncy", args: "<number>",
+    help: "How springy everything is",
+    run: words => { cheats.bouncy = number(words[0], 1, 0, 20);
+                    return "Bounciness " + cheats.bouncy + "x"; } },
+
+  { name: "eat", alias: ["goo"], args: "",
+    help: "Gobble every blob at once",
+    run: () => { if (!playing) return { bad: "You're not playing" };
+                 goo.filter(g => !g.eaten).forEach(eatGoo);
+                 return "Nom nom nom"; } },
+
+  { name: "here", alias: ["fetch"], args: "",
+    help: "Bring all the goo to you",
+    run: () => { let many = 0;
+                 for (const blob of goo) {
+                   if (blob.eaten) continue;
+                   blob.mesh.position.set(player.pos.x + (Math.random() - 0.5) * 4,
+                                          player.pos.y + 1,
+                                          player.pos.z + (Math.random() - 0.5) * 4);
+                   blob.home = blob.mesh.position.y;
+                   many++;
+                 }
+                 return many + " blobs, right here"; } },
+
+  { name: "best", args: "",
+    help: "Forget your best time",
+    run: () => { best = { time: 0, done: false }; save(); refreshHud();
+                 return "Best time wiped"; } }
+];
+
+if (typeof OlliePlayer !== "undefined" && OlliePlayer.isAdmin()
+    && typeof OllieAdmin !== "undefined") {
+  OllieAdmin.start({ commands: ADMIN_COMMANDS });
+}
+</script>
+
+</body>
+</html>
