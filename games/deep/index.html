@@ -1,0 +1,2147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Deep Blue</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: "Trebuchet MS", Verdana, sans-serif;
+    background: #031a2c; color: #fff;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+  }
+  [hidden] { display: none !important; }
+  canvas { display: block; }
+
+  /* ---------- the bits on top ---------- */
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+
+  .pill {
+    position: fixed;
+    background: rgba(4,26,40,0.78);
+    border: 2px solid rgba(120,240,205,0.26);
+    border-radius: 14px; padding: 8px 14px;
+    font-size: 0.9rem; white-space: nowrap;
+  }
+  .pill b { color: #4ff0c1; font-size: 1.1rem; }
+  #chestpill { top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); }
+  #depthpill { top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); }
+  #timepill  { top: max(56px, calc(env(safe-area-inset-top) + 46px));
+               left: max(12px, env(safe-area-inset-left)); font-size: 0.78rem; }
+  #bookbtn   { top: max(56px, calc(env(safe-area-inset-top) + 46px));
+               right: max(12px, env(safe-area-inset-right)); font-size: 0.78rem;
+               pointer-events: auto; cursor: pointer;
+               font-family: inherit; color: #fff; }
+  #bookbtn:active { transform: scale(0.94); }
+
+  /* deeper than you have ever been before */
+  #depthpill.record { border-color: #4ff0c1; }
+
+  /* ---------- the breath bar ---------- */
+  #breathwrap {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: max(18px, calc(env(safe-area-inset-bottom) + 12px));
+    width: min(300px, 62vw); height: 22px;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 1rem;
+  }
+  #breathbar {
+    flex: 1; height: 16px; border-radius: 9px;
+    background: rgba(4,26,40,0.78);
+    border: 2px solid rgba(120,240,205,0.26);
+    overflow: hidden;
+  }
+  #breathfill {
+    height: 100%; width: 100%;
+    background: #4ff0c1;
+    transition: width 0.12s linear, background-color 0.3s;
+  }
+  #breathfill.mid { background: #ffd166; }
+  #breathfill.low { background: #ff6b6b; animation: gasp 0.6s infinite; }
+  @keyframes gasp { 50% { opacity: 0.45; } }
+
+  /* the gentle "up you pop" flash */
+  #floatup {
+    position: fixed; inset: 0; z-index: 8; pointer-events: none;
+    background: rgba(200,245,255,0.28);
+    opacity: 0; transition: opacity 0.5s;
+  }
+  #floatup.on { opacity: 1; }
+
+  #home {
+    position: fixed; top: max(12px, env(safe-area-inset-top)); left: 50%;
+    transform: translateX(-50%);
+    z-index: 30;
+    color: #4ff0c1; background: rgba(4,26,40,0.78);
+    border: 2px solid rgba(79,240,193,0.6); border-radius: 12px;
+    padding: 9px 16px; font-size: 0.85rem; font-weight: bold;
+    text-decoration: none;
+  }
+
+  #message {
+    position: fixed; left: 50%; top: 38%;
+    transform: translateX(-50%);
+    font-size: clamp(1.1rem, 4.4vw, 2rem); font-weight: bold;
+    color: #fff; text-shadow: 0 3px 14px rgba(0,0,0,0.8);
+    opacity: 0; transition: opacity 0.3s;
+    text-align: center; white-space: nowrap;
+  }
+
+  /* ---------- start, finish and the sea book ---------- */
+  .panel {
+    position: fixed; inset: 0; z-index: 20;
+    display: flex; justify-content: center;
+    /* flex-start plus "margin: auto" on the box, NOT align-items: center.
+       Centring keeps a too-tall panel nicely in the middle right up until
+       it's taller than the screen, and then it pushes the top off where
+       you can never scroll back to it. This way it centres when it fits
+       and starts at the top when it doesn't. */
+    align-items: flex-start;
+    background: rgba(2,12,22,0.86);
+    /* and the big top gap keeps the panel clear of the Home link, which
+       floats above everything */
+    padding: 68px 16px 24px; overflow-y: auto;
+  }
+  .box {
+    background: rgba(4,22,36,0.97);
+    border: 3px solid #4ff0c1; border-radius: 22px;
+    padding: 26px 24px; text-align: center;
+    max-width: 440px; width: 100%; margin: auto;
+  }
+  #book .box { max-width: 520px; }
+  .box h1 { font-size: 2rem; color: #4ff0c1; margin-bottom: 6px; letter-spacing: 1px; }
+  .box p { color: #bfe3e0; line-height: 1.6; margin-bottom: 14px; font-size: 0.95rem; }
+  .box p b { color: #4ff0c1; }
+  .btn {
+    font-family: inherit; font-size: 1.05rem; font-weight: bold;
+    padding: 13px 26px; border-radius: 14px; cursor: pointer;
+    color: #03302a; background: #4ff0c1; border: none;
+    margin: 4px;
+  }
+  .btn:active { transform: scale(0.96); }
+  .btn.alt { color: #fff; background: rgba(255,255,255,0.12);
+             border: 2px solid rgba(255,255,255,0.3); }
+
+  #bookgrid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+    gap: 10px; margin-bottom: 16px;
+  }
+  .card {
+    background: rgba(8,34,52,0.9);
+    border: 2px solid rgba(120,240,205,0.4);
+    border-radius: 14px; padding: 10px 6px;
+  }
+  .card .face { font-size: 2.6rem; line-height: 1.1; }
+  .card .who  { color: #4ff0c1; font-weight: bold; font-size: 0.82rem; margin-top: 2px; }
+  .card .where { color: #bfe3e0; font-size: 0.7rem; line-height: 1.35; margin-top: 3px; }
+  .card.unknown { opacity: 0.5; border-style: dashed; }
+  .card.unknown .who { color: #bfe3e0; }
+
+  /* ---------- controls ---------- */
+  #touch { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+  #stick-move {
+    position: absolute;
+    left: max(24px, env(safe-area-inset-left));
+    bottom: max(60px, calc(env(safe-area-inset-bottom) + 44px));
+    width: 128px; height: 128px; border-radius: 50%;
+    background: rgba(255,255,255,0.09);
+    border: 2px solid rgba(255,255,255,0.25);
+    pointer-events: auto;
+  }
+  .knob {
+    position: absolute; left: 50%; top: 50%;
+    width: 56px; height: 56px; margin: -28px 0 0 -28px;
+    border-radius: 50%;
+    background: rgba(79,240,193,0.5);
+    border: 2px solid #4ff0c1;
+  }
+  .trim {
+    position: absolute;
+    right: max(24px, env(safe-area-inset-right));
+    width: 76px; height: 76px; border-radius: 50%;
+    font-size: 1.5rem; font-family: inherit;
+    background: rgba(79,240,193,0.22);
+    border: 3px solid #4ff0c1; color: #fff;
+    pointer-events: auto; cursor: pointer;
+  }
+  #btn-up   { bottom: max(148px, calc(env(safe-area-inset-bottom) + 132px)); }
+  #btn-down { bottom: max(60px, calc(env(safe-area-inset-bottom) + 44px)); }
+  .trim:active { transform: scale(0.93); }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div class="pill" id="chestpill">🧰 <b id="chests">0</b> / <span id="chesttotal">8</span></div>
+  <div class="pill" id="depthpill">🌊 <b id="depth">0</b> m</div>
+  <div class="pill" id="timepill">⏱ <b id="time">0.0</b>s <span id="besttime"></span></div>
+  <button class="pill" id="bookbtn">📖 <b id="bookcount">0</b>/8</button>
+
+  <div id="breathwrap"><span>🫁</span><div id="breathbar"><div id="breathfill"></div></div></div>
+  <div id="message"></div>
+</div>
+
+<div id="floatup"></div>
+
+<a id="home" href="../../index.html">← Home</a>
+
+<div id="touch" hidden>
+  <div id="stick-move"><div class="knob" id="knob"></div></div>
+  <button class="trim" id="btn-up">⬆</button>
+  <button class="trim" id="btn-down">⬇</button>
+</div>
+
+<div class="panel" id="start">
+  <div class="box">
+    <h1>🐋 DEEP BLUE</h1>
+    <p>Dive down into the dark blue. There's a <b>sunken ship</b>, a rock arch,
+       a weed forest and a trench that goes down and down.</p>
+    <p>Find all <b>8 treasure chests</b> — and swim up close to every creature
+       you meet to fill in your <b>Sea Book</b>.</p>
+    <p>Watch your <b>air</b>. Pop up to the top for a big breath, or find the
+       bubbles hidden down in the deep. Run out and you just float up —
+       nothing else happens.</p>
+    <p id="how-desktop"><b>W A S D</b> to swim · <b>Space</b> up · <b>Shift</b> down ·
+       drag the mouse (or the arrow keys) to look round · <b>B</b> for the Sea Book</p>
+    <p id="how-touch" hidden>Left stick to swim · <b>⬆ ⬇</b> to go up and down ·
+       swipe anywhere to look round</p>
+    <p>
+      <button class="btn" id="btn-play">DIVE IN!</button>
+      <button class="btn alt" id="btn-free">JUST EXPLORE</button>
+    </p>
+    <p><button class="btn alt" id="btn-book-start">📖 Sea Book</button></p>
+  </div>
+</div>
+
+<div class="panel" id="done" hidden>
+  <div class="box">
+    <h1 id="donetitle">🏆 ALL THE TREASURE!</h1>
+    <p id="donetext"></p>
+    <p>
+      <button class="btn" id="btn-again">Dive again</button>
+      <a class="btn alt" href="../../index.html">Home</a>
+    </p>
+  </div>
+</div>
+
+<div class="panel" id="book" hidden>
+  <div class="box">
+    <h1>📖 SEA BOOK</h1>
+    <p>Everything you've swum up close to. The sea is holding still while
+       you read.</p>
+    <div id="bookgrid"></div>
+    <p><button class="btn" id="btn-book-close">Back to the sea</button></p>
+  </div>
+</div>
+
+<script src="../../shared/player.js"></script>
+<script src="three.min.js"></script>
+<script src="../../shared/admin-panel.js"></script>
+<script>
+/* =====================================================================
+   DEEP BLUE
+
+   Ollie's idea: a swimming game where you go underwater and explore the
+   ocean.
+
+   Two ideas do nearly all the work here, and neither is complicated:
+
+     1. THICK WATER. Every push you give yourself fades away a little bit
+        every moment. That's it. That one rule is why you glide to a stop
+        instead of stopping in your tracks, why you can't turn on a
+        sixpence, and why nothing here feels like walking on the ground.
+        Let go of everything and you slowly float upwards, because a
+        person full of air is lighter than the sea.
+
+     2. THE MURK. You can only see about twenty steps in any direction,
+        and the further away a thing is the more it turns into water.
+        It costs the computer nothing at all - it's one line - and it
+        does two jobs: it makes the sea feel enormous, and it's the
+        reason a whale can be right there and you don't know until it is.
+        Down in the trench the murk gets thicker and darker, so the
+        biggest thing in the game is the thing you see least of.
+
+   One rule makes every number below readable: y = 0 is the TOP of the
+   sea, so everything underwater is a minus number, and how deep you are
+   is just your y with the minus taken off.
+   ===================================================================== */
+
+const SAVE_PREFIX = "ollie-deep-p-";
+function whoAmI() {
+  const name = (typeof OlliePlayer !== "undefined" && OlliePlayer.name()) || "";
+  return name || "Player";
+}
+const SAVE_KEY = SAVE_PREFIX + whoAmI().toLowerCase();
+
+const SURFACE_Y   = 0;
+const BED_Y       = -34;      // the sandy floor
+const TRENCH_Y    = -78;      // the bottom of the deep trench
+const LAGOON_R    = 110;      // swim past this and the current turns you back
+const SEABED_SPAN = 240;
+const SEABED_SEGS = 80;       // one square every 3 steps
+
+/* Scratch vectors. We make these ONCE and reuse them, because the
+   drawing code runs sixty times a second and making new ones every
+   frame is how you make a phone go hot. */
+const _v = new THREE.Vector3();
+const _aim = new THREE.Vector3();
+const _look = new THREE.Vector3();
+const _to = new THREE.Vector3();
+const _fogA = new THREE.Color();
+const _fogB = new THREE.Color();
+
+function mat(colour) { return new THREE.MeshLambertMaterial({ color: colour }); }
+
+/* ---------------------------------------------------------------
+   THE OCEAN
+   --------------------------------------------------------------- */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x2a9dc4);
+scene.fog = new THREE.FogExp2(0x2a9dc4, 0.013);
+
+const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 350);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.domElement.id = "game";
+document.body.appendChild(renderer.domElement);
+
+/* The lights are made here and NEVER added or removed again. Adding a
+   light halfway through makes the computer rebuild every single thing
+   in the sea, and you'd see it stutter. */
+const SKY_LIGHT = 0.85, SUN_LIGHT = 0.9;
+const skyLight = new THREE.HemisphereLight(0x9fe4ff, 0x0b2c3a, SKY_LIGHT);
+scene.add(skyLight);
+const sun = new THREE.DirectionalLight(0xdff6ff, SUN_LIGHT);
+sun.position.set(10, 60, 6);
+scene.add(sun);
+
+/* The sunshine has to get through the water to reach you, and the further
+   down you are the less of it makes it. Turning the two lights DOWN as you
+   sink is the whole trick - it's why the trench is a proper dark place and
+   not just the same bright sand painted navy blue. Turning a light down is
+   free; adding or taking one away is not, which is why we never do that. */
+function lightForDepth(y) {
+  const lit = Math.max(0.1, Math.min(1, 1 - Math.max(0, -y) / 78));
+  const soft = 0.1 + 0.9 * lit * lit;        // it fades off fast near the top
+  skyLight.intensity = SKY_LIGHT * soft;
+  sun.intensity = SUN_LIGHT * soft;
+}
+
+/* ---- how blue the water is, all the way down ----
+   Each stop says: at this depth, the water is this colour and this
+   thick. Everything in between is mixed from the two nearest stops. */
+const WATER_STOPS = [
+  { y:   6, c: 0x8fd6ff, d: 0.0020 },     // above the water, looking about
+  { y:   0, c: 0x2a9dc4, d: 0.0130 },     // just under the surface
+  { y: -12, c: 0x2a9dc4, d: 0.0150 },
+  { y: -34, c: 0x0d5c86, d: 0.0230 },     // down at the sand
+  { y: -55, c: 0x06223b, d: 0.0380 },     // the trench rim
+  { y: -78, c: 0x02101f, d: 0.0550 }      // the bottom, where it's nearly black
+];
+
+function waterAt(y) {
+  let hi = WATER_STOPS[0], lo = WATER_STOPS[WATER_STOPS.length - 1];
+  for (let i = 0; i < WATER_STOPS.length - 1; i++) {
+    if (y <= WATER_STOPS[i].y && y >= WATER_STOPS[i + 1].y) {
+      hi = WATER_STOPS[i]; lo = WATER_STOPS[i + 1]; break;
+    }
+  }
+  if (y > WATER_STOPS[0].y) { hi = lo = WATER_STOPS[0]; }
+  if (y < WATER_STOPS[WATER_STOPS.length - 1].y) {
+    hi = lo = WATER_STOPS[WATER_STOPS.length - 1];
+  }
+  const span = hi.y - lo.y;
+  const mix = span === 0 ? 0 : (hi.y - y) / span;
+  _fogA.setHex(hi.c);
+  _fogB.setHex(lo.c);
+  _fogA.lerp(_fogB, Math.max(0, Math.min(1, mix)));
+  return hi.d + (lo.d - hi.d) * Math.max(0, Math.min(1, mix));
+}
+
+/* ---- the top of the sea, seen from underneath ---- */
+const surfGeo = new THREE.PlaneGeometry(400, 400, 24, 24);
+surfGeo.rotateX(-Math.PI / 2);
+const surfRest = surfGeo.attributes.position.array.slice();
+const surface = new THREE.Mesh(surfGeo, new THREE.MeshLambertMaterial({
+  color: 0x9fe8ff, side: THREE.DoubleSide, transparent: true, opacity: 0.62 }));
+scene.add(surface);
+
+/* ---- shafts of sunlight coming down through the water ----
+   Each one is a hollow cone with its point at the surface. They're
+   drawn added on top of whatever's behind, like torchlight, and the
+   murk is left switched on for them so they fade away properly. */
+const shafts = [];
+const shaftGeo = new THREE.ConeGeometry(4.5, 62, 6, 1, true);
+const shaftMat = new THREE.MeshBasicMaterial({
+  color: 0xbdf0ff, transparent: true, opacity: 0.07,
+  blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+for (let i = 0; i < 12; i++) {
+  const s = new THREE.Mesh(shaftGeo, shaftMat);
+  const angle = i * 2.1;
+  const dist = 12 + (i * 13) % 70;
+  s.position.set(Math.cos(angle) * dist, -31, Math.sin(angle) * dist);
+  s.userData.tilt = 0.2;
+  s.userData.phase = i * 1.3;
+  s.renderOrder = 2;
+  scene.add(s);
+  shafts.push(s);
+}
+
+/* ---- marine snow: the specks of stuff always drifting down ----
+   There are only 900 of them and they live in a box 36 steps across
+   that follows you about. When one drifts out of the bottom of the box
+   we move it back to the top, so you never run out and we never have
+   to make another one. */
+const SNOW_BOX = 18;
+const snowGeo = new THREE.BufferGeometry();
+const snowPos = new Float32Array(900 * 3);
+for (let i = 0; i < snowPos.length; i++) {
+  snowPos[i] = (Math.random() - 0.5) * SNOW_BOX * 2;
+}
+snowGeo.setAttribute("position", new THREE.BufferAttribute(snowPos, 3));
+const snow = new THREE.Points(snowGeo, new THREE.PointsMaterial({
+  color: 0xdff3ff, size: 0.16, sizeAttenuation: true,
+  transparent: true, opacity: 0.55, depthWrite: false }));
+/* The specks move about, so three.js's guess at where they are goes
+   stale and it would decide they're off-screen and stop drawing them.
+   Telling it not to bother guessing is one line and always right here. */
+snow.frustumCulled = false;
+scene.add(snow);
+
+/* ---------------------------------------------------------------
+   THE SEABED
+
+   The sand is a big flat square with every corner pushed up or down.
+   Where it goes is decided by ONE function, seabedAt, and both the
+   sand you can see and the sand you bump into ask that same function -
+   so the floor you land on is always exactly the floor you're looking
+   at. Two separate lists would drift apart the first time we changed
+   anything.
+   --------------------------------------------------------------- */
+const HILLS = [
+  { x:  -40, z:   18, r: 30, h:  5.5 },
+  { x:   30, z:   55, r: 26, h:  7.0 },
+  { x:  -20, z:  -60, r: 24, h:  6.5 },
+  { x:   62, z:   26, r: 22, h:  4.0 },
+  { x:  -74, z:  -22, r: 28, h:  5.0 },
+  { x:    6, z:  -20, r: 20, h:  2.5 },
+  { x:  -10, z:   72, r: 24, h:  3.5 },
+  { x:   78, z:  -66, r: 26, h:  4.5 },
+  { x:  -60, z:   62, r: 20, h:  3.0 }
+];
+
+const TRENCH = { x: 46, z: -30, halfW: 14, halfL: 62, yaw: 0.35,
+                 depth: TRENCH_Y, ramp: 9 };
+
+function seabedAt(x, z) {
+  let y = BED_Y;
+
+  // gentle lumps in the sand
+  for (const h of HILLS) {
+    const d = Math.hypot(x - h.x, z - h.z);
+    if (d < h.r) y += h.h * 0.5 * (1 + Math.cos(Math.PI * d / h.r));
+  }
+
+  /* The trench is a long slot. We turn the spot into the trench's own
+     left-right and along directions first, so the slot can lie at an
+     angle without any of the rest of this getting harder. */
+  const dx = x - TRENCH.x, dz = z - TRENCH.z;
+  const c = Math.cos(-TRENCH.yaw), s = Math.sin(-TRENCH.yaw);
+  const lx = dx * c - dz * s;
+  const lz = dx * s + dz * c;
+  const out = Math.max(Math.abs(lx) - TRENCH.halfW, Math.abs(lz) - TRENCH.halfL);
+  if (out < TRENCH.ramp) {
+    const deep = 1 - Math.max(0, out) / TRENCH.ramp;
+    const smooth = deep * deep * (3 - 2 * deep);      // eases the walls
+    y += (TRENCH.depth - y) * smooth;
+  }
+  return y;
+}
+
+/* ---- the wobbly light patterns on the sand ----
+   Drawn once onto a little square picture, then tiled over the whole
+   seabed and slid about very slowly. Real caustics are hard; this
+   costs two numbers a frame and nobody can tell. */
+function makeCaustics() {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 256;
+  const c = canvas.getContext("2d");
+  c.fillStyle = "#93825c";
+  c.fillRect(0, 0, 256, 256);
+  c.strokeStyle = "rgba(206,240,232,0.16)";
+  c.lineWidth = 4;
+  c.shadowBlur = 9;
+  c.shadowColor = "rgba(214,246,240,0.3)";
+  for (let i = 0; i < 40; i++) {
+    c.beginPath();
+    c.arc((i * 61) % 256, (i * 97) % 256, 14 + (i % 5) * 7,
+          i * 0.7, i * 0.7 + 2.2);
+    c.stroke();
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(30, 30);       // small ripples, not great swirly ribbons
+  return tex;
+}
+const caustics = makeCaustics();
+
+const bedGeo = new THREE.PlaneGeometry(SEABED_SPAN, SEABED_SPAN, SEABED_SEGS, SEABED_SEGS);
+bedGeo.rotateX(-Math.PI / 2);
+const bedPos = bedGeo.attributes.position;
+for (let i = 0; i < bedPos.count; i++) {
+  bedPos.setY(i, seabedAt(bedPos.getX(i), bedPos.getZ(i)));
+}
+bedGeo.computeVertexNormals();      // worked out ONCE, never again
+const seabed = new THREE.Mesh(bedGeo,
+  new THREE.MeshLambertMaterial({ map: caustics, color: 0xd6c9a4 }));
+scene.add(seabed);
+
+/* ---------------------------------------------------------------
+   WHAT'S DOWN THERE
+
+   Rocks, an arch, a cave, weed forests and a sunken ship. Anything you
+   can bump into also pushes a box into SOLIDS. Boxes, not balls, for
+   one reason: the ship's hold has to be HOLLOW, and you cannot make a
+   hollow shape out of shove-you-out balls. Four flat walls with a gap
+   in them is a room; four balls is a lump.
+
+   As each thing gets built it says where its treasure goes and where
+   its bubbles are, so a chest is never floating in open water by
+   accident - it really is inside the thing it says it's inside.
+   --------------------------------------------------------------- */
+const SOLIDS = [];
+const CHEST_SPOTS = [];
+const BUBBLERS = [];
+const swayers = [];        // weed that leans about in the current
+
+function solidBox(cx, cy, cz, sx, sy, sz) {
+  SOLIDS.push({
+    minX: cx - sx / 2, maxX: cx + sx / 2,
+    minY: cy - sy / 2, maxY: cy + sy / 2,
+    minZ: cz - sz / 2, maxZ: cz + sz / 2
+  });
+}
+
+function block(cx, cy, cz, sx, sy, sz, colour, solid) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat(colour));
+  m.position.set(cx, cy, cz);
+  scene.add(m);
+  if (solid !== false) solidBox(cx, cy, cz, sx, sy, sz);
+  return m;
+}
+
+const LANDMARKS = {
+  home:   { x:   0, z:    0 },
+  wreck:  { x: -40, z:   18 },
+  arch:   { x:  30, z:   55 },
+  cave:   { x: -20, z:  -60 },
+  kelp:   { x: -74, z:  -22 },
+  trench: { x:  46, z:  -30 }
+};
+
+/* ---- the sunken ship ----
+   A floor, two sides, a bow and a stern, and a deck with a big hole
+   in the middle. Swim down through the hole and you're inside. */
+function buildWreck() {
+  const at = LANDMARKS.wreck;
+  const floor = seabedAt(at.x, at.z);
+
+  block(at.x, floor + 0.6, at.z, 7, 1.2, 22, 0x4a3b2a);                  // hull bottom
+  block(at.x - 3.1, floor + 2.85, at.z, 0.8, 4.5, 22, 0x5c4a34);         // port side
+  block(at.x + 3.1, floor + 2.85, at.z, 0.8, 4.5, 22, 0x5c4a34);         // starboard side
+  block(at.x, floor + 2.85, at.z + 11, 7, 4.5, 0.9, 0x5c4a34);           // bow
+  block(at.x, floor + 2.85, at.z - 11, 7, 4.5, 0.9, 0x5c4a34);           // stern
+  block(at.x, floor + 5.4, at.z + 7.5, 7, 0.6, 7, 0x6b5740);             // deck, front half
+  block(at.x, floor + 5.4, at.z - 7.5, 7, 0.6, 7, 0x6b5740);             // deck, back half
+  // ...which leaves an 8-step hole in the middle of the deck to drop through.
+
+  // a pointy nose on the front, and a broken mast leaning over.
+  // Both are just for looking at - nothing thin enough to snag on.
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(3.4, 5, 4), mat(0x5c4a34));
+  nose.position.set(at.x, floor + 2.85, at.z + 13.4);
+  nose.rotation.x = Math.PI / 2;
+  nose.rotation.y = Math.PI / 4;
+  scene.add(nose);
+
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.28, 11, 8), mat(0x4a3b2a));
+  mast.position.set(at.x + 2.2, floor + 8.4, at.z + 3);
+  mast.rotation.z = -0.5;
+  scene.add(mast);
+
+  const nest = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.75, 1.1, 10, 1, true),
+                              mat(0x6b5740));
+  nest.position.set(at.x + 4.6, floor + 12.7, at.z + 3);
+  scene.add(nest);
+
+  CHEST_SPOTS.push({ x: at.x, y: floor + 2.1, z: at.z, hint: "in the ship's hold" });
+  CHEST_SPOTS.push({ x: at.x, y: floor + 1.2, z: at.z - 13.5,
+                     hint: "under the ship's back end" });
+  CHEST_SPOTS.push({ x: at.x + 4.6, y: floor + 13.6, z: at.z + 3,
+                     hint: "up in the crow's nest" });
+
+  BUBBLERS.push({ x: at.x, y: floor + 3, z: at.z + 6 });
+  BUBBLERS.push({ x: at.x, y: floor + 3, z: at.z - 6 });
+}
+
+/* ---- a rock arch you can swim through ---- */
+function buildArch() {
+  const at = LANDMARKS.arch;
+  const floor = seabedAt(at.x, at.z);
+
+  block(at.x - 5, floor + 5, at.z, 4, 10, 5, 0x3f4a4d);
+  block(at.x + 5, floor + 5, at.z, 4, 10, 5, 0x3f4a4d);
+  block(at.x, floor + 11, at.z, 16, 3, 5.5, 0x46524f);
+
+  CHEST_SPOTS.push({ x: at.x, y: floor + 1, z: at.z, hint: "under the rock arch" });
+  BUBBLERS.push({ x: at.x + 1.5, y: floor + 2, z: at.z + 3 });
+}
+
+/* ---- a little cave: three walls and a roof, open at the front ---- */
+function buildCave() {
+  const at = LANDMARKS.cave;
+  const floor = seabedAt(at.x, at.z);
+
+  block(at.x, floor + 3, at.z - 5, 14, 6, 2, 0x39433f);       // back wall
+  block(at.x - 6, floor + 3, at.z, 2, 6, 12, 0x39433f);       // left wall
+  block(at.x + 6, floor + 3, at.z, 2, 6, 12, 0x39433f);       // right wall
+  block(at.x, floor + 6.6, at.z, 14, 1.6, 12, 0x424e49);      // roof
+
+  // a heap of boulders piled on top, for looking at
+  for (let i = 0; i < 5; i++) {
+    const r = new THREE.Mesh(new THREE.DodecahedronGeometry(2 + (i % 3) * 0.7, 0),
+                             mat(0x3f4a4d));
+    r.position.set(at.x - 5 + i * 2.6, floor + 8 + (i % 2), at.z - 2 + (i % 3));
+    r.rotation.set(i, i * 2, i * 0.5);
+    scene.add(r);
+  }
+
+  CHEST_SPOTS.push({ x: at.x, y: floor + 1, z: at.z - 3, hint: "deep in the little cave" });
+  BUBBLERS.push({ x: at.x - 3, y: floor + 2, z: at.z - 3 });
+}
+
+/* ---- weed forests ----
+   Each blade hangs from a little turning point at its root, and we
+   simply lean that turning point back and forth. Bending every blade
+   properly, corner by corner, would look about the same and cost the
+   phone a hundred times as much. */
+const KELP_PATCHES = [
+  { x: -74, z: -22 }, { x: -62, z:  -6 }, { x: -84, z: -38 },
+  { x:  10, z:  74 }, { x:  22, z:  86 }, { x:  -2, z:  62 }
+];
+
+function buildKelp() {
+  const bladeGeo = new THREE.PlaneGeometry(0.6, 5);
+  bladeGeo.translate(0, 2.5, 0);                // hangs UP from its root
+  const bladeMat = new THREE.MeshLambertMaterial({
+    color: 0x3f8a5c, side: THREE.DoubleSide });
+
+  KELP_PATCHES.forEach((patch, n) => {
+    for (let i = 0; i < 12; i++) {
+      const angle = i * 2.4;
+      const dist = 1 + (i % 4) * 1.8;
+      const x = patch.x + Math.cos(angle) * dist;
+      const z = patch.z + Math.sin(angle) * dist;
+
+      const root = new THREE.Group();
+      root.position.set(x, seabedAt(x, z), z);
+      root.rotation.y = i * 0.9;
+      const blade = new THREE.Mesh(bladeGeo, bladeMat);
+      blade.scale.y = 0.8 + (i % 4) * 0.35;
+      root.add(blade);
+      scene.add(root);
+      swayers.push({ root, phase: n * 2 + i * 0.6 });
+    }
+  });
+
+  const a = KELP_PATCHES[0], b = KELP_PATCHES[3];
+  CHEST_SPOTS.push({ x: a.x, y: seabedAt(a.x, a.z) + 1, z: a.z,
+                     hint: "hidden in the weeds" });
+  CHEST_SPOTS.push({ x: b.x, y: seabedAt(b.x, b.z) + 1, z: b.z,
+                     hint: "in the far weed forest" });
+  BUBBLERS.push({ x: a.x + 4, y: seabedAt(a.x + 4, a.z) + 2, z: a.z });
+}
+
+/* ---- scattered rocks and coral, so the sand isn't empty ---- */
+function buildRocks() {
+  for (let i = 0; i < 18; i++) {
+    const angle = i * 1.7;
+    const dist = 20 + (i * 11) % 80;
+    const x = Math.cos(angle) * dist, z = Math.sin(angle) * dist;
+    const size = 1.6 + (i % 4) * 0.9;
+    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(size, 0), mat(0x44514f));
+    rock.position.set(x, seabedAt(x, z) + size * 0.4, z);
+    rock.rotation.set(i, i * 1.3, i * 0.7);
+    scene.add(rock);
+    solidBox(rock.position.x, rock.position.y, rock.position.z,
+             size * 1.5, size * 1.5, size * 1.5);
+  }
+
+  // coral: little bright knobbly clumps up in the shallow bit
+  const coralColours = [0xff8fa3, 0xffc46b, 0xc98fff, 0x6bf0d0];
+  for (let i = 0; i < 22; i++) {
+    const angle = i * 2.3;
+    const dist = 8 + (i * 7) % 40;
+    const x = Math.cos(angle) * dist, z = Math.sin(angle) * dist;
+    const c = new THREE.Mesh(new THREE.SphereGeometry(0.9 + (i % 3) * 0.4, 8, 6),
+                             mat(coralColours[i % coralColours.length]));
+    c.position.set(x, seabedAt(x, z) + 0.6, z);
+    c.scale.y = 1.5;
+    scene.add(c);
+  }
+}
+
+/* ---- the trench: bubbles on the way down, and a chest at the bottom ---- */
+function buildTrench() {
+  const at = LANDMARKS.trench;
+  BUBBLERS.push({ x: at.x, y: -52, z: at.z + 28 });     // a ledge on the way down
+  BUBBLERS.push({ x: at.x, y: -74, z: at.z });          // right at the bottom
+  CHEST_SPOTS.push({ x: at.x - 4, y: seabedAt(at.x - 4, at.z - 6) + 1, z: at.z - 6,
+                     hint: "right down in the trench" });
+}
+
+buildWreck();
+buildArch();
+buildCave();
+buildKelp();
+buildRocks();
+buildTrench();
+
+/* ---- the streams of bubbles that top your air up ----
+   Twelve little balls per stream, and when one reaches the top it's
+   sent back to the bottom. The same twelve, over and over. */
+const BUBBLE_RISE = 3.2;
+const bubbleMat = new THREE.MeshLambertMaterial({
+  color: 0xdffcff, transparent: true, opacity: 0.65 });
+for (const b of BUBBLERS) {
+  b.balls = [];
+  for (let i = 0; i < 18; i++) {
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.07 + (i % 3) * 0.03, 6, 5),
+                                bubbleMat);
+    ball.position.set(b.x + (i % 3 - 1) * 0.22, b.y + i * 0.62, b.z + (i % 2) * 0.18);
+    scene.add(ball);
+    b.balls.push(ball);
+  }
+}
+
+/* ---- the treasure ---- */
+const CHEST_TOTAL = CHEST_SPOTS.length;      // eight, one per hiding place
+const CHEST_REACH = 2.2;
+const chests = [];
+
+function glowTexture() {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 64;
+  const c = canvas.getContext("2d");
+  const g = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, "rgba(255,220,130,0.9)");
+  g.addColorStop(1, "rgba(255,200,90,0)");
+  c.fillStyle = g;
+  c.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(canvas);
+}
+const glowMap = glowTexture();
+
+function makeChest(spot) {
+  const group = new THREE.Group();
+  group.position.set(spot.x, spot.y, spot.z);
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.62, 0.7), mat(0x6b4423));
+  group.add(body);
+
+  for (const side of [-0.32, 0.32]) {
+    const band = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.66, 0.74), mat(0xffcf5c));
+    band.position.x = side;
+    group.add(band);
+  }
+
+  /* The lid turns on a HINGE, so it has to swing around the back edge
+     and not around its own middle. The trick is the same one the arms
+     and fins use: put an empty thing exactly at the hinge, hang the lid
+     off it, then turn the empty thing. */
+  const hinge = new THREE.Group();
+  hinge.position.set(0, 0.31, -0.35);
+  const lid = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.35, 0.35, 1.0, 12, 1, false, 0, Math.PI),
+    mat(0x7a5029));
+  lid.rotation.z = Math.PI / 2;
+  lid.position.z = 0.35;
+  hinge.add(lid);
+  const clasp = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), mat(0xffcf5c));
+  clasp.position.set(0, -0.14, 0.72);
+  hinge.add(clasp);
+  group.add(hinge);
+
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: glowMap, transparent: true, depthWrite: false,
+    blending: THREE.AdditiveBlending }));
+  glow.scale.setScalar(3.4);
+  group.add(glow);
+
+  scene.add(group);
+  return { group, hinge, glow, spot, open: false, swing: 0 };
+}
+
+function placeChests() {
+  chests.forEach(c => scene.remove(c.group));
+  chests.length = 0;
+  if (mode !== "dive") return;             // Free Swim has no treasure at all
+  for (const spot of CHEST_SPOTS) chests.push(makeChest(spot));
+}
+
+/* ---- the little gold sparkles when a chest opens ----
+   Forty of them, shared by every chest. We never make any more. */
+const sparks = [];
+const sparkMat = new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true });
+for (let i = 0; i < 40; i++) {
+  const s = new THREE.Mesh(new THREE.SphereGeometry(0.11, 6, 5), sparkMat.clone());
+  s.visible = false;
+  scene.add(s);
+  sparks.push({ mesh: s, life: 0, vy: 0 });
+}
+function sparkle(at) {
+  let started = 0;
+  for (const s of sparks) {
+    if (s.life > 0 || started >= 14) continue;
+    s.mesh.position.set(at.x + (Math.random() - 0.5) * 1.2,
+                        at.y + (Math.random() - 0.5) * 0.6,
+                        at.z + (Math.random() - 0.5) * 1.2);
+    s.mesh.visible = true;
+    s.vy = 0.7 + Math.random() * 1.1;
+    s.life = 1;
+    started++;
+  }
+}
+
+/* ---------------------------------------------------------------
+   THE DIVER
+
+   Built facing +z, because that's the direction three.js points a
+   thing at when you tell it to look somewhere. Every creature further
+   down is built facing +z too, for the same reason.
+   --------------------------------------------------------------- */
+function makeLimb(length, width, colour, endColour, endSize) {
+  const pivot = new THREE.Group();            // sits AT the joint
+
+  const limb = new THREE.Mesh(new THREE.BoxGeometry(width, length, width), mat(colour));
+  limb.position.y = -length / 2;              // hangs down from the joint
+  pivot.add(limb);
+
+  if (endColour !== undefined) {              // a hand, a foot or a flipper
+    const end = new THREE.Mesh(
+      new THREE.BoxGeometry(endSize, endSize * 0.7, endSize * 1.3), mat(endColour));
+    end.position.set(0, -length - endSize * 0.25, endSize * 0.15);
+    pivot.add(end);
+  }
+  return pivot;
+}
+
+const diver = new THREE.Group();
+{
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.42, 14, 10), mat(0x1f6fa8));
+  body.scale.set(1, 0.95, 1.7);
+  diver.add(body);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 12, 10), mat(0xf0c9a0));
+  head.position.z = 0.78;
+  diver.add(head);
+
+  const mask = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.2, 0.1), mat(0x9fe8ff));
+  mask.position.set(0, 0.04, 0.99);
+  diver.add(mask);
+
+  const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.7, 8), mat(0xffd166));
+  tank.rotation.x = Math.PI / 2;
+  tank.position.set(0, 0.28, -0.25);
+  diver.add(tank);
+
+  /* Arms out in front, legs and flippers straight out behind. Each one
+     hangs off a little joint so it can beat up and down without the rest
+     of him moving - the same joint trick as the chest lid. */
+  diver.userData.arms = [];
+  diver.userData.legs = [];
+  for (const side of [-1, 1]) {
+    const shoulder = new THREE.Group();
+    shoulder.position.set(side * 0.33, 0.04, 0.34);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.13, 0.72), mat(0xf0c9a0));
+    arm.position.z = 0.36;
+    shoulder.add(arm);
+    diver.add(shoulder);
+    diver.userData.arms.push(shoulder);
+
+    const hip = new THREE.Group();
+    hip.position.set(side * 0.16, -0.04, -0.6);
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.7), mat(0x1f6fa8));
+    leg.position.z = -0.35;
+    hip.add(leg);
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.06, 0.55), mat(0x2fd6a8));
+    fin.position.z = -0.92;
+    hip.add(fin);
+    diver.add(hip);
+    diver.userData.legs.push(hip);
+  }
+  diver.scale.setScalar(1.2);
+}
+scene.add(diver);
+
+/* ---------------------------------------------------------------
+   SWIMMING
+   --------------------------------------------------------------- */
+const HEAD_UP   = 0.6;      // from your middle up to the top of your head
+const BELLY     = 0.5;
+const BODY_R    = 0.45;
+const SWIM_PUSH = 26;       // how hard your arms push
+const KICK      = 20;       // the up and down kick
+const DRAG      = 1.9;      // sideways: thick water holds you back
+const DRAG_Y    = 2.6;      // up and down a bit more, so you don't rocket up
+const MAX_SWIM  = 11;
+const MAX_RISE  = 9;
+const BUOYANCY  = 3.2;      // you always drift up a little when you stop
+const FLOAT_UP  = 6.5;      // how fast you pop up when you're out of air
+
+const player = { pos: new THREE.Vector3(0, -0.5, 0), vel: new THREE.Vector3() };
+const facing = new THREE.Vector3(0, 0, 1);
+
+/* Which way you're looking. Everything else hangs off this: swimming
+   forwards means swimming THE WAY YOU ARE LOOKING, in all three
+   directions at once. That's the whole reason one little stick can
+   reach the entire ocean - look down, push forward, and down you go. */
+let camYaw = 0, camPitch = -0.15;
+/* Far enough back and high enough up to see your whole self swim - and
+   nudged a little to one side, which is the important one. Straight
+   behind a swimmer you're looking down the length of him and he's just a
+   blob; a step to the side and you can see him properly, arms, flippers
+   and all. Nothing aims at the middle of the screen in this game, so
+   moving the view over costs nothing at all. */
+const CAM_BACK = 6.2, CAM_UP = 2.0, CAM_SIDE = 1.6;
+
+function aimVector(out) {
+  return out.set(Math.sin(camYaw) * Math.cos(camPitch),
+                 Math.sin(camPitch),
+                 Math.cos(camYaw) * Math.cos(camPitch));
+}
+
+/* Shoves you out of anything solid, along whichever way is the shortest
+   way out. Straight out of Star Arena's collide(). */
+function bumpIntoThings(pos) {
+  const minX = pos.x - BODY_R, maxX = pos.x + BODY_R;
+  const minY = pos.y - BELLY,  maxY = pos.y + HEAD_UP;
+  const minZ = pos.z - BODY_R, maxZ = pos.z + BODY_R;
+
+  for (const s of SOLIDS) {
+    if (maxX <= s.minX || minX >= s.maxX) continue;
+    if (maxY <= s.minY || minY >= s.maxY) continue;
+    if (maxZ <= s.minZ || minZ >= s.maxZ) continue;
+
+    const outLeft = s.minX - maxX, outRight = s.maxX - minX;
+    const outDown = s.minY - maxY, outUp    = s.maxY - minY;
+    const outBack = s.minZ - maxZ, outFwd   = s.maxZ - minZ;
+
+    const px = Math.abs(outLeft) < Math.abs(outRight) ? outLeft : outRight;
+    const py = Math.abs(outDown) < Math.abs(outUp)    ? outDown : outUp;
+    const pz = Math.abs(outBack) < Math.abs(outFwd)   ? outBack : outFwd;
+
+    if (Math.abs(px) <= Math.abs(py) && Math.abs(px) <= Math.abs(pz)) pos.x += px;
+    else if (Math.abs(py) <= Math.abs(pz)) pos.y += py;
+    else pos.z += pz;
+    return;                    // one shove a frame is plenty
+  }
+}
+
+/* ---------------------------------------------------------------
+   BREATH
+
+   A bar that empties while you're under and fills up at the top. The
+   deep squeezes you, so it costs more air down there.
+
+   Doing the sums: from a full breath it takes about ten seconds to get
+   down to seventy, and ten to get back up, which leaves you a good
+   twenty-odd seconds at the bottom. And there are bubbles on the trench
+   ledge AND on the trench floor, so nobody is ever locked out of the
+   deepest bit of the game.
+
+   If it does run out, nothing bad happens. You go dizzy for a moment
+   and float up for a big breath, and you keep every chest and every
+   creature you'd found. The word you might be expecting is not in this
+   file anywhere, on purpose - this is a game about looking at fish.
+   --------------------------------------------------------------- */
+const BREATH_MAX    = 42;     // seconds of air, right to the top
+const BREATH_CALM   = 68;     // Free Swim gets more
+const BREATH_REFILL = 14;     // per second at the surface: full in about 3s
+const BUBBLE_REFILL = 26;     // per second inside a stream of bubbles
+const DEEP_DRAIN    = 0.55;   // the deep squeezes you
+
+let breathMax = BREATH_MAX;
+let breath = BREATH_MAX;
+let dizzy = false;
+
+function airHere() {
+  return player.pos.y >= -HEAD_UP;         // head and shoulders out
+}
+
+/* ---------------------------------------------------------------
+   THE SEA CREATURES
+
+   Every one is built out of balls and boxes, facing +z, and every
+   flipper, wing, arm and tail turns on the same little pivot trick the
+   chest lid uses.
+
+   They swim round loops. A loop is a handful of points with a smooth
+   curve threaded through them, and each creature just slides along its
+   own curve a bit further every frame and turns to look at where it's
+   about to be. How long the curve is gets worked out ONCE, when the
+   game starts - measuring it every frame would be slow and it never
+   changes.
+   --------------------------------------------------------------- */
+function buildFish(colour, stripe, scale) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 10), mat(colour));
+  body.scale.set(0.55, 1, 1.7);
+  g.add(body);
+
+  const tail = new THREE.Group();
+  tail.position.z = -0.85;
+  const fin = new THREE.Mesh(new THREE.ConeGeometry(0.42, 0.6, 4), mat(colour));
+  fin.rotation.x = Math.PI / 2;
+  fin.scale.x = 0.35;
+  fin.position.z = -0.3;
+  tail.add(fin);
+  g.add(tail);
+
+  if (stripe !== undefined) {
+    for (const z of [0.3, -0.25]) {
+      const s = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.9, 0.13), mat(stripe));
+      s.position.z = z;
+      g.add(s);
+    }
+  }
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 5), mat(0x111111));
+    eye.position.set(side * 0.2, 0.12, 0.62);
+    g.add(eye);
+  }
+  g.scale.setScalar(scale || 1);
+  g.userData.wag = [tail];
+  g.userData.wagSpeed = 7;
+  return g;
+}
+
+function buildTurtle() {
+  const g = new THREE.Group();
+  const shell = new THREE.Mesh(
+    new THREE.SphereGeometry(1.1, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.55),
+    mat(0x2f6b47));
+  shell.scale.set(1, 0.55, 1.3);
+  g.add(shell);
+
+  for (let i = 0; i < 5; i++) {
+    const bump = new THREE.Mesh(new THREE.SphereGeometry(0.24, 7, 6), mat(0x3f8a5c));
+    bump.position.set((i % 2 ? 0.4 : -0.4) * (i < 3 ? 1 : -1), 0.5, -0.8 + i * 0.4);
+    g.add(bump);
+  }
+
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(1.05, 12, 8, 0, Math.PI * 2,
+                                                        Math.PI * 0.55, Math.PI * 0.45),
+                               mat(0xd8c98a));
+  belly.scale.set(1, 0.4, 1.25);
+  g.add(belly);
+
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, 0.5, 8), mat(0x4a9469));
+  neck.rotation.x = Math.PI / 2;
+  neck.position.set(0, 0.05, 1.3);
+  g.add(neck);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.32, 10, 8), mat(0x4a9469));
+  head.position.set(0, 0.08, 1.6);
+  g.add(head);
+
+  g.userData.flippers = [];
+  for (const side of [-1, 1]) {
+    const front = makeLimb(0.9, 0.22, 0x3f8a5c);
+    front.position.set(side * 0.95, 0, 0.6);
+    front.rotation.z = side * 1.4;
+    g.add(front);
+    const back = makeLimb(0.6, 0.18, 0x3f8a5c);
+    back.position.set(side * 0.85, 0, -0.9);
+    back.rotation.z = side * 1.5;
+    g.add(back);
+    g.userData.flippers.push({ pivot: front, side, rest: side * 1.4, swing: 0.7, lag: 0 });
+    g.userData.flippers.push({ pivot: back, side, rest: side * 1.5, swing: 0.35, lag: 1.1 });
+  }
+  return g;
+}
+
+function buildRay() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.8, 12, 8), mat(0x4a5a6b));
+  body.scale.set(1, 0.32, 1.5);
+  g.add(body);
+
+  const head = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.35, 0.5), mat(0x4a5a6b));
+  head.position.z = 1.2;
+  g.add(head);
+
+  /* The best trick in the game. Each wing hangs off a shoulder, and
+     INSIDE that shoulder there's a second joint halfway along the wing
+     flapping to the same beat but slightly behind. Two joints instead
+     of one, and suddenly the flap rolls down the wing like a real
+     ray instead of the whole thing going up and down flat. */
+  g.userData.wings = [];
+  const wingMat = new THREE.MeshLambertMaterial({ color: 0x556878,
+                                                  side: THREE.DoubleSide });
+  for (const side of [-1, 1]) {
+    const shoulder = new THREE.Group();
+    shoulder.position.set(side * 0.5, 0, 0);
+    const inner = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.16, 2.2), wingMat);
+    inner.position.x = side * 0.8;
+    shoulder.add(inner);
+
+    const elbow = new THREE.Group();
+    elbow.position.x = side * 1.6;
+    const outer = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.1, 1.5), wingMat);
+    outer.position.x = side * 0.8;
+    elbow.add(outer);
+    shoulder.add(elbow);
+
+    g.add(shoulder);
+    g.userData.wings.push({ shoulder, elbow, side });
+  }
+
+  const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.02, 3, 6), mat(0x3d4b58));
+  tail.rotation.x = Math.PI / 2;
+  tail.position.z = -1.9;
+  g.add(tail);
+  return g;
+}
+
+function buildJelly() {
+  const g = new THREE.Group();
+  const bell = new THREE.Mesh(
+    new THREE.SphereGeometry(0.6, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.55),
+    new THREE.MeshPhongMaterial({ color: 0xffb3e6, emissive: 0x50224a,
+                                  transparent: true, opacity: 0.55, shininess: 80 }));
+  g.add(bell);
+
+  g.userData.bell = bell;
+  g.userData.tentacles = [];
+  for (let i = 0; i < 8; i++) {
+    const t = makeLimb(1.4, 0.06, 0xffd6f2);
+    const angle = (i / 8) * Math.PI * 2;
+    t.position.set(Math.cos(angle) * 0.4, -0.05, Math.sin(angle) * 0.4);
+    g.add(t);
+    g.userData.tentacles.push({ pivot: t, phase: i });
+  }
+  return g;
+}
+
+function buildOctopus() {
+  const g = new THREE.Group();
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.7, 12, 10), mat(0xc2568a));
+  head.scale.set(1, 1.35, 1);
+  head.position.y = 0.4;
+  g.add(head);
+  g.userData.skin = head.material;
+
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 6), mat(0xfff3c4));
+    eye.position.set(side * 0.32, 0.6, 0.55);
+    g.add(eye);
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 5), mat(0x111111));
+    pupil.position.set(side * 0.34, 0.6, 0.66);
+    g.add(pupil);
+  }
+
+  g.userData.arms = [];
+  for (let i = 0; i < 8; i++) {
+    const arm = makeLimb(1.1, 0.13, 0xd06a9c);
+    const angle = (i / 8) * Math.PI * 2;
+    arm.position.set(Math.cos(angle) * 0.45, -0.1, Math.sin(angle) * 0.45);
+    g.add(arm);
+    g.userData.arms.push({ pivot: arm, phase: i * 0.8, lean: angle });
+  }
+  return g;
+}
+
+function buildWhale(colour, big) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), mat(colour));
+  body.scale.set(1, 1.1, 5.5);
+  g.add(body);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 10), mat(colour));
+  head.scale.set(1, 0.85, 1.5);
+  head.position.z = 4.6;
+  g.add(head);
+
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(0.95, 14, 10, 0, Math.PI * 2,
+                                                        Math.PI * 0.5, Math.PI * 0.5),
+                               mat(big ? 0x1b3f5c : 0xdfe9ee));
+  belly.scale.set(0.95, 0.9, 5);
+  g.add(belly);
+
+  for (let i = 0; i < 4; i++) {
+    const groove = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 3), mat(0x2a3a48));
+    groove.position.set(-0.45 + i * 0.3, -0.85, 2.6);
+    g.add(groove);
+  }
+
+  g.userData.pecs = [];
+  for (const side of [-1, 1]) {
+    const pec = makeLimb(2.2, 0.3, colour);
+    pec.position.set(side * 0.9, -0.1, 2.2);
+    pec.rotation.z = side * 1.2;
+    g.add(pec);
+    g.userData.pecs.push({ pivot: pec, side, rest: side * 1.2 });
+  }
+
+  const tail = new THREE.Group();
+  tail.position.z = -5.2;
+  for (const side of [-1, 1]) {
+    const fluke = new THREE.Mesh(new THREE.ConeGeometry(0.8, 2.2, 4), mat(colour));
+    fluke.rotation.z = side * Math.PI / 2;
+    fluke.scale.y = 0.9;
+    fluke.scale.z = 0.28;
+    fluke.position.set(side * 1.1, 0, -0.3);
+    tail.add(fluke);
+  }
+  g.add(tail);
+  g.userData.wag = [tail];
+  g.userData.wagSpeed = big ? 0.35 : 0.8;
+  g.userData.wagSize = 0.3;
+
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 5), mat(0x111111));
+    eye.position.set(side * 0.75, 0.15, 4.9);
+    g.add(eye);
+  }
+  return g;
+}
+
+function buildLantern() {
+  const g = buildFish(0x2b2f3c, undefined, 1.1);
+
+  const rod = new THREE.Group();
+  rod.position.set(0, 0.35, 0.4);
+  const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.8, 5),
+                               mat(0x1b1f2a));
+  stalk.position.y = 0.4;
+  rod.add(stalk);
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 6),
+                              new THREE.MeshBasicMaterial({ color: 0xcaffea }));
+  bulb.position.y = 0.85;
+  rod.add(bulb);
+
+  /* The one and only moving light in the game. It's made right now,
+     at the start, and only ever turned up and down - see the note by
+     the other lights for why. */
+  const lamp = new THREE.PointLight(0x9ffbe0, 0.9, 14);
+  lamp.position.y = 0.85;
+  rod.add(lamp);
+  g.userData.lamp = lamp;
+
+  rod.rotation.x = -0.5;
+  g.add(rod);
+  return g;
+}
+
+function buildGiant() {
+  const g = buildWhale(0x123047, true);
+  g.scale.setScalar(2.4);
+  g.userData.lights = [];
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < 7; i++) {
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(0.14, 6, 5),
+        new THREE.MeshBasicMaterial({ color: 0x7fe3ff, transparent: true }));
+      dot.position.set(side * 0.95, 0.2, -3.4 + i * 1.15);
+      g.add(dot);
+      g.userData.lights.push({ mesh: dot, phase: i * 0.4 + (side > 0 ? 0.8 : 0) });
+    }
+  }
+  return g;
+}
+
+const CREATURES = [
+  { id: "clownfish", name: "Clownfish", emoji: "🐠", seenRadius: 6, speed: 5,
+    hint: "round the coral, near the top",
+    points: [[10, -6, 12], [26, -8, 2], [18, -5, -16], [-4, -7, -10], [-12, -6, 6]] },
+
+  { id: "turtle", name: "Sea Turtle", emoji: "🐢", seenRadius: 10, speed: 1.6,
+    hint: "drifting slowly over the sand",
+    points: [[-20, -24, 30], [4, -26, 40], [20, -22, 22], [2, -20, 4], [-24, -23, 14]] },
+
+  { id: "ray", name: "Manta Ray", emoji: "🐟", seenRadius: 14, speed: 4,
+    hint: "gliding past the rock arch",
+    points: [[30, -22, 40], [46, -24, 58], [30, -20, 74], [12, -23, 56]] },
+
+  { id: "jelly", name: "Jellyfish", emoji: "🪼", seenRadius: 8, speed: 0,
+    hint: "hanging in the middle water",
+    points: [[-8, -16, -30]] },
+
+  { id: "octopus", name: "Octopus", emoji: "🐙", seenRadius: 6, speed: 0.8,
+    hint: "tucked in a crack by the little cave",
+    points: [[-14, -26, -56], [-12, -26, -50], [-16, -26, -52]] },
+
+  { id: "whale", name: "Humpback Whale", emoji: "🐋", seenRadius: 22, speed: 2.2,
+    hint: "a great slow circle round the whole sea",
+    points: [[0, -14, 86], [76, -16, 30], [40, -18, -66], [-52, -15, -54],
+             [-88, -13, 16], [-40, -12, 76]] },
+
+  { id: "lantern", name: "Lantern Fish", emoji: "💡", seenRadius: 7, speed: 2,
+    hint: "a tiny light down in the dark trench",
+    points: [[44, -48, -4], [50, -54, -26], [44, -50, -48], [40, -46, -22]] },
+
+  { id: "giant", name: "The Deep Giant", emoji: "🐳", seenRadius: 24, speed: 1.2,
+    hint: "right at the very bottom of the trench",
+    points: [[46, -68, 18], [50, -72, -20], [46, -70, -56], [42, -66, -18]] }
+];
+
+const builders = {
+  clownfish: () => buildFish(0xff8c2b, 0xffffff, 1),
+  turtle: buildTurtle,
+  ray: buildRay,
+  jelly: buildJelly,
+  octopus: buildOctopus,
+  whale: () => buildWhale(0x2f4a5c, false),
+  lantern: buildLantern,
+  giant: buildGiant
+};
+
+for (const c of CREATURES) {
+  c.group = builders[c.id]();
+  scene.add(c.group);
+
+  if (c.id === "clownfish") {
+    /* A clownfish on its own is a bit sad, so there are five of them
+       riding the same loop a little way apart. Only the front one has
+       eyes and stripes worth looking at - the rest are body and tail. */
+    c.shoal = [];
+    for (let i = 0; i < 4; i++) {
+      const friend = buildFish(0xff8c2b, 0xffffff, 0.8);
+      scene.add(friend);
+      c.shoal.push({ group: friend, lead: 0.012 + i * 0.011,
+                     side: (i % 2 ? 1 : -1) * (0.8 + i * 0.3) });
+    }
+  }
+
+  if (c.points.length > 2) {
+    c.curve = new THREE.CatmullRomCurve3(
+      c.points.map(p => new THREE.Vector3(p[0], p[1], p[2])), true);
+    c.length = c.curve.getLength();       // measured ONCE, at the start
+  } else {
+    c.group.position.set(c.points[0][0], c.points[0][1], c.points[0][2]);
+  }
+  c.t = 0.1 + CREATURES.indexOf(c) * 0.11;
+  c.park = 0;
+}
+
+function swimAlong(c, dt) {
+  if (!c.curve || c.park > 0) return;
+  c.t = (c.t + c.speed * dt / c.length) % 1;
+  c.group.position.copy(c.curve.getPoint(c.t));
+  c.group.lookAt(_look.copy(c.curve.getPoint((c.t + 0.01) % 1)));
+
+  if (c.shoal) {
+    for (const f of c.shoal) {
+      f.group.position.copy(c.curve.getPoint((c.t + f.lead) % 1));
+      f.group.position.x += f.side;
+      f.group.position.y += f.side * 0.4;
+      f.group.lookAt(_look.copy(c.curve.getPoint((c.t + f.lead + 0.01) % 1)));
+    }
+  }
+}
+
+/* ---------------------------------------------------------------
+   THE SEA BOOK
+   --------------------------------------------------------------- */
+const bookGrid = document.getElementById("bookgrid");
+const bookCards = {};
+
+for (const c of CREATURES) {
+  const card = document.createElement("div");
+  card.className = "card unknown";
+  card.id = "card-" + c.id;
+
+  const face = document.createElement("div");
+  face.className = "face";
+  const who = document.createElement("div");
+  who.className = "who";
+  const where = document.createElement("div");
+  where.className = "where";
+  where.textContent = c.hint;              // the clue is ALWAYS readable
+
+  card.appendChild(face);
+  card.appendChild(who);
+  card.appendChild(where);
+  bookGrid.appendChild(card);
+  bookCards[c.id] = { card, face, who };
+}
+
+function refreshBook() {
+  let found = 0;
+  for (const c of CREATURES) {
+    const known = best.seen[c.id] === true;
+    const bits = bookCards[c.id];
+    bits.card.classList.toggle("unknown", !known);
+    bits.face.textContent = known ? c.emoji : "?";
+    bits.who.textContent = known ? c.name : "? ? ?";
+    if (known) found++;
+  }
+  document.getElementById("bookcount").textContent = found;
+  return found;
+}
+
+function seenCount() {
+  return CREATURES.filter(c => best.seen[c.id] === true).length;
+}
+
+function discover(c) {
+  if (best.seen[c.id] === true) return;
+  best.seen[c.id] = true;
+  save();
+  refreshBook();
+  say(c.emoji + " " + c.name + " — new in your Sea Book!", 2.6);
+}
+
+/* ---------------------------------------------------------------
+   PLAYING
+   --------------------------------------------------------------- */
+let playing = false, paused = false, mode = "dive";
+let clock = 0, found = 0;
+let best = { time: 0, done: false, deepest: 0, seen: {} };
+let depthToBeat = 0;        // how deep you'd been BEFORE this dive started
+let diveDeepest = 0;        // how deep you've been on THIS dive
+let turnedBack = 0;         // stops the current nagging you every frame
+
+const keys = {};
+const cheats = { air: false, ghost: false, clear: false, fast: 1 };
+const stick = { x: 0, y: 0 };
+let upHeld = false, downHeld = false;
+
+const messageEl = document.getElementById("message");
+let sayTimer = null;
+function say(text, seconds) {
+  messageEl.textContent = text;
+  messageEl.style.opacity = "1";
+  clearTimeout(sayTimer);
+  sayTimer = setTimeout(() => { messageEl.style.opacity = "0"; }, (seconds || 1.6) * 1000);
+}
+
+function resetDiver() {
+  player.pos.set(0, -0.5, 0);
+  player.vel.set(0, 0, 0);
+  camYaw = 0;
+  camPitch = -0.15;
+  facing.set(0, 0, 1);
+  breath = breathMax;
+  dizzy = false;
+  document.getElementById("floatup").classList.remove("on");
+}
+
+function startGame(which) {
+  mode = which === "free" ? "free" : "dive";
+  breathMax = mode === "free" ? BREATH_CALM : BREATH_MAX;
+  resetDiver();
+  placeChests();
+  found = 0;
+  clock = 0;
+  depthToBeat = best.deepest;
+  diveDeepest = 0;
+  paused = false;
+  playing = true;
+
+  document.getElementById("start").hidden = true;
+  document.getElementById("done").hidden = true;
+  document.getElementById("book").hidden = true;
+  document.getElementById("chestpill").hidden = mode !== "dive";
+  document.getElementById("timepill").hidden = mode !== "dive";
+
+  refreshHud();
+  say(mode === "dive" ? "Down you go — find all 8 chests!"
+                      : "Off you go. Take as long as you like.", 2.4);
+}
+
+function refreshHud() {
+  document.getElementById("chests").textContent = found;
+  document.getElementById("chesttotal").textContent = CHEST_TOTAL;
+  document.getElementById("time").textContent = clock.toFixed(1);
+  document.getElementById("besttime").textContent =
+    best.done ? "· best " + best.time.toFixed(1) + "s" : "";
+
+  const deep = Math.max(0, Math.round(-player.pos.y));
+  document.getElementById("depth").textContent = deep;
+  // the pill lights up while you're deeper than you have EVER been before
+  document.getElementById("depthpill").classList.toggle("record",
+    playing && deep > depthToBeat && deep > 0);
+}
+
+let shownBreath = -1;
+const breathFill = document.getElementById("breathfill");
+function refreshBreath() {
+  const pct = Math.round(Math.max(0, Math.min(1, breath / breathMax)) * 100);
+  if (pct === shownBreath) return;          // only touch the page when it changes
+  shownBreath = pct;
+  breathFill.style.width = pct + "%";
+  breathFill.classList.toggle("mid", pct <= 50 && pct > 20);
+  breathFill.classList.toggle("low", pct <= 20);
+}
+
+function openChest(chest) {
+  chest.open = true;
+  chest.glow.visible = false;
+  sparkle(chest.group.position);
+  found++;
+  refreshHud();
+
+  if (found >= CHEST_TOTAL) finish();
+  else say("Treasure! " + found + " of " + CHEST_TOTAL, 1.8);
+}
+
+function finish() {
+  playing = false;
+
+  const beaten = !best.done || clock < best.time;
+  if (beaten) { best.time = clock; best.done = true; }
+  save();
+
+  document.getElementById("donetitle").textContent = "🏆 ALL THE TREASURE!";
+  const text = document.getElementById("donetext");
+  text.textContent = "";
+
+  const line = document.createElement("div");
+  line.appendChild(document.createTextNode("You found all " + CHEST_TOTAL
+    + " chests in "));
+  const b = document.createElement("b");
+  b.textContent = clock.toFixed(1) + " seconds";
+  line.appendChild(b);
+  line.appendChild(document.createTextNode(", and went " + Math.round(diveDeepest)
+    + " metres down."));
+  text.appendChild(line);
+
+  const bookLine = document.createElement("div");
+  bookLine.textContent = "Sea Book: " + seenCount() + " of " + CREATURES.length
+    + " creatures found.";
+  text.appendChild(bookLine);
+
+  const note = document.createElement("div");
+  note.textContent = beaten ? "That's your best time yet! 🏆"
+                            : "Your best is still " + best.time.toFixed(1) + "s.";
+  text.appendChild(note);
+
+  document.getElementById("done").hidden = false;
+  refreshHud();
+}
+
+function save() {
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      time: best.time, done: best.done, deepest: best.deepest, seen: best.seen }));
+  } catch (e) {}
+}
+
+function load() {
+  let raw = null;
+  try { raw = localStorage.getItem(SAVE_KEY); } catch (e) { return; }
+  if (!raw) return;
+
+  let saved = null;
+  try { saved = JSON.parse(raw); } catch (e) { return; }
+  if (!saved || typeof saved !== "object") return;
+
+  const time = Number(saved.time);
+  if (Number.isFinite(time) && time > 0 && time < 100000 && saved.done === true) {
+    best.time = time;
+    best.done = true;
+  }
+
+  const deep = Number(saved.deepest);
+  if (Number.isFinite(deep) && deep >= 0 && deep <= 200) best.deepest = deep;
+
+  /* We walk OUR list of creatures and ask the saved data about each
+     one. We never copy the saved thing in. If somebody puts a made-up
+     creature in there, or the word "yes" instead of a proper yes, it
+     simply never gets asked about and nothing happens. */
+  const from = saved.seen;
+  if (from && typeof from === "object") {
+    for (const c of CREATURES) if (from[c.id] === true) best.seen[c.id] = true;
+  }
+}
+
+function openBook() {
+  paused = true;
+  refreshBook();
+  document.getElementById("book").hidden = false;
+}
+
+function closeBook() {
+  document.getElementById("book").hidden = true;
+  paused = document.getElementById("start").hidden === false;
+}
+
+/* ---------------------------------------------------------------
+   ONE STEP OF THE WORLD
+   --------------------------------------------------------------- */
+function step(dt) {
+  const alive = playing && !paused;
+  aimVector(_aim);
+
+  if (alive && !dizzy) {
+    // ---- which way are we pushing? ----
+    let forward = 0, sideways = 0;
+    if (keys.KeyW) forward += 1;
+    if (keys.KeyS) forward -= 1;
+    if (keys.KeyA) sideways -= 1;
+    if (keys.KeyD) sideways += 1;
+    forward  -= stick.y;              // stick pushed up = swim forward
+    sideways += stick.x;
+
+    const len = Math.hypot(forward, sideways);
+    if (len > 1) { forward /= len; sideways /= len; }
+
+    // forwards is wherever you're LOOKING, in all three directions
+    player.vel.addScaledVector(_aim, forward * SWIM_PUSH * cheats.fast * dt);
+
+    // sideways stays flat, so strafing never tips you up or down
+    const rightX = -Math.cos(camYaw), rightZ = Math.sin(camYaw);
+    player.vel.x += rightX * sideways * SWIM_PUSH * cheats.fast * dt;
+    player.vel.z += rightZ * sideways * SWIM_PUSH * cheats.fast * dt;
+
+    let kick = 0;
+    if (keys.Space || upHeld) kick += 1;
+    if (keys.ShiftLeft || keys.ShiftRight || keys.KeyC || downHeld) kick -= 1;
+    player.vel.y += kick * KICK * cheats.fast * dt;
+  }
+
+  /* You are full of air, so you are lighter than the sea and you always
+     drift upwards when you stop swimming. This is on purpose and it is
+     the most important line in the file: whatever happens, whatever you
+     do, letting go of everything takes you back up to the air. */
+  if (player.pos.y < SURFACE_Y) player.vel.y += BUOYANCY * dt;
+
+  if (dizzy) { player.vel.set(0, FLOAT_UP, 0); }
+
+  /* Thick water. Every push fades a bit every moment. We use exp()
+     rather than just taking a slice off, because that way a fast phone
+     and a slow laptop swim exactly the same - the fading depends on
+     how much TIME went past, not on how many frames. */
+  const keepFlat = Math.exp(-DRAG * dt);
+  const keepUp   = Math.exp(-DRAG_Y * dt);
+  player.vel.x *= keepFlat;
+  player.vel.z *= keepFlat;
+  player.vel.y *= keepUp;
+
+  const flat = Math.hypot(player.vel.x, player.vel.z);
+  if (flat > MAX_SWIM) {
+    player.vel.x *= MAX_SWIM / flat;
+    player.vel.z *= MAX_SWIM / flat;
+  }
+  player.vel.y = Math.max(-MAX_RISE, Math.min(MAX_RISE, player.vel.y));
+
+  player.pos.addScaledVector(player.vel, dt);
+
+  // ---- the top of the sea. Head out, but no flying ----
+  if (player.pos.y > 0.35) {
+    player.pos.y = 0.35;
+    player.vel.y = Math.min(0, player.vel.y);
+  }
+
+  // ---- the sand. Only y gets fixed, so you skim along it ----
+  if (!cheats.ghost) {
+    const bed = seabedAt(player.pos.x, player.pos.z);
+    if (player.pos.y - BELLY < bed) {
+      player.pos.y = bed + BELLY;
+      player.vel.y = Math.max(0, player.vel.y);
+    }
+    /* Solid things stop being solid for the few seconds you're floating
+       up for air. It looks a bit odd for a moment, and it is worth it:
+       without this, running out of air under the cave roof would pin you
+       there with no way to steer and no way out, forever. The promise is
+       that floating up ALWAYS works, so nothing is allowed to be in the
+       way of it. */
+    if (!dizzy) bumpIntoThings(player.pos);
+  }
+
+  // ---- the edge of the lagoon: a push, never a wall ----
+  turnedBack = Math.max(0, turnedBack - dt);
+  const outFlat = Math.hypot(player.pos.x, player.pos.z);
+  if (outFlat > LAGOON_R) {
+    player.vel.x -= (player.pos.x / outFlat) * 18 * dt;
+    player.vel.z -= (player.pos.z / outFlat) * 18 * dt;
+    if (alive && turnedBack <= 0) {
+      turnedBack = 4;
+      say("The current turns you back.", 1.4);
+    }
+  }
+
+  // ---- breathing ----
+  if (alive) {
+    if (airHere()) {
+      if (breath < breathMax) {
+        breath = Math.min(breathMax, breath + BREATH_REFILL * dt);
+        if (dizzy) { dizzy = false; breath = breathMax;
+                     document.getElementById("floatup").classList.remove("on"); }
+      }
+    } else if (!cheats.air && !dizzy) {
+      const squeeze = mode === "free" ? 0
+                                      : DEEP_DRAIN * Math.min(1, -player.pos.y / 70);
+      breath -= (1 + squeeze) * dt;
+
+      for (const b of BUBBLERS) {
+        if (_v.set(b.x, b.y, b.z).distanceTo(player.pos) < 2.2) {
+          breath = Math.min(breathMax, breath + BUBBLE_REFILL * dt);
+          break;
+        }
+      }
+
+      if (breath <= 0) {
+        breath = 0;
+        dizzy = true;
+        document.getElementById("floatup").classList.add("on");
+        say("Up you pop for a big breath!", 2.2);
+      }
+    }
+    refreshBreath();
+  }
+
+  // ---- treasure and creatures ----
+  if (alive) {
+    for (const chest of chests) {
+      if (chest.open) continue;
+      if (chest.group.position.distanceTo(player.pos) < CHEST_REACH) openChest(chest);
+    }
+
+    for (const c of CREATURES) {
+      _to.copy(c.group.position).sub(player.pos);
+      const near = _to.length();
+      if (near > c.seenRadius) continue;
+      // ...and you have to actually be looking at it
+      if (near > 0.001 && _to.normalize().dot(_aim) > 0.15) discover(c);
+    }
+
+    const deep = Math.max(0, -player.pos.y);
+    if (deep > diveDeepest) diveDeepest = deep;
+    if (deep > best.deepest) best.deepest = deep;
+  }
+
+  // ---- the creatures get on with their day whatever you're doing ----
+  for (const c of CREATURES) {
+    if (c.park > 0) c.park -= dt;
+    swimAlong(c, dt);
+  }
+}
+
+/* ---------------------------------------------------------------
+   PUTTING IT ON THE SCREEN
+   --------------------------------------------------------------- */
+function draw(time, dt) {
+  aimVector(_aim);
+
+  // ---- the diver leans the way he's swimming, and never snaps ----
+  facing.lerp(_aim, Math.min(1, dt * 5)).normalize();
+  diver.position.copy(player.pos);
+  diver.lookAt(_v.copy(player.pos).addScaledVector(facing, 3));
+
+  const kicking = Math.sin(time * 4);
+  diver.userData.legs.forEach((leg, i) => {
+    leg.rotation.x = kicking * 0.26 * (i === 0 ? 1 : -1);
+  });
+  diver.userData.arms.forEach((arm, i) => {
+    arm.rotation.x = Math.sin(time * 2 + i * 3) * 0.12;
+  });
+
+  // ---- how blue, and how dark, is it here? ----
+  lightForDepth(camera.position.y);
+  const density = waterAt(camera.position.y);
+  scene.fog.density = cheats.clear ? 0.002 : density;
+  scene.fog.color.copy(_fogA);
+  scene.background.copy(_fogA);          // same colour, or you'd see a seam
+
+  // ---- the top of the sea ripples ----
+  const surfPos = surfGeo.attributes.position;
+  for (let i = 0; i < surfPos.count; i++) {
+    const x = surfRest[i * 3], z = surfRest[i * 3 + 2];
+    surfPos.setY(i, Math.sin(x * 0.06 + time * 0.9) * 0.35
+                  + Math.sin(z * 0.08 - time * 0.7) * 0.3);
+  }
+  surfPos.needsUpdate = true;
+  surfGeo.computeVertexNormals();
+
+  // ---- the light on the sand slides about ----
+  caustics.offset.x = time * 0.012;
+  caustics.offset.y = Math.sin(time * 0.2) * 0.03;
+
+  for (const s of shafts) {
+    s.rotation.z = s.userData.tilt + Math.sin(time * 0.3 + s.userData.phase) * 0.05;
+  }
+
+  // ---- marine snow drifts down and wraps round you ----
+  const sp = snowGeo.attributes.position.array;
+  for (let i = 0; i < sp.length; i += 3) {
+    sp[i + 1] -= 0.35 * dt;
+    for (let k = 0; k < 3; k++) {
+      const away = sp[i + k] - camera.position.getComponent(k);
+      if (away > SNOW_BOX) sp[i + k] -= SNOW_BOX * 2;
+      else if (away < -SNOW_BOX) sp[i + k] += SNOW_BOX * 2;
+    }
+  }
+  snowGeo.attributes.position.needsUpdate = true;
+
+  // ---- weed leans in the current ----
+  for (const w of swayers) {
+    w.root.rotation.z = Math.sin(time * 0.8 + w.phase) * 0.18;
+  }
+
+  // ---- bubbles rise, and start again at the bottom ----
+  for (const b of BUBBLERS) {
+    for (const ball of b.balls) {
+      ball.position.y += BUBBLE_RISE * dt;
+      if (ball.position.y > b.y + 11) ball.position.y = b.y;
+    }
+  }
+
+  // ---- chests: the lid swings open, the glow bobs ----
+  for (const chest of chests) {
+    if (chest.open && chest.swing > -1.9) {
+      chest.swing = Math.max(-1.9, chest.swing - dt * 4);
+      chest.hinge.rotation.x = chest.swing;
+    }
+    if (!chest.open) {
+      chest.glow.material.opacity = 0.55 + Math.sin(time * 2 + chest.spot.x) * 0.2;
+    }
+  }
+
+  for (const s of sparks) {
+    if (s.life <= 0) continue;
+    s.life -= dt * 0.9;
+    s.mesh.position.y += s.vy * dt;
+    s.mesh.material.opacity = Math.max(0, s.life);
+    if (s.life <= 0) s.mesh.visible = false;
+  }
+
+  // ---- every creature wiggles the bit it wiggles ----
+  for (const c of CREATURES) animateCreature(c, time);
+
+  // ---- the camera swims along behind ----
+  _v.copy(player.pos).addScaledVector(_aim, -CAM_BACK);
+  _v.x += -Math.cos(camYaw) * CAM_SIDE;         // the step to one side
+  _v.z += Math.sin(camYaw) * CAM_SIDE;
+  _v.y += CAM_UP;
+  _v.y = Math.max(_v.y, seabedAt(_v.x, _v.z) + 0.6);    // never inside the sand
+  _v.y = Math.min(_v.y, 1.6);                           // never up in the sky
+  camera.position.lerp(_v, Math.min(1, dt * 5));
+  camera.lookAt(_look.copy(player.pos).addScaledVector(_aim, 3));
+
+  renderer.render(scene, camera);
+}
+
+function animateCreature(c, time) {
+  const g = c.group;
+  const d = g.userData;
+
+  if (d.wag) {
+    const speed = d.wagSpeed || 7;
+    const size = d.wagSize || 0.5;
+    for (const tail of d.wag) tail.rotation.y = Math.sin(time * speed) * size;
+    if (c.shoal) {
+      c.shoal.forEach((f, i) => {
+        f.group.userData.wag[0].rotation.y = Math.sin(time * 7 + i * 1.4) * 0.5;
+      });
+    }
+  }
+
+  if (d.flippers) {
+    for (const f of d.flippers) {
+      f.pivot.rotation.z = f.rest + Math.sin(time * 2.2 - f.lag) * f.swing * f.side;
+    }
+  }
+
+  if (d.wings) {
+    for (const w of d.wings) {
+      const beat = Math.sin(time * 1.5) * 0.5 * w.side;
+      w.shoulder.rotation.z = beat;
+      // the outer half is always half a beat behind, which is what
+      // makes the flap roll along the wing instead of going flat
+      w.elbow.rotation.z = Math.sin(time * 1.5 - 0.5) * 0.5 * w.side;
+    }
+  }
+
+  if (d.bell) {
+    const pulse = Math.sin(time * 1.3) * 0.18;
+    d.bell.scale.set(1 + pulse, 1 - pulse * 0.6, 1 + pulse);
+    for (const t of d.tentacles) {
+      t.pivot.rotation.x = Math.sin(time * 1.4 + t.phase) * 0.3;
+      t.pivot.rotation.z = Math.cos(time * 1.2 + t.phase) * 0.3;
+    }
+    if (!c.curve && c.park <= 0) {
+      g.position.y = c.points[0][1] + Math.sin(time * 0.65) * 3;
+    }
+  }
+
+  if (d.arms) {
+    for (const a of d.arms) {
+      a.pivot.rotation.x = Math.sin(time * 1.6 + a.phase) * 0.35;
+      a.pivot.rotation.z = Math.cos(time * 1.4 + a.phase) * 0.35;
+    }
+    // an octopus changes colour when it feels like it, which is
+    // the single best fact about octopuses
+    d.skin.color.setHSL(0.9 + Math.sin(time * 0.12) * 0.12, 0.5, 0.55);
+  }
+
+  if (d.pecs) {
+    for (const p of d.pecs) p.pivot.rotation.x = Math.sin(time * 0.7) * 0.25;
+  }
+
+  if (d.lights) {
+    for (const l of d.lights) {
+      l.mesh.material.opacity = 0.4 + Math.sin(time * 0.6 + l.phase) * 0.4;
+    }
+  }
+
+  if (d.lamp) {
+    // the little lamp only shines when you're near enough to see it
+    d.lamp.intensity = g.position.distanceTo(player.pos) < 40 ? 0.9 : 0;
+  }
+}
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  // a phone held upright is a very narrow window on the sea, so we open
+  // the view out a bit - otherwise you can't see what's beside you
+  camera.fov = w / h < 0.75 ? 74 : 62;
+  camera.updateProjectionMatrix();
+}
+addEventListener("resize", resize);
+
+let last = performance.now();
+let hudTick = 0;
+function loop() {
+  requestAnimationFrame(loop);
+  const now = performance.now();
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+
+  if (playing && !paused && mode === "dive") clock += dt;
+  arrowLook(dt);
+  step(dt);
+  draw(now / 1000, dt);
+
+  hudTick += dt;
+  if (hudTick > 0.1) { hudTick = 0; refreshHud(); }
+}
+
+/* ---------------------------------------------------------------
+   CONTROLS
+   --------------------------------------------------------------- */
+const HAS_TOUCH = ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
+document.getElementById("touch").hidden = !HAS_TOUCH;
+document.getElementById("how-desktop").hidden = HAS_TOUCH;
+document.getElementById("how-touch").hidden = !HAS_TOUCH;
+
+addEventListener("keydown", e => {
+  if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+  keys[e.code] = true;
+  if (e.code === "Space") e.preventDefault();
+  if (e.code === "KeyB") {
+    if (document.getElementById("book").hidden) openBook(); else closeBook();
+  }
+});
+addEventListener("keyup", e => { keys[e.code] = false; });
+
+/* The arrow keys turn and tilt you, so the whole game works on a
+   laptop with no dragging at all. */
+function arrowLook(dt) {
+  if (keys.ArrowLeft)  camYaw += 1.6 * dt;
+  if (keys.ArrowRight) camYaw -= 1.6 * dt;
+  if (keys.ArrowUp)    camPitch += 1.2 * dt;
+  if (keys.ArrowDown)  camPitch -= 1.2 * dt;
+  camPitch = Math.max(-1.25, Math.min(1.15, camPitch));
+}
+
+/* Drag or swipe anywhere to look round. */
+let dragId = null, dragX = 0, dragY = 0;
+renderer.domElement.addEventListener("pointerdown", e => {
+  dragId = e.pointerId; dragX = e.clientX; dragY = e.clientY;
+});
+addEventListener("pointermove", e => {
+  if (e.pointerId !== dragId) return;
+  camYaw   -= (e.clientX - dragX) * 0.006;
+  camPitch -= (e.clientY - dragY) * 0.004;
+  camPitch = Math.max(-1.25, Math.min(1.15, camPitch));
+  dragX = e.clientX; dragY = e.clientY;
+});
+addEventListener("pointerup", e => { if (e.pointerId === dragId) dragId = null; });
+addEventListener("pointercancel", e => { if (e.pointerId === dragId) dragId = null; });
+
+// ---- the touch stick ----
+const stickEl = document.getElementById("stick-move");
+const knobEl = document.getElementById("knob");
+let stickId = null;
+
+stickEl.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  e.stopPropagation();
+  stickId = e.pointerId;
+  moveStick(e);
+});
+addEventListener("pointermove", e => { if (e.pointerId === stickId) moveStick(e); });
+addEventListener("pointerup", e => {
+  if (e.pointerId !== stickId) return;
+  stickId = null;
+  stick.x = stick.y = 0;
+  knobEl.style.transform = "";
+});
+
+function moveStick(e) {
+  const box = stickEl.getBoundingClientRect();
+  let dx = e.clientX - (box.left + box.width / 2);
+  let dy = e.clientY - (box.top + box.height / 2);
+  const reach = box.width / 2;
+  const dist = Math.hypot(dx, dy);
+  if (dist > reach) { dx *= reach / dist; dy *= reach / dist; }
+  stick.x = dx / reach;
+  stick.y = dy / reach;
+  knobEl.style.transform = "translate(" + dx + "px," + dy + "px)";
+}
+
+function trimButton(id, set) {
+  const el = document.getElementById(id);
+  el.addEventListener("pointerdown", e => { e.preventDefault(); e.stopPropagation(); set(true); });
+  el.addEventListener("pointerup", e => { e.preventDefault(); set(false); });
+  el.addEventListener("pointerleave", () => set(false));
+  el.addEventListener("pointercancel", () => set(false));
+}
+trimButton("btn-up", on => { upHeld = on; });
+trimButton("btn-down", on => { downHeld = on; });
+
+document.getElementById("btn-play").addEventListener("click", () => startGame("dive"));
+document.getElementById("btn-free").addEventListener("click", () => startGame("free"));
+document.getElementById("btn-again").addEventListener("click", () => startGame(mode));
+document.getElementById("bookbtn").addEventListener("click", openBook);
+document.getElementById("btn-book-start").addEventListener("click", openBook);
+document.getElementById("btn-book-close").addEventListener("click", closeBook);
+
+addEventListener("pagehide", save);
+
+/* ---------------------------------------------------------------
+   GO!
+   --------------------------------------------------------------- */
+resize();
+load();
+refreshBook();
+resetDiver();
+refreshHud();
+refreshBreath();
+document.getElementById("chestpill").hidden = true;
+document.getElementById("timepill").hidden = true;
+paused = true;                 // the sea moves, you don't, until you press DIVE IN
+loop();
+
+/* ---------------------------------------------------------------
+   ADMIN
+   --------------------------------------------------------------- */
+function number(word, fallback, low, high) {
+  const n = parseFloat(word);
+  if (!isFinite(n)) return fallback;
+  return Math.max(low, Math.min(high, n));
+}
+
+function wantsOn(word, now) {
+  if (word === "on" || word === "yes" || word === "true") return true;
+  if (word === "off" || word === "no" || word === "false") return false;
+  return !now;
+}
+
+const ADMIN_COMMANDS = [
+  { name: "air", alias: ["breath"], args: "[on/off]",
+    help: "Never run out of breath",
+    state: () => cheats.air ? "ON" : "off",
+    run: words => { cheats.air = wantsOn(words[0], cheats.air);
+                    if (cheats.air) { breath = breathMax; dizzy = false;
+                      document.getElementById("floatup").classList.remove("on"); }
+                    return "Endless air " + (cheats.air ? "on" : "off"); } },
+
+  { name: "deep", alias: ["depth"], args: "<metres>",
+    help: "Drop straight down to a depth",
+    run: words => { const want = number(words[0], 20, 0, 78);
+                    const bed = seabedAt(player.pos.x, player.pos.z);
+                    // a ghost is allowed under the sand; everybody else lands on it
+                    player.pos.y = cheats.ghost ? -want : Math.max(bed + BELLY, -want);
+                    player.vel.set(0, 0, 0);
+                    refreshHud();
+                    return "Down at " + Math.round(-player.pos.y) + "m"; } },
+
+  { name: "go", args: "<wreck/arch/cave/kelp/trench/home>",
+    help: "Jump to somewhere worth seeing",
+    run: words => { const spot = LANDMARKS[String(words[0] || "").toLowerCase()];
+                    if (!spot) return { bad: "Try wreck, arch, cave, kelp, trench or home" };
+                    player.pos.set(spot.x, Math.min(-2, seabedAt(spot.x, spot.z) + 9),
+                                   spot.z);
+                    player.vel.set(0, 0, 0);
+                    refreshHud();
+                    return "Off to the " + words[0]; } },
+
+  { name: "fast", args: "<number>",
+    help: "How hard you swim",
+    run: words => { cheats.fast = number(words[0], 1, 0.2, 8);
+                    return "Swimming " + cheats.fast + "x"; } },
+
+  { name: "see", alias: ["clear"], args: "[on/off]",
+    help: "Clear water — see the whole sea at once",
+    state: () => cheats.clear ? "ON" : "off",
+    run: words => { cheats.clear = wantsOn(words[0], cheats.clear);
+                    return "Clear water " + (cheats.clear ? "on" : "off"); } },
+
+  { name: "ghost", args: "[on/off]",
+    help: "Swim through rocks and the ship",
+    state: () => cheats.ghost ? "ON" : "off",
+    run: words => { cheats.ghost = wantsOn(words[0], cheats.ghost);
+                    return "Ghost " + (cheats.ghost ? "on" : "off"); } },
+
+  { name: "chests", alias: ["treasure"], args: "",
+    help: "Open every chest at once",
+    run: () => { if (mode !== "dive") return { bad: "You're just exploring" };
+                 if (!playing) return { bad: "You're not diving" };
+                 chests.filter(c => !c.open).forEach(openChest);
+                 return "Every chest, open"; } },
+
+  { name: "book", args: "[all/none]",
+    help: "Fill in or wipe the Sea Book",
+    state: () => seenCount() + "/" + CREATURES.length,
+    run: words => { const all = String(words[0] || "all").toLowerCase() !== "none";
+                    best.seen = {};
+                    if (all) for (const c of CREATURES) best.seen[c.id] = true;
+                    save(); refreshBook();
+                    return all ? "Sea Book filled in" : "Sea Book wiped"; } },
+
+  { name: "find", args: "<creature>",
+    help: "Bring a creature right to you",
+    run: words => { const want = String(words[0] || "").toLowerCase();
+                    const c = CREATURES.find(x => x.id === want);
+                    if (!c) return { bad: "Try " + CREATURES.map(x => x.id).join(", ") };
+                    aimVector(_aim);
+                    // near enough to be properly looked at, whatever it is
+                    const near = Math.min(c.seenRadius * 0.8, 14);
+                    c.group.position.copy(player.pos).addScaledVector(_aim, near);
+                    c.group.lookAt(player.pos);
+                    c.park = 10;         // it stays put for ten seconds
+                    return c.name + ", right here"; } },
+
+  { name: "best", args: "",
+    help: "Forget your best time (keeps the Sea Book)",
+    run: () => { best.time = 0; best.done = false; best.deepest = 0;
+                 save(); refreshHud();
+                 return "Best time and depth wiped — Sea Book kept"; } }
+];
+
+if (typeof OlliePlayer !== "undefined" && OlliePlayer.isAdmin()
+    && typeof OllieAdmin !== "undefined") {
+  OllieAdmin.start({ commands: ADMIN_COMMANDS });
+}
+</script>
+
+</body>
+</html>
