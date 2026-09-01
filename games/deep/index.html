@@ -282,7 +282,7 @@ const BED_Y       = -34;      // the sandy floor
 const TRENCH_Y    = -78;      // the bottom of the deep trench
 const LAGOON_R    = 110;      // swim past this and the current turns you back
 const SEABED_SPAN = 240;
-const SEABED_SEGS = 80;       // one square every 3 steps
+const SEABED_SEGS = 120;      // one square every 2 steps, so the beach is a slope
 
 /* Scratch vectors. We make these ONCE and reuse them, because the
    drawing code runs sixty times a second and making new ones every
@@ -383,7 +383,7 @@ const shaftMat = new THREE.MeshBasicMaterial({
 for (let i = 0; i < 12; i++) {
   const s = new THREE.Mesh(shaftGeo, shaftMat);
   const angle = i * 2.1;
-  const dist = 12 + (i * 13) % 70;
+  const dist = 36 + (i * 13) % 62;      // out past the island, over open water
   s.position.set(Math.cos(angle) * dist, -31, Math.sin(angle) * dist);
   s.userData.tilt = 0.2;
   s.userData.phase = i * 1.3;
@@ -438,6 +438,31 @@ const HILLS = [
 const TRENCH = { x: 46, z: -30, halfW: 14, halfL: 62, yaw: 0.35,
                  depth: TRENCH_Y, ramp: 9 };
 
+/* Your island, in three rings.
+
+     out to r          a flat top you can walk about on
+     the next `beach`  the sand slopes down past the water's edge and on
+                       to a shallow shelf you can wade about on
+     the next `slope`  the shelf slides away into the real sea floor
+
+   The middle ring is the one that matters. Going straight from the top
+   of the island to the sea floor makes a cliff, and you'd walk three
+   steps down a beach and drop off the edge of the world into thirty
+   metres of water. The shelf gives you somewhere to stand in the
+   shallows, and a proper slope to swim down. */
+const ISLAND = { x: 0, z: 0, r: 18, beach: 16, shelf: -7, slope: 20, top: 4.5 };
+
+// how far out the island stops meddling with the sea floor at all
+const SHORE_OUT = ISLAND.r + ISLAND.beach + ISLAND.slope;
+
+/* Eases 0 to 1 smoothly instead of in a straight line, so a slope
+   arrives and leaves gently instead of turning a corner. */
+function smooth(t) {
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  return t * t * (3 - 2 * t);
+}
+
 function seabedAt(x, z) {
   let y = BED_Y;
 
@@ -445,6 +470,17 @@ function seabedAt(x, z) {
   for (const h of HILLS) {
     const d = Math.hypot(x - h.x, z - h.z);
     if (d < h.r) y += h.h * 0.5 * (1 + Math.cos(Math.PI * d / h.r));
+  }
+
+  // the island, standing right up out of the water in the middle
+  const di = Math.hypot(x - ISLAND.x, z - ISLAND.z);
+  if (di < ISLAND.r + ISLAND.beach + ISLAND.slope) {
+    // the top, then the beach easing down to the shelf
+    const beachY = ISLAND.top
+      + (ISLAND.shelf - ISLAND.top) * smooth((di - ISLAND.r) / ISLAND.beach);
+    // then the shelf easing away into whatever the sea floor was doing
+    y = beachY + (y - beachY)
+      * smooth((di - ISLAND.r - ISLAND.beach) / ISLAND.slope);
   }
 
   /* The trench is a long slot. We turn the spot into the trench's own
@@ -456,9 +492,7 @@ function seabedAt(x, z) {
   const lz = dx * s + dz * c;
   const out = Math.max(Math.abs(lx) - TRENCH.halfW, Math.abs(lz) - TRENCH.halfL);
   if (out < TRENCH.ramp) {
-    const deep = 1 - Math.max(0, out) / TRENCH.ramp;
-    const smooth = deep * deep * (3 - 2 * deep);      // eases the walls
-    y += (TRENCH.depth - y) * smooth;
+    y += (TRENCH.depth - y) * smooth(1 - Math.max(0, out) / TRENCH.ramp);
   }
   return y;
 }
@@ -473,7 +507,7 @@ function makeCaustics() {
   const c = canvas.getContext("2d");
   c.fillStyle = "#93825c";
   c.fillRect(0, 0, 256, 256);
-  c.strokeStyle = "rgba(206,240,232,0.16)";
+  c.strokeStyle = "rgba(206,240,232,0.13)";
   c.lineWidth = 4;
   c.shadowBlur = 9;
   c.shadowColor = "rgba(214,246,240,0.3)";
@@ -485,7 +519,7 @@ function makeCaustics() {
   }
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(30, 30);       // small ripples, not great swirly ribbons
+  tex.repeat.set(64, 64);       // small ripples, not great swirly ribbons
   return tex;
 }
 const caustics = makeCaustics();
@@ -497,8 +531,29 @@ for (let i = 0; i < bedPos.count; i++) {
   bedPos.setY(i, seabedAt(bedPos.getX(i), bedPos.getZ(i)));
 }
 bedGeo.computeVertexNormals();      // worked out ONCE, never again
+/* Dry sand and wet sand are different colours, and the wobbly underwater
+   light has no business being up on a beach. We can't put two materials
+   on one lump of sand, so instead we paint a colour onto every corner and
+   the sand takes its colour from the corners around it - the line between
+   them blends itself.
+
+   It is only a NUDGE, and mostly in the blue. Up on the island there's
+   full daylight on the sand and no water in the way, so it is already
+   about as bright as it can go: push any harder and the whole beach turns
+   into a sheet of white paper. Taking a little of the yellow out is all
+   it needs to read as dry. */
+const bedCols = new Float32Array(bedPos.count * 3);
+for (let i = 0; i < bedPos.count; i++) {
+  const dry = smooth((bedPos.getY(i) + 1.5) / 3);     // 0 under water, 1 well above
+  bedCols[i * 3]     = 1;
+  bedCols[i * 3 + 1] = 1 + dry * 0.05;
+  bedCols[i * 3 + 2] = 1 + dry * 0.35;
+}
+bedGeo.setAttribute("color", new THREE.BufferAttribute(bedCols, 3));
+
 const seabed = new THREE.Mesh(bedGeo,
-  new THREE.MeshLambertMaterial({ map: caustics, color: 0xd6c9a4 }));
+  new THREE.MeshLambertMaterial({ map: caustics, color: 0xd6c9a4,
+                                  vertexColors: true }));
 scene.add(seabed);
 
 /* ---------------------------------------------------------------
@@ -536,6 +591,7 @@ function block(cx, cy, cz, sx, sy, sz, colour, solid) {
 }
 
 const LANDMARKS = {
+  island: { x:   0, z:    0 },
   home:   { x:   0, z:    0 },
   wreck:  { x: -40, z:   18 },
   arch:   { x:  30, z:   55 },
@@ -672,6 +728,7 @@ function buildRocks() {
     const angle = i * 1.7;
     const dist = 20 + (i * 11) % 80;
     const x = Math.cos(angle) * dist, z = Math.sin(angle) * dist;
+    if (seabedAt(x, z) > -3) continue;            // not up on the island
     const size = 1.6 + (i % 4) * 0.9;
     const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(size, 0), mat(0x44514f));
     rock.position.set(x, seabedAt(x, z) + size * 0.4, z);
@@ -687,6 +744,7 @@ function buildRocks() {
     const angle = i * 2.3;
     const dist = 8 + (i * 7) % 40;
     const x = Math.cos(angle) * dist, z = Math.sin(angle) * dist;
+    if (seabedAt(x, z) > -3) continue;            // coral doesn't grow on a beach
     const c = new THREE.Mesh(new THREE.SphereGeometry(0.9 + (i % 3) * 0.4, 8, 6),
                              mat(coralColours[i % coralColours.length]));
     c.position.set(x, seabedAt(x, z) + 0.6, z);
@@ -902,6 +960,34 @@ const MAX_SWIM  = 11;
 const MAX_RISE  = 9;
 const BUOYANCY  = 3.2;      // you always drift up a little when you stop
 const FLOAT_UP  = 6.5;      // how fast you pop up when you're out of air
+
+/* ---- and the same again, for being out of the water ---- */
+const GRAVITY   = 26;
+const WALK_PUSH = 70;
+const DRAG_LAND = 9;        // on sand you stop when you stop
+const MAX_WALK  = 8;
+const JUMP_UP   = 9.5;
+
+/* HOW WET ARE YOU?
+
+   There is no "on land" and no "in the water" in this game, and no
+   moment where it switches from one to the other. There is just this one
+   number: 1 when you're properly under, 0 when you're properly out, and
+   somewhere in between when you're standing in the shallows with the
+   waves round your middle.
+
+   Your head is HEAD_UP above your middle and your feet are BELLY below
+   it, so you're completely under at -0.6 and completely out at +0.5.
+
+   Every rule below - how hard you push and which way, whether you float
+   up or fall down, how fast you stop, whether the space bar is a kick or
+   a jump - is mixed between the swimming answer and the walking answer
+   using this one number. That is why wading in and out of the sea is a
+   slope you walk down, and not a wall you bump into or a trampoline that
+   flings you off. */
+function wetness(y) {
+  return Math.max(0, Math.min(1, (BELLY - y) / (BELLY + HEAD_UP)));
+}
 
 const player = { pos: new THREE.Vector3(0, -0.5, 0), vel: new THREE.Vector3() };
 const facing = new THREE.Vector3(0, 0, 1);
@@ -1266,11 +1352,13 @@ function buildGiant() {
 const CREATURES = [
   { id: "clownfish", name: "Clownfish", emoji: "🐠", seenRadius: 6, speed: 5,
     hint: "round the coral, near the top",
-    points: [[10, -6, 12], [26, -8, 2], [18, -5, -16], [-4, -7, -10], [-12, -6, 6]] },
+    points: [[38, -6, 20], [46, -8, -14], [16, -5, -44], [-26, -7, -38],
+             [-44, -6, -4], [-20, -6, 34]] },
 
   { id: "turtle", name: "Sea Turtle", emoji: "🐢", seenRadius: 10, speed: 1.6,
     hint: "drifting slowly over the sand",
-    points: [[-20, -24, 30], [4, -26, 40], [20, -22, 22], [2, -20, 4], [-24, -23, 14]] },
+    points: [[-30, -24, 38], [6, -26, 48], [34, -22, 30], [40, -20, -6],
+             [-38, -23, 16]] },
 
   { id: "ray", name: "Manta Ray", emoji: "🐟", seenRadius: 14, speed: 4,
     hint: "gliding past the rock arch",
@@ -1419,6 +1507,8 @@ const keys = {};
 const cheats = { air: false, ghost: false, clear: false, fast: 1 };
 const stick = { x: 0, y: 0 };
 let upHeld = false, downHeld = false;
+let standing = false;       // are your feet on the ground right now?
+let jumpArmed = true;       // so holding the button doesn't bounce you along
 
 const messageEl = document.getElementById("message");
 let sayTimer = null;
@@ -1430,7 +1520,9 @@ function say(text, seconds) {
 }
 
 function resetDiver() {
-  player.pos.set(0, -0.5, 0);
+  // you wake up on the island, a little way in from the water's edge
+  if (mode === "free") player.pos.set(0, -0.5, SHORE_OUT + 12);
+  else player.pos.set(0, ISLAND.top + BELLY, 10);
   player.vel.set(0, 0, 0);
   camYaw = 0;
   camPitch = -0.15;
@@ -1587,6 +1679,10 @@ function step(dt) {
   const alive = playing && !paused;
   aimVector(_aim);
 
+  // the one number the whole of the rest of this reads
+  let wet = wetness(player.pos.y);
+  if (cheats.ghost) wet = 1;          // a ghost swims through the island too
+
   if (alive && !dizzy) {
     // ---- which way are we pushing? ----
     let forward = 0, sideways = 0;
@@ -1600,59 +1696,97 @@ function step(dt) {
     const len = Math.hypot(forward, sideways);
     if (len > 1) { forward /= len; sideways /= len; }
 
-    // forwards is wherever you're LOOKING, in all three directions
-    player.vel.addScaledVector(_aim, forward * SWIM_PUSH * cheats.fast * dt);
+    /* Underwater, forwards is wherever you're LOOKING, in all three
+       directions at once. On land it's the same direction with the up and
+       down taken out of it, because you can look at the sky all you like
+       and you still can't walk up it. */
+    _v.copy(_aim);
+    _v.y *= wet;
+    if (_v.lengthSq() > 0.0001) _v.normalize();
+
+    const push = (SWIM_PUSH * wet + WALK_PUSH * (1 - wet)) * cheats.fast * dt;
+    player.vel.addScaledVector(_v, forward * push);
 
     // sideways stays flat, so strafing never tips you up or down
     const rightX = -Math.cos(camYaw), rightZ = Math.sin(camYaw);
-    player.vel.x += rightX * sideways * SWIM_PUSH * cheats.fast * dt;
-    player.vel.z += rightZ * sideways * SWIM_PUSH * cheats.fast * dt;
+    player.vel.x += rightX * sideways * push;
+    player.vel.z += rightZ * sideways * push;
 
     let kick = 0;
     if (keys.Space || upHeld) kick += 1;
     if (keys.ShiftLeft || keys.ShiftRight || keys.KeyC || downHeld) kick -= 1;
-    player.vel.y += kick * KICK * cheats.fast * dt;
+
+    /* In the water the space bar is a kick, and holding it climbs. Out of
+       it, it's a jump - and only one per landing, or holding it down would
+       bounce you along the beach like a space hopper. */
+    if (wet > 0.5) {
+      player.vel.y += kick * KICK * cheats.fast * dt;
+      jumpArmed = true;
+    } else {
+      if (kick > 0 && standing && jumpArmed) {
+        player.vel.y = JUMP_UP;
+        jumpArmed = false;
+      }
+      if (kick <= 0) jumpArmed = true;
+    }
   }
 
   /* You are full of air, so you are lighter than the sea and you always
      drift upwards when you stop swimming. This is on purpose and it is
      the most important line in the file: whatever happens, whatever you
-     do, letting go of everything takes you back up to the air. */
-  if (player.pos.y < SURFACE_Y) player.vel.y += BUOYANCY * dt;
+     do, letting go of everything takes you back up to the air.
+
+     Out of the water it's the other way round, of course. Both are here
+     at once, mixed by how wet you are, so waist-deep in the shallows you
+     get a bit of each and neither one grabs you. */
+  player.vel.y += BUOYANCY * wet * dt;
+  player.vel.y -= GRAVITY * (1 - wet) * dt;
 
   if (dizzy) { player.vel.set(0, FLOAT_UP, 0); }
 
   /* Thick water. Every push fades a bit every moment. We use exp()
      rather than just taking a slice off, because that way a fast phone
      and a slow laptop swim exactly the same - the fading depends on
-     how much TIME went past, not on how many frames. */
-  const keepFlat = Math.exp(-DRAG * dt);
-  const keepUp   = Math.exp(-DRAG_Y * dt);
+     how much TIME went past, not on how many frames.
+
+     Sand is thicker than water sideways - you stop when you stop - and
+     not thick at all up and down, or you'd float down off a ledge
+     instead of falling off it. */
+  const dragFlat = DRAG * wet + DRAG_LAND * (1 - wet);
+  const dragUp   = DRAG_Y * wet;
+  const keepFlat = Math.exp(-dragFlat * dt);
+  const keepUp   = Math.exp(-dragUp * dt);
   player.vel.x *= keepFlat;
   player.vel.z *= keepFlat;
   player.vel.y *= keepUp;
 
+  const topFlat = MAX_SWIM * wet + MAX_WALK * (1 - wet);
   const flat = Math.hypot(player.vel.x, player.vel.z);
-  if (flat > MAX_SWIM) {
-    player.vel.x *= MAX_SWIM / flat;
-    player.vel.z *= MAX_SWIM / flat;
+  if (flat > topFlat) {
+    player.vel.x *= topFlat / flat;
+    player.vel.z *= topFlat / flat;
   }
-  player.vel.y = Math.max(-MAX_RISE, Math.min(MAX_RISE, player.vel.y));
+  // falling is allowed to be faster than swimming down, or a jump looks silly
+  player.vel.y = Math.max(-Math.max(MAX_RISE, 30 * (1 - wet)),
+                          Math.min(MAX_RISE, player.vel.y));
 
   player.pos.addScaledVector(player.vel, dt);
 
   // ---- the top of the sea. Head out, but no flying ----
-  if (player.pos.y > 0.35) {
+  const landHere = seabedAt(player.pos.x, player.pos.z) > -0.5;
+  if (player.pos.y > 0.35 && !landHere) {
     player.pos.y = 0.35;
     player.vel.y = Math.min(0, player.vel.y);
   }
 
   // ---- the sand. Only y gets fixed, so you skim along it ----
+  standing = false;
   if (!cheats.ghost) {
     const bed = seabedAt(player.pos.x, player.pos.z);
-    if (player.pos.y - BELLY < bed) {
-      player.pos.y = bed + BELLY;
+    if (player.pos.y - BELLY < bed + 0.02) {
+      if (player.pos.y - BELLY < bed) player.pos.y = bed + BELLY;
       player.vel.y = Math.max(0, player.vel.y);
+      standing = true;
     }
     /* Solid things stop being solid for the few seconds you're floating
        up for air. It looks a bit odd for a moment, and it is worth it:
@@ -1741,14 +1875,24 @@ function draw(time, dt) {
   // ---- the diver leans the way he's swimming, and never snaps ----
   facing.lerp(_aim, Math.min(1, dt * 5)).normalize();
   diver.position.copy(player.pos);
-  diver.lookAt(_v.copy(player.pos).addScaledVector(facing, 3));
+  const soaked = wetness(player.pos.y);
+  /* Swimming, he points wherever he's going. Walking, he stands up and
+     only turns left and right - a man strolling up a beach on his front
+     with his legs out behind him would be a strange sight. */
+  _v.copy(facing);
+  _v.y *= soaked;
+  if (_v.lengthSq() < 0.0001) _v.z = 1;
+  diver.lookAt(_v.normalize().multiplyScalar(3).add(player.pos));
+  diver.rotateX(-(1 - soaked) * Math.PI * 0.5);      // upright on land
 
   const kicking = Math.sin(time * 4);
   diver.userData.legs.forEach((leg, i) => {
     leg.rotation.x = kicking * 0.26 * (i === 0 ? 1 : -1);
   });
+  /* Swimming, his arms reach out in front. Standing up they'd point at
+     the sky, so we swing them down by his sides as he dries off. */
   diver.userData.arms.forEach((arm, i) => {
-    arm.rotation.x = Math.sin(time * 2 + i * 3) * 0.12;
+    arm.rotation.x = (1 - soaked) * 2.6 + Math.sin(time * 2 + i * 3) * 0.12 * soaked;
   });
 
   // ---- how blue, and how dark, is it here? ----
@@ -1775,6 +1919,10 @@ function draw(time, dt) {
   for (const s of shafts) {
     s.rotation.z = s.userData.tilt + Math.sin(time * 0.3 + s.userData.phase) * 0.05;
   }
+  /* Sunbeams belong under the water. Seen from up on the island they poke
+     through the surface and look like pale slabs floating out at sea, so
+     we turn them right down when your head is out. */
+  shaftMat.opacity = camera.position.y < 0 ? 0.07 : 0.008;
 
   // ---- marine snow drifts down and wraps round you ----
   const sp = snowGeo.attributes.position.array;
@@ -1824,12 +1972,16 @@ function draw(time, dt) {
   for (const c of CREATURES) animateCreature(c, time);
 
   // ---- the camera swims along behind ----
-  _v.copy(player.pos).addScaledVector(_aim, -CAM_BACK);
+  const ashore = 1 - soaked;
+  _v.copy(player.pos).addScaledVector(_aim, -(CAM_BACK + ashore * 1.4));
   _v.x += -Math.cos(camYaw) * CAM_SIDE;         // the step to one side
   _v.z += Math.sin(camYaw) * CAM_SIDE;
-  _v.y += CAM_UP;
-  _v.y = Math.max(_v.y, seabedAt(_v.x, _v.z) + 0.6);    // never inside the sand
-  _v.y = Math.min(_v.y, 1.6);                           // never up in the sky
+  _v.y += CAM_UP + ashore * 1.8;                // higher up on land, to see about
+  const camBed = seabedAt(_v.x, _v.z);
+  _v.y = Math.max(_v.y, camBed + 0.6);                  // never inside the sand
+  /* Never up in the sky - unless there's an island under it, and then it
+     has to rise, or you'd spend the whole time watching your own feet. */
+  _v.y = Math.min(_v.y, Math.max(1.6, camBed + 7));
   camera.position.lerp(_v, Math.min(1, dt * 5));
   camera.lookAt(_look.copy(player.pos).addScaledVector(_aim, 3));
 
@@ -2067,6 +2219,15 @@ const ADMIN_COMMANDS = [
   { name: "deep", alias: ["depth"], args: "<metres>",
     help: "Drop straight down to a depth",
     run: words => { const want = number(words[0], 20, 0, 78);
+                    /* If you're standing on the island, ";deep 20" plainly
+                       means "get me in the sea and take me down", so we
+                       walk you off the beach first. */
+                    if (seabedAt(player.pos.x, player.pos.z) > -2) {
+                      const a = Math.atan2(player.pos.z - ISLAND.z,
+                                           player.pos.x - ISLAND.x) || 0;
+                      player.pos.x = ISLAND.x + Math.cos(a) * (SHORE_OUT + 8);
+                      player.pos.z = ISLAND.z + Math.sin(a) * (SHORE_OUT + 8);
+                    }
                     const bed = seabedAt(player.pos.x, player.pos.z);
                     // a ghost is allowed under the sand; everybody else lands on it
                     player.pos.y = cheats.ghost ? -want : Math.max(bed + BELLY, -want);
@@ -2074,12 +2235,13 @@ const ADMIN_COMMANDS = [
                     refreshHud();
                     return "Down at " + Math.round(-player.pos.y) + "m"; } },
 
-  { name: "go", args: "<wreck/arch/cave/kelp/trench/home>",
+  { name: "go", args: "<island/wreck/arch/cave/kelp/trench>",
     help: "Jump to somewhere worth seeing",
     run: words => { const spot = LANDMARKS[String(words[0] || "").toLowerCase()];
-                    if (!spot) return { bad: "Try wreck, arch, cave, kelp, trench or home" };
-                    player.pos.set(spot.x, Math.min(-2, seabedAt(spot.x, spot.z) + 9),
-                                   spot.z);
+                    if (!spot) return { bad: "Try island, wreck, arch, cave, kelp or trench" };
+                    const floor = seabedAt(spot.x, spot.z);
+                    player.pos.set(spot.x,
+                      floor > 0 ? floor + BELLY : Math.min(-2, floor + 9), spot.z);
                     player.vel.set(0, 0, 0);
                     refreshHud();
                     return "Off to the " + words[0]; } },
