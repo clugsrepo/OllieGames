@@ -28,11 +28,13 @@
     font-size: 0.9rem; white-space: nowrap;
   }
   .pill b { color: #4ff0c1; font-size: 1.1rem; }
-  #chestpill { top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); }
+  #matpill   { top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); }
   #depthpill { top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); }
   #timepill  { top: max(56px, calc(env(safe-area-inset-top) + 46px));
                left: max(12px, env(safe-area-inset-left)); font-size: 0.78rem; }
-  #bookbtn   { top: max(56px, calc(env(safe-area-inset-top) + 46px));
+  #gearpill  { top: max(56px, calc(env(safe-area-inset-top) + 46px));
+               right: max(12px, env(safe-area-inset-right)); font-size: 0.78rem; }
+  #bookbtn   { top: max(100px, calc(env(safe-area-inset-top) + 90px));
                right: max(12px, env(safe-area-inset-right)); font-size: 0.78rem;
                pointer-events: auto; cursor: pointer;
                font-family: inherit; color: #fff; }
@@ -40,6 +42,29 @@
 
   /* deeper than you have ever been before */
   #depthpill.record { border-color: #4ff0c1; }
+  /* and up out of the water, where the number means something else */
+  #depthpill.up b { color: #ffd166; }
+
+  /* ---------- the one button ----------
+     Only turns up when there's something to do where you're standing,
+     and it says what that thing is. It sits ABOVE the stick and the two
+     arrows rather than between them: there's only about a thumb's width
+     of gap down there, and this button has words on it. */
+  #actbtn {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: max(238px, calc(env(safe-area-inset-bottom) + 232px));
+    pointer-events: auto; cursor: pointer;
+    font-family: inherit; font-size: 0.95rem; font-weight: bold;
+    padding: 11px 20px; border-radius: 14px; border: none;
+    color: #03302a; background: #4ff0c1;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.45);
+    white-space: nowrap;
+  }
+  #actbtn:active { transform: translateX(-50%) scale(0.94); }
+  #actbtn .key { opacity: 0.55; font-size: 0.78rem; margin-left: 8px; }
+  /* something you'd like to do but can't afford yet */
+  #actbtn.want { background: rgba(4,26,40,0.88); color: #ffd166;
+                 border: 2px solid rgba(255,209,102,0.5); }
 
   /* ---------- the breath bar ---------- */
   #breathwrap {
@@ -112,7 +137,7 @@
     padding: 26px 24px; text-align: center;
     max-width: 440px; width: 100%; margin: auto;
   }
-  #book .box { max-width: 520px; }
+  #book .box, #bench .box { max-width: 520px; }
   .box h1 { font-size: 2rem; color: #4ff0c1; margin-bottom: 6px; letter-spacing: 1px; }
   .box p { color: #bfe3e0; line-height: 1.6; margin-bottom: 14px; font-size: 0.95rem; }
   .box p b { color: #4ff0c1; }
@@ -126,7 +151,7 @@
   .btn.alt { color: #fff; background: rgba(255,255,255,0.12);
              border: 2px solid rgba(255,255,255,0.3); }
 
-  #bookgrid {
+  #bookgrid, #benchgrid {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
     gap: 10px; margin-bottom: 16px;
   }
@@ -140,6 +165,26 @@
   .card .where { color: #bfe3e0; font-size: 0.7rem; line-height: 1.35; margin-top: 3px; }
   .card.unknown { opacity: 0.5; border-style: dashed; }
   .card.unknown .who { color: #bfe3e0; }
+
+  /* a recipe you haven't got the stuff for yet. Dimmed, but the price
+     always stays readable - a card you can't afford is something to go
+     and get, not a brick wall. */
+  .card.want { opacity: 0.62; border-style: dashed; }
+  .card .cost { font-size: 0.78rem; font-weight: bold; margin-top: 5px; }
+  .card.want .cost { color: #ffd166; }
+  .card .cost.got { color: #4ff0c1; }
+  .card.made { border-color: #4ff0c1; background: rgba(20,60,58,0.9); }
+  .card .make {
+    font-family: inherit; font-size: 0.82rem; font-weight: bold;
+    margin-top: 6px; padding: 6px 14px; border-radius: 10px; border: none;
+    color: #03302a; background: #4ff0c1; cursor: pointer;
+  }
+  .card .make[disabled] { opacity: 0.35; cursor: default; }
+
+  /* the row of five on the start screen, dim for anything never made */
+  #kitrow { font-size: 1.7rem; letter-spacing: 6px; margin-bottom: 12px; }
+  #kitrow span { opacity: 0.22; }
+  #kitrow span.made { opacity: 1; }
 
   /* ---------- controls ---------- */
   #touch { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
@@ -176,10 +221,12 @@
 <body>
 
 <div id="hud">
-  <div class="pill" id="chestpill">🧰 <b id="chests">0</b> / <span id="chesttotal">8</span></div>
-  <div class="pill" id="depthpill">🌊 <b id="depth">0</b> m</div>
+  <div class="pill" id="matpill">🪵 <b id="wood">0</b> · ⚙ <b id="scrap">0</b></div>
+  <div class="pill" id="depthpill"><span id="depthicon">🌊</span> <b id="depth">0</b> <span id="depthunit">m</span></div>
   <div class="pill" id="timepill">⏱ <b id="time">0.0</b>s <span id="besttime"></span></div>
+  <div class="pill" id="gearpill">🤿 <b id="gearcount">0</b>/5</div>
   <button class="pill" id="bookbtn">📖 <b id="bookcount">0</b>/8</button>
+  <button id="actbtn" hidden><span id="actlabel">Chop</span><span class="key" id="actkey">E</span></button>
 
   <div id="breathwrap"><span>🫁</span><div id="breathbar"><div id="breathfill"></div></div></div>
   <div id="message"></div>
@@ -197,20 +244,25 @@
 
 <div class="panel" id="start">
   <div class="box">
-    <h1>🐋 DEEP BLUE</h1>
-    <p>Dive down into the dark blue. There's a <b>sunken ship</b>, a rock arch,
-       a weed forest and a trench that goes down and down.</p>
-    <p>Find all <b>8 treasure chests</b> — and swim up close to every creature
-       you meet to fill in your <b>Sea Book</b>.</p>
+    <h1>🏝 DEEP BLUE</h1>
+    <p>You wake up on a little island in the middle of the sea. There are
+       <b>palm trees</b> to chop for wood, and a <b>sunken ship</b> down there
+       with metal you can prise off it.</p>
+    <p>Build a <b>workbench</b>, then make all four bits of gear — flippers,
+       a diving lamp, an air tank and a copper helmet — and the whole deep
+       opens up to you.</p>
     <p>Watch your <b>air</b>. Pop up to the top for a big breath, or find the
        bubbles hidden down in the deep. Run out and you just float up —
        nothing else happens.</p>
-    <p id="how-desktop"><b>W A S D</b> to swim · <b>Space</b> up · <b>Shift</b> down ·
-       drag the mouse (or the arrow keys) to look round · <b>B</b> for the Sea Book</p>
-    <p id="how-touch" hidden>Left stick to swim · <b>⬆ ⬇</b> to go up and down ·
+    <div id="kitrow"></div>
+    <p id="how-desktop"><b>W A S D</b> to move · <b>Space</b> to jump, and to kick up
+       in the water · <b>Shift</b> down · <b>E</b> to chop, build and make ·
+       drag the mouse (or the arrow keys) to look · <b>B</b> for the Sea Book</p>
+    <p id="how-touch" hidden>Left stick to move · <b>⬆ ⬇</b> to go up and down ·
+       the button above the air bar does whatever you're standing next to ·
        swipe anywhere to look round</p>
     <p>
-      <button class="btn" id="btn-play">DIVE IN!</button>
+      <button class="btn" id="btn-play">START!</button>
       <button class="btn alt" id="btn-free">JUST EXPLORE</button>
     </p>
     <p><button class="btn alt" id="btn-book-start">📖 Sea Book</button></p>
@@ -222,9 +274,19 @@
     <h1 id="donetitle">🏆 ALL THE TREASURE!</h1>
     <p id="donetext"></p>
     <p>
-      <button class="btn" id="btn-again">Dive again</button>
+      <button class="btn" id="btn-again">Start again</button>
+      <button class="btn alt" id="btn-keep">Keep exploring</button>
       <a class="btn alt" href="../../index.html">Home</a>
     </p>
+  </div>
+</div>
+
+<div class="panel" id="bench" hidden>
+  <div class="box">
+    <h1>🔨 WORKBENCH</h1>
+    <p>Everything you can make. The sea is holding still while you work.</p>
+    <div id="benchgrid"></div>
+    <p><button class="btn" id="btn-bench-close">Back outside</button></p>
   </div>
 </div>
 
@@ -566,20 +628,43 @@ scene.add(seabed);
    in them is a room; four balls is a lump.
 
    As each thing gets built it says where its treasure goes and where
-   its bubbles are, so a chest is never floating in open water by
+   its bubbles are, so a crate is never floating in open water by
    accident - it really is inside the thing it says it's inside.
    --------------------------------------------------------------- */
 const SOLIDS = [];
-const CHEST_SPOTS = [];
+const CRATE_SPOTS = [];
 const BUBBLERS = [];
 const swayers = [];        // weed that leans about in the current
 
 function solidBox(cx, cy, cz, sx, sy, sz) {
-  SOLIDS.push({
+  /* Hands the box back, so whoever made it can switch it off later. A
+     chopped-down tree has to stop being solid, or you'd spend the rest of
+     the game walking into the ghost of it. */
+  const box = {
     minX: cx - sx / 2, maxX: cx + sx / 2,
     minY: cy - sy / 2, maxY: cy + sy / 2,
-    minZ: cz - sz / 2, maxZ: cz + sz / 2
-  });
+    minZ: cz - sz / 2, maxZ: cz + sz / 2,
+    off: false
+  };
+  SOLIDS.push(box);
+  return box;
+}
+
+/* An island tree isn't a box, it's a stick. This is the one thing you
+   bump into that's round, so it gets its own little check. */
+const TRUNKS = [];
+function bumpIntoTrunks(pos, radius) {
+  const r = TRUNK_R + (radius === undefined ? BODY_R : radius);
+  for (const t of TRUNKS) {
+    if (t.down) continue;
+    const dx = pos.x - t.x, dz = pos.z - t.z;
+    const d = Math.hypot(dx, dz);
+    if (d > r || d < 0.0001) continue;
+    if (pos.y > t.topY) continue;                  // over the top of it
+    const outBy = r - d;
+    pos.x += (dx / d) * outBy;
+    pos.z += (dz / d) * outBy;
+  }
 }
 
 function block(cx, cy, cz, sx, sy, sz, colour, solid) {
@@ -634,10 +719,10 @@ function buildWreck() {
   nest.position.set(at.x + 4.6, floor + 12.7, at.z + 3);
   scene.add(nest);
 
-  CHEST_SPOTS.push({ x: at.x, y: floor + 2.1, z: at.z, hint: "in the ship's hold" });
-  CHEST_SPOTS.push({ x: at.x, y: floor + 1.2, z: at.z - 13.5,
+  CRATE_SPOTS.push({ x: at.x, y: floor + 2.1, z: at.z, hint: "in the ship's hold" });
+  CRATE_SPOTS.push({ x: at.x, y: floor + 1.2, z: at.z - 13.5,
                      hint: "under the ship's back end" });
-  CHEST_SPOTS.push({ x: at.x + 4.6, y: floor + 13.6, z: at.z + 3,
+  CRATE_SPOTS.push({ x: at.x + 4.6, y: floor + 13.6, z: at.z + 3,
                      hint: "up in the crow's nest" });
 
   BUBBLERS.push({ x: at.x, y: floor + 3, z: at.z + 6 });
@@ -653,7 +738,7 @@ function buildArch() {
   block(at.x + 5, floor + 5, at.z, 4, 10, 5, 0x3f4a4d);
   block(at.x, floor + 11, at.z, 16, 3, 5.5, 0x46524f);
 
-  CHEST_SPOTS.push({ x: at.x, y: floor + 1, z: at.z, hint: "under the rock arch" });
+  CRATE_SPOTS.push({ x: at.x, y: floor + 1, z: at.z, hint: "under the rock arch" });
   BUBBLERS.push({ x: at.x + 1.5, y: floor + 2, z: at.z + 3 });
 }
 
@@ -676,7 +761,7 @@ function buildCave() {
     scene.add(r);
   }
 
-  CHEST_SPOTS.push({ x: at.x, y: floor + 1, z: at.z - 3, hint: "deep in the little cave" });
+  CRATE_SPOTS.push({ x: at.x, y: floor + 1, z: at.z - 3, hint: "deep in the little cave" });
   BUBBLERS.push({ x: at.x - 3, y: floor + 2, z: at.z - 3 });
 }
 
@@ -715,9 +800,9 @@ function buildKelp() {
   });
 
   const a = KELP_PATCHES[0], b = KELP_PATCHES[3];
-  CHEST_SPOTS.push({ x: a.x, y: seabedAt(a.x, a.z) + 1, z: a.z,
+  CRATE_SPOTS.push({ x: a.x, y: seabedAt(a.x, a.z) + 1, z: a.z,
                      hint: "hidden in the weeds" });
-  CHEST_SPOTS.push({ x: b.x, y: seabedAt(b.x, b.z) + 1, z: b.z,
+  CRATE_SPOTS.push({ x: b.x, y: seabedAt(b.x, b.z) + 1, z: b.z,
                      hint: "in the far weed forest" });
   BUBBLERS.push({ x: a.x + 4, y: seabedAt(a.x + 4, a.z) + 2, z: a.z });
 }
@@ -753,16 +838,91 @@ function buildRocks() {
   }
 }
 
-/* ---- the trench: bubbles on the way down, and a chest at the bottom ---- */
+/* ---- the island: palm trees, and a clearing to build in ----
+
+   Each palm is a leaning trunk with six leaves on a joint at the top,
+   and they lean about in the wind the same way the weed leans about in
+   the current.
+
+   Chop one three times and it falls over. Wait a while and a new one
+   grows up in its place - so however carelessly you chop, you can never
+   end up stuck on an island with no wood left on it. */
+const TRUNK_R    = 0.55;
+const CHOPS      = 3;       // how many swings a tree takes
+const WOOD_CHOP  = 2;       // and how much wood each swing gives you
+const TREE_BACK  = 45;      // seconds until a new one has grown
+const CHOP_REACH = 3.4;
+
+const BENCH_SPOT = { x: 0, y: ISLAND.top, z: 6 };
+const BENCH_REACH = 3.4;
+
+const PALMS = [];
+
+function buildPalms() {
+  const trunkGeo = new THREE.CylinderGeometry(0.34, 0.5, 7, 8);
+  trunkGeo.translate(0, 3.5, 0);                  // stands ON its root
+  const leafGeo = new THREE.BoxGeometry(0.66, 0.13, 3.6);
+  leafGeo.translate(0, 0, 1.8);                   // hangs OUT from its joint
+
+  for (let i = 0; i < 7; i++) {
+    const angle = i * 0.92;
+    const dist = 10 + (i % 3) * 3.5;
+    const x = ISLAND.x + Math.cos(angle) * dist;
+    const z = ISLAND.z + Math.sin(angle) * dist;
+    if (Math.hypot(x - BENCH_SPOT.x, z - BENCH_SPOT.z) < BENCH_REACH + 2) continue;
+
+    const root = new THREE.Group();
+    root.position.set(x, ISLAND.top, z);
+    root.rotation.z = (i % 2 ? 1 : -1) * 0.12;    // a bit of a lean each
+
+    root.add(new THREE.Mesh(trunkGeo, mat(0xa8845a)));
+
+    const top = new THREE.Group();
+    top.position.y = 7;
+    for (let n = 0; n < 6; n++) {
+      const leaf = new THREE.Mesh(leafGeo, new THREE.MeshLambertMaterial({
+        color: n % 2 ? 0x3f9a5c : 0x2f7a4a, side: THREE.DoubleSide }));
+      leaf.rotation.y = (n / 6) * Math.PI * 2;
+      leaf.rotation.x = -0.5;
+      top.add(leaf);
+    }
+    root.add(top);
+
+    for (let n = 0; n < 3; n++) {                  // a few coconuts
+      const nut = new THREE.Mesh(new THREE.SphereGeometry(0.26, 7, 6), mat(0x6b4423));
+      nut.position.set(Math.cos(n * 2.1) * 0.5, 6.6, Math.sin(n * 2.1) * 0.5);
+      root.add(nut);
+    }
+
+    scene.add(root);
+    const palm = { root, top, x, z, topY: ISLAND.top + 7,
+                   left: CHOPS, down: false, back: 0, shake: 0, fall: 0, grow: 1 };
+    PALMS.push(palm);
+    TRUNKS.push(palm);
+  }
+
+  // a ring of stones marking where the workbench goes
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2;
+    const stone = new THREE.Mesh(new THREE.DodecahedronGeometry(0.4, 0), mat(0x8d8878));
+    stone.position.set(BENCH_SPOT.x + Math.cos(a) * 2.4, ISLAND.top + 0.15,
+                       BENCH_SPOT.z + Math.sin(a) * 2.4);
+    stone.rotation.set(i, i * 1.7, 0);
+    scene.add(stone);
+  }
+}
+
+/* ---- the trench: bubbles on the way down, and a crate at the bottom ---- */
 function buildTrench() {
   const at = LANDMARKS.trench;
   BUBBLERS.push({ x: at.x, y: -52, z: at.z + 28 });     // a ledge on the way down
   BUBBLERS.push({ x: at.x, y: -74, z: at.z });          // right at the bottom
-  CHEST_SPOTS.push({ x: at.x - 4, y: seabedAt(at.x - 4, at.z - 6) + 1, z: at.z - 6,
+  CRATE_SPOTS.push({ x: at.x - 4, y: seabedAt(at.x - 4, at.z - 6) + 1, z: at.z - 6,
                      hint: "right down in the trench" });
 }
 
 buildWreck();
+buildPalms();
 buildArch();
 buildCave();
 buildKelp();
@@ -787,9 +947,9 @@ for (const b of BUBBLERS) {
 }
 
 /* ---- the treasure ---- */
-const CHEST_TOTAL = CHEST_SPOTS.length;      // eight, one per hiding place
-const CHEST_REACH = 2.2;
-const chests = [];
+const CRATE_TOTAL = CRATE_SPOTS.length;      // eight, one per hiding place
+const CRATE_REACH = 2.2;
+const crates = [];
 
 function glowTexture() {
   const canvas = document.createElement("canvas");
@@ -804,7 +964,7 @@ function glowTexture() {
 }
 const glowMap = glowTexture();
 
-function makeChest(spot) {
+function makeCrate(spot) {
   const group = new THREE.Group();
   group.position.set(spot.x, spot.y, spot.z);
 
@@ -844,15 +1004,15 @@ function makeChest(spot) {
   return { group, hinge, glow, spot, open: false, swing: 0 };
 }
 
-function placeChests() {
-  chests.forEach(c => scene.remove(c.group));
-  chests.length = 0;
+function placeCrates() {
+  crates.forEach(c => scene.remove(c.group));
+  crates.length = 0;
   if (mode !== "dive") return;             // Free Swim has no treasure at all
-  for (const spot of CHEST_SPOTS) chests.push(makeChest(spot));
+  for (const spot of CRATE_SPOTS) crates.push(makeCrate(spot));
 }
 
-/* ---- the little gold sparkles when a chest opens ----
-   Forty of them, shared by every chest. We never make any more. */
+/* ---- the little gold sparkles when a crate opens ----
+   Forty of them, shared by every crate. We never make any more. */
 const sparks = [];
 const sparkMat = new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true });
 for (let i = 0; i < 40; i++) {
@@ -899,6 +1059,7 @@ function makeLimb(length, width, colour, endColour, endSize) {
 }
 
 const diver = new THREE.Group();
+const kit = { fins: [], tank: null, helmet: null, lamp: null, light: null };
 {
   const body = new THREE.Mesh(new THREE.SphereGeometry(0.42, 14, 10), mat(0x1f6fa8));
   body.scale.set(1, 0.95, 1.7);
@@ -919,7 +1080,7 @@ const diver = new THREE.Group();
 
   /* Arms out in front, legs and flippers straight out behind. Each one
      hangs off a little joint so it can beat up and down without the rest
-     of him moving - the same joint trick as the chest lid. */
+     of him moving - the same joint trick as the crate lid. */
   diver.userData.arms = [];
   diver.userData.legs = [];
   for (const side of [-1, 1]) {
@@ -938,10 +1099,63 @@ const diver = new THREE.Group();
     hip.add(leg);
     const fin = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.06, 0.55), mat(0x2fd6a8));
     fin.position.z = -0.92;
+    fin.visible = false;              // you start barefoot and make these
     hip.add(fin);
+    kit.fins.push(fin);
     diver.add(hip);
     diver.userData.legs.push(hip);
   }
+
+  /* ---- the gear you can make ----
+     Every bit of it is built right here, at the start, and only ever
+     hidden and shown again. Nothing is built while you're playing. */
+  const bigTank = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.9, 8),
+                                 mat(0x4ff0c1));
+  bigTank.rotation.x = Math.PI / 2;
+  bigTank.position.set(0.22, 0.3, -0.3);
+  bigTank.visible = false;
+  diver.add(bigTank);
+  kit.tank = bigTank;
+
+  const dome = new THREE.Group();
+  dome.add(new THREE.Mesh(new THREE.SphereGeometry(0.35, 12, 10), mat(0xb87333)));
+  const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.1, 12),
+                             mat(0xd89a55));
+  rim.rotation.x = Math.PI / 2;
+  rim.position.z = 0.3;
+  dome.add(rim);
+  dome.position.set(0, 0.02, 0.78);
+  dome.visible = false;
+  diver.add(dome);
+  kit.helmet = dome;
+
+  const lampBox = new THREE.Group();
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.42, 8),
+                                mat(0x8d949c));
+  barrel.rotation.x = Math.PI / 2;
+  lampBox.add(barrel);
+  const bulb = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.04, 10),
+                              new THREE.MeshBasicMaterial({ color: 0xfff3cf }));
+  bulb.rotation.x = Math.PI / 2;
+  bulb.position.z = 0.23;
+  lampBox.add(bulb);
+  lampBox.position.set(0.38, 0.22, 0.35);
+  lampBox.visible = false;
+  diver.add(lampBox);
+  kit.lamp = lampBox;
+
+  /* The second and last moving light in the whole game. It is made HERE,
+     at the very start, and from then on it is only ever turned up and
+     down - see the note by the other lights for why that matters so much.
+     Until you make a lamp it simply sits at nought, shining on nothing.
+
+     Note it is NOT inside the lamp we just hid: hiding a thing does not
+     turn its light off in three.js, so the brightness is the real switch,
+     not whether you can see it. */
+  const diveLamp = new THREE.PointLight(0xffeec4, 0, 24);
+  diveLamp.position.set(0.38, 0.22, 1.2);
+  diver.add(diveLamp);
+  kit.light = diveLamp;
   diver.scale.setScalar(1.2);
 }
 scene.add(diver);
@@ -1019,6 +1233,7 @@ function bumpIntoThings(pos) {
   const minZ = pos.z - BODY_R, maxZ = pos.z + BODY_R;
 
   for (const s of SOLIDS) {
+    if (s.off) continue;                           // a chopped-down tree
     if (maxX <= s.minX || minX >= s.maxX) continue;
     if (maxY <= s.minY || minY >= s.maxY) continue;
     if (maxZ <= s.minZ || minZ >= s.maxZ) continue;
@@ -1051,7 +1266,7 @@ function bumpIntoThings(pos) {
    deepest bit of the game.
 
    If it does run out, nothing bad happens. You go dizzy for a moment
-   and float up for a big breath, and you keep every chest and every
+   and float up for a big breath, and you keep every crate and every
    creature you'd found. The word you might be expecting is not in this
    file anywhere, on purpose - this is a game about looking at fish.
    --------------------------------------------------------------- */
@@ -1070,11 +1285,305 @@ function airHere() {
 }
 
 /* ---------------------------------------------------------------
+   GETTING STUFF, AND MAKING THINGS OUT OF IT
+
+   Two things to collect and five things to make out of them.
+
+   Wood comes off the palm trees on the island. Metal comes off the
+   sunken ship, and that is the whole shape of the game in one sentence:
+   the only way to get better at diving is to dive. Everything you make
+   is a bit of the island and a bit of the sea.
+   --------------------------------------------------------------- */
+let wood = 0, scrap = 0;
+let treesChopped = 0, scrapPrised = 0, cratesFound = 0;
+
+const RECIPES = [
+  { id: "bench",    emoji: "🔨", name: "Workbench",     wood: 8, scrap:  0,
+    what: "Where you make everything else." },
+  { id: "flippers", emoji: "🦶", name: "Flippers",      wood: 6, scrap:  2,
+    what: "Swim much, much faster." },
+  { id: "lamp",     emoji: "🔦", name: "Diving Lamp",   wood: 5, scrap:  6,
+    what: "See down in the dark deep." },
+  { id: "tank",     emoji: "🫁", name: "Air Tank",      wood: 4, scrap: 10,
+    what: "Stay under for twice as long." },
+  { id: "helmet",   emoji: "🪖", name: "Diving Helmet", wood: 6, scrap: 14,
+    what: "The deep stops squeezing your air." }
+];
+
+const gear = { bench: false, flippers: false, lamp: false, tank: false, helmet: false };
+
+const TANK_AIR   = 2.2;     // 42 seconds of air becomes ninety-odd
+const FIN_PUSH   = 1.55;
+const FIN_KICK   = 1.45;
+const FIN_TOP    = 1.5;
+const LAMP_POWER = 1.6;
+
+function madeCount() { return RECIPES.filter(r => gear[r.id]).length; }
+function canAfford(r) { return wood >= r.wood && scrap >= r.scrap; }
+function costText(r) { return "🪵" + r.wood + (r.scrap ? " ⚙" + r.scrap : ""); }
+
+/* ---- chopping down a palm ---- */
+function chop(t) {
+  t.shake = 0.45;
+  t.left--;
+  wood += WOOD_CHOP;
+  if (t.left <= 0) {
+    t.down = true;
+    t.fall = 0;
+    t.back = TREE_BACK;
+    treesChopped++;
+    say("Timber! 🪵 " + wood + " wood", 1.8);
+  } else {
+    say("🪵 " + wood + " wood", 1.2);
+  }
+  refreshHud();
+}
+
+/* ---- prising a piece of metal off the wreck ---- */
+const SCRAPS = [];
+const SCRAP_REACH = 3.4;     // you glide underwater, so give it room
+const SCRAP_BACK  = 60;      // seconds before another bit works loose
+const METAL_EACH  = 2;
+
+function prise(m) {
+  m.here = false;
+  m.back = SCRAP_BACK;
+  m.group.visible = false;
+  scrap += METAL_EACH;
+  scrapPrised++;
+  sparkle(m.group.position);
+  say("⚙ " + scrap + " metal", 1.4);
+  refreshHud();
+}
+
+function buildScraps() {
+  const at = LANDMARKS.wreck;
+  const floor = seabedAt(at.x, at.z);
+  const spots = [
+    { x: at.x + 2.2, y: floor + 5.9, z: at.z + 8 },      // on the deck
+    { x: at.x - 1.6, y: floor + 2.0, z: at.z + 2 },      // inside the hold
+    { x: at.x - 4.0, y: floor + 3.2, z: at.z - 4 },      // off the port side
+    { x: at.x + 4.0, y: floor + 3.2, z: at.z + 4 },      // off the starboard side
+    { x: at.x,       y: floor + 1.6, z: at.z - 12.4 },   // by the stern
+    { x: at.x + 3.4, y: floor + 9.5, z: at.z + 3 }       // up the broken mast
+  ];
+
+  for (const spot of spots) {
+    const group = new THREE.Group();
+    group.position.set(spot.x, spot.y, spot.z);
+
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.7), mat(0x8a6a4a));
+    plate.rotation.set(0.4, 0.7, 0.2);
+    group.add(plate);
+    const bolt = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.14, 0.4), mat(0xb08050));
+    bolt.rotation.set(-0.3, 0.2, 0.5);
+    bolt.position.y = 0.12;
+    group.add(bolt);
+
+    // the same little glow the crates use, so you can spot it in the murk
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowMap, transparent: true, depthWrite: false,
+      blending: THREE.AdditiveBlending, opacity: 0.5 }));
+    glow.scale.setScalar(2.2);
+    group.add(glow);
+
+    scene.add(group);
+    SCRAPS.push({ group, here: true, back: 0 });
+  }
+}
+buildScraps();
+
+/* ---- the workbench itself ---- */
+const bench = new THREE.Group();
+bench.position.set(BENCH_SPOT.x, BENCH_SPOT.y, BENCH_SPOT.z);
+{
+  const top = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.2, 1.5), mat(0xa87d44));
+  top.position.y = 1.1;
+  bench.add(top);
+  for (const sx of [-1.1, 1.1]) for (const sz of [-0.55, 0.55]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 1.1, 0.22), mat(0x8a6a44));
+    leg.position.set(sx, 0.55, sz);
+    bench.add(leg);
+  }
+  const vice = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.4), mat(0x7d8a94));
+  vice.position.set(0.9, 1.4, 0);
+  bench.add(vice);
+  const saw = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.06, 0.28), mat(0xc9d2d8));
+  saw.position.set(-0.5, 1.24, 0.2);
+  saw.rotation.z = 0.08;
+  bench.add(saw);
+}
+bench.visible = false;
+scene.add(bench);
+
+function showBench(on) { bench.visible = !!on; }
+
+/* Straps everything you've made onto you. Called when you make a thing,
+   when a run starts, and when an admin hands you the lot. With nothing
+   made, every number here is left exactly as it was, so the game plays
+   precisely as it did before any of this existed. */
+function applyGear() {
+  kit.fins.forEach(f => { f.visible = gear.flippers; });
+  kit.tank.visible   = gear.tank;
+  kit.helmet.visible = gear.helmet;
+  kit.lamp.visible   = gear.lamp;
+
+  breathMax = (mode === "free" ? BREATH_CALM : BREATH_MAX) * (gear.tank ? TANK_AIR : 1);
+  if (gear.tank) breath = breathMax;          // you just strapped a full one on
+  breath = Math.min(breath, breathMax);
+  shownBreath = -1;                           // make the bar redraw at its new size
+  refreshHud();
+}
+
+function craft(r) {
+  if (gear[r.id]) return;
+  if (r.id !== "bench" && !gear.bench) { say("Build the workbench first!", 2); return; }
+  if (!canAfford(r)) { say("You still need " + costText(r), 2.2); return; }
+
+  wood -= r.wood;
+  scrap -= r.scrap;
+  gear[r.id] = true;
+  best.made[r.id] = true;          // and it's yours for keeps, in the trophy row
+  if (r.id === "bench") showBench(true);
+  applyGear();
+  sparkle(r.id === "bench" ? bench.position : player.pos);
+  say(r.emoji + " " + r.name + " — made!", 2.4);
+  save();
+  refreshHud();
+  refreshBench();
+  if (madeCount() >= RECIPES.length) finish();
+}
+
+/* ---- the workbench panel ---- */
+const benchGrid = document.getElementById("benchgrid");
+const benchCards = {};
+
+for (const r of RECIPES) {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.id = "make-" + r.id;
+
+  const face = document.createElement("div");
+  face.className = "face";
+  face.textContent = r.emoji;
+  const who = document.createElement("div");
+  who.className = "who";
+  who.textContent = r.name;
+  const what = document.createElement("div");
+  what.className = "where";
+  what.textContent = r.what;
+  const cost = document.createElement("div");
+  cost.className = "cost";
+  const btn = document.createElement("button");
+  btn.className = "make";
+  btn.textContent = "MAKE";
+  btn.addEventListener("click", () => craft(r));
+
+  card.appendChild(face);
+  card.appendChild(who);
+  card.appendChild(what);
+  card.appendChild(cost);
+  card.appendChild(btn);
+  benchGrid.appendChild(card);
+  benchCards[r.id] = { card, cost, btn };
+}
+
+function refreshBench() {
+  for (const r of RECIPES) {
+    const bits = benchCards[r.id];
+    const done = gear[r.id] === true;
+    const can = canAfford(r);
+    bits.card.classList.toggle("made", done);
+    bits.card.classList.toggle("want", !done && !can);
+    bits.cost.classList.toggle("got", !done && can);
+    bits.cost.textContent = done ? "✔ made" : costText(r);
+    bits.btn.disabled = done || !can;
+    bits.btn.textContent = done ? "DONE" : "MAKE";
+  }
+}
+
+function openBench() {
+  paused = true;
+  refreshBench();
+  document.getElementById("bench").hidden = false;
+}
+
+function closeBench() {
+  document.getElementById("bench").hidden = true;
+  paused = document.getElementById("start").hidden === false;
+}
+
+/* ---------------------------------------------------------------
+   THE ONE BUTTON
+
+   This game never had an action key and it isn't getting a permanent one
+   now - your thumbs are already busy with the stick and the two arrows,
+   and a third button sitting there all game doing nothing most of the
+   time is a button in the way.
+
+   So instead we have a look round you a few times a second, work out the
+   ONE thing worth doing right where you are standing, and put a button on
+   the screen with that thing written on it. Nothing near you, no button.
+   If two things are close, the nearer one wins, which is the only rule
+   anybody needs to be told.
+   --------------------------------------------------------------- */
+const actBtn = document.getElementById("actbtn");
+const actLabel = document.getElementById("actlabel");
+let canDo = null;
+
+function flatTo(x, z) {
+  return Math.hypot(player.pos.x - x, player.pos.z - z);
+}
+
+function whatCanIDo() {
+  if (!playing || paused || dizzy) return null;
+  let pick = null;
+  const offer = (d, label, want, act) => {
+    if (!pick || d < pick.d) pick = { d, label, want, act };
+  };
+
+  for (const t of PALMS) {
+    if (t.down) continue;
+    const d = flatTo(t.x, t.z);
+    if (d < CHOP_REACH) offer(d, "🪓 Chop", false, () => chop(t));
+  }
+  for (const m of SCRAPS) {
+    if (!m.here) continue;
+    const d = m.group.position.distanceTo(player.pos);
+    if (d < SCRAP_REACH) offer(d, "⚙ Prise off", false, () => prise(m));
+  }
+  for (const c of crates) {
+    if (c.open) continue;
+    const d = c.group.position.distanceTo(player.pos);
+    if (d < CRATE_REACH) offer(d, "📦 Open", false, () => openCrate(c));
+  }
+  const db = flatTo(BENCH_SPOT.x, BENCH_SPOT.z);
+  if (db < BENCH_REACH && Math.abs(player.pos.y - BENCH_SPOT.y) < 4) {
+    if (gear.bench) offer(db, "🔨 Craft", false, openBench);
+    else offer(db, "🔨 Build bench " + costText(RECIPES[0]),
+               !canAfford(RECIPES[0]), () => craft(RECIPES[0]));
+  }
+  return pick;
+}
+
+function refreshAction() {
+  canDo = whatCanIDo();
+  if (!canDo) { actBtn.hidden = true; return; }
+  actBtn.hidden = false;
+  actLabel.textContent = canDo.label;
+  actBtn.classList.toggle("want", !!canDo.want);
+}
+
+function doAction() {
+  if (canDo) { canDo.act(); refreshAction(); }
+}
+
+/* ---------------------------------------------------------------
    THE SEA CREATURES
 
    Every one is built out of balls and boxes, facing +z, and every
    flipper, wing, arm and tail turns on the same little pivot trick the
-   chest lid uses.
+   crate lid uses.
 
    They swim round loops. A loop is a handful of points with a smooth
    curve threaded through them, and each creature just slides along its
@@ -1497,8 +2006,8 @@ function discover(c) {
    PLAYING
    --------------------------------------------------------------- */
 let playing = false, paused = false, mode = "dive";
-let clock = 0, found = 0;
-let best = { time: 0, done: false, deepest: 0, seen: {} };
+let clock = 0;
+let best = { time: 0, done: false, deepest: 0, seen: {}, made: {} };
 let depthToBeat = 0;        // how deep you'd been BEFORE this dive started
 let diveDeepest = 0;        // how deep you've been on THIS dive
 let turnedBack = 0;         // stops the current nagging you every frame
@@ -1536,7 +2045,7 @@ function startGame(which) {
   mode = which === "free" ? "free" : "dive";
   breathMax = mode === "free" ? BREATH_CALM : BREATH_MAX;
   resetDiver();
-  placeChests();
+  placeCrates();
   found = 0;
   clock = 0;
   depthToBeat = best.deepest;
@@ -1544,29 +2053,54 @@ function startGame(which) {
   paused = false;
   playing = true;
 
+  /* Every run starts you with empty pockets and everything still to make.
+     The gear you have EVER made is remembered, but it's remembered as a
+     trophy on the front page - making it again is the game. */
+  wood = 0; scrap = 0;
+  treesChopped = 0; scrapPrised = 0; cratesFound = 0;
+  for (const r of RECIPES) gear[r.id] = mode === "free";
+
+  for (const t of PALMS) { t.down = false; t.left = CHOPS; t.back = 0;
+                           t.fall = 0; t.grow = 1; t.shake = 0;
+                           t.root.rotation.x = 0; t.root.visible = true;
+                           t.root.scale.setScalar(1); }
+  for (const m of SCRAPS) { m.here = true; m.back = 0; m.group.visible = true; }
+
+  showBench(gear.bench);
+  applyGear();
+
   document.getElementById("start").hidden = true;
   document.getElementById("done").hidden = true;
   document.getElementById("book").hidden = true;
-  document.getElementById("chestpill").hidden = mode !== "dive";
+  document.getElementById("bench").hidden = true;
+  document.getElementById("matpill").hidden = mode !== "dive";
   document.getElementById("timepill").hidden = mode !== "dive";
 
   refreshHud();
-  say(mode === "dive" ? "Down you go — find all 8 chests!"
-                      : "Off you go. Take as long as you like.", 2.4);
+  refreshBench();
+  say(mode === "dive" ? "Chop some trees and build a workbench!"
+                      : "Off you go. You've got the lot — take your time.", 2.6);
 }
 
 function refreshHud() {
-  document.getElementById("chests").textContent = found;
-  document.getElementById("chesttotal").textContent = CHEST_TOTAL;
+  document.getElementById("wood").textContent = wood;
+  document.getElementById("scrap").textContent = scrap;
+  document.getElementById("gearcount").textContent = madeCount();
   document.getElementById("time").textContent = clock.toFixed(1);
   document.getElementById("besttime").textContent =
     best.done ? "· best " + best.time.toFixed(1) + "s" : "";
 
+  /* The same pill says two different things, because standing three
+     metres up an island is not "nought metres deep". */
+  const up = player.pos.y > 0.2 && wetness(player.pos.y) < 0.5;
   const deep = Math.max(0, Math.round(-player.pos.y));
-  document.getElementById("depth").textContent = deep;
-  // the pill lights up while you're deeper than you have EVER been before
-  document.getElementById("depthpill").classList.toggle("record",
-    playing && deep > depthToBeat && deep > 0);
+  document.getElementById("depthicon").textContent = up ? "🏝" : "🌊";
+  document.getElementById("depth").textContent = up ? Math.round(player.pos.y) : deep;
+  document.getElementById("depthunit").textContent = up ? "m up" : "m";
+  const pill = document.getElementById("depthpill");
+  pill.classList.toggle("up", up);
+  // and it lights up while you're deeper than you have EVER been before
+  pill.classList.toggle("record", playing && !up && deep > depthToBeat && deep > 0);
 }
 
 let shownBreath = -1;
@@ -1580,41 +2114,59 @@ function refreshBreath() {
   breathFill.classList.toggle("low", pct <= 20);
 }
 
-function openChest(chest) {
-  chest.open = true;
-  chest.glow.visible = false;
-  sparkle(chest.group.position);
-  found++;
-  refreshHud();
+function openCrate(crate) {
+  crate.open = true;
+  crate.glow.visible = false;
+  sparkle(crate.group.position);
+  cratesFound++;
 
-  if (found >= CHEST_TOTAL) finish();
-  else say("Treasure! " + found + " of " + CHEST_TOTAL, 1.8);
+  // the one down in the trench is the hardest to reach, so it holds most
+  const deepOne = crate.spot.y < -50;
+  const gotWood = 4, gotMetal = deepOne ? 8 : 4;
+  wood += gotWood;
+  scrap += gotMetal;
+
+  refreshHud();
+  refreshBench();
+  say("📦 Supplies! 🪵+" + gotWood + " ⚙+" + gotMetal, 2);
 }
 
 function finish() {
   playing = false;
 
+  /* You almost certainly finished standing at the workbench with its
+     panel open in front of you, so put that away - otherwise the
+     celebration turns up hidden behind it. */
+  document.getElementById("bench").hidden = true;
+  document.getElementById("book").hidden = true;
+  paused = false;
+
   const beaten = !best.done || clock < best.time;
   if (beaten) { best.time = clock; best.done = true; }
   save();
 
-  document.getElementById("donetitle").textContent = "🏆 ALL THE TREASURE!";
+  document.getElementById("donetitle").textContent = "🤿 FULLY KITTED OUT!";
   const text = document.getElementById("donetext");
   text.textContent = "";
 
   const line = document.createElement("div");
-  line.appendChild(document.createTextNode("You found all " + CHEST_TOTAL
-    + " chests in "));
+  line.appendChild(document.createTextNode(
+    "You built the workbench and made all four bits of gear in "));
   const b = document.createElement("b");
   b.textContent = clock.toFixed(1) + " seconds";
   line.appendChild(b);
-  line.appendChild(document.createTextNode(", and went " + Math.round(diveDeepest)
-    + " metres down."));
+  line.appendChild(document.createTextNode("."));
   text.appendChild(line);
+
+  const workLine = document.createElement("div");
+  workLine.textContent = "You chopped " + treesChopped + " trees, prised "
+    + (scrapPrised * METAL_EACH) + " bits of metal off the wreck, and found "
+    + cratesFound + " of " + CRATE_TOTAL + " supply crates.";
+  text.appendChild(workLine);
 
   const bookLine = document.createElement("div");
   bookLine.textContent = "Sea Book: " + seenCount() + " of " + CREATURES.length
-    + " creatures found.";
+    + " creatures found. You went " + Math.round(diveDeepest) + " metres down.";
   text.appendChild(bookLine);
 
   const note = document.createElement("div");
@@ -1629,7 +2181,8 @@ function finish() {
 function save() {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
-      time: best.time, done: best.done, deepest: best.deepest, seen: best.seen }));
+      time: best.time, done: best.done, deepest: best.deepest,
+      seen: best.seen, made: best.made }));
   } catch (e) {}
 }
 
@@ -1658,6 +2211,27 @@ function load() {
   const from = saved.seen;
   if (from && typeof from === "object") {
     for (const c of CREATURES) if (from[c.id] === true) best.seen[c.id] = true;
+  }
+
+  // and exactly the same rule again for the gear you have ever made
+  const kitMade = saved.made;
+  if (kitMade && typeof kitMade === "object") {
+    for (const r of RECIPES) if (kitMade[r.id] === true) best.made[r.id] = true;
+  }
+}
+
+/* The row of five on the front page. Anything you have ever made stays
+   lit up for good, even though every new run starts you with nothing -
+   it's a shelf of trophies, not a pocket. */
+function refreshKitRow() {
+  const row = document.getElementById("kitrow");
+  row.textContent = "";
+  for (const r of RECIPES) {
+    const one = document.createElement("span");
+    one.textContent = r.emoji;
+    one.id = "trophy-" + r.id;
+    if (best.made[r.id] === true) one.className = "made";
+    row.appendChild(one);
   }
 }
 
@@ -1704,7 +2278,9 @@ function step(dt) {
     _v.y *= wet;
     if (_v.lengthSq() > 0.0001) _v.normalize();
 
-    const push = (SWIM_PUSH * wet + WALK_PUSH * (1 - wet)) * cheats.fast * dt;
+    // flippers only help you in the water. They're no use walking.
+    const finned = gear.flippers ? FIN_PUSH : 1;
+    const push = (SWIM_PUSH * finned * wet + WALK_PUSH * (1 - wet)) * cheats.fast * dt;
     player.vel.addScaledVector(_v, forward * push);
 
     // sideways stays flat, so strafing never tips you up or down
@@ -1720,7 +2296,8 @@ function step(dt) {
        it, it's a jump - and only one per landing, or holding it down would
        bounce you along the beach like a space hopper. */
     if (wet > 0.5) {
-      player.vel.y += kick * KICK * cheats.fast * dt;
+      player.vel.y += kick * KICK * (gear.flippers ? FIN_KICK : 1)
+                      * cheats.fast * dt;
       jumpArmed = true;
     } else {
       if (kick > 0 && standing && jumpArmed) {
@@ -1760,15 +2337,17 @@ function step(dt) {
   player.vel.z *= keepFlat;
   player.vel.y *= keepUp;
 
-  const topFlat = MAX_SWIM * wet + MAX_WALK * (1 - wet);
+  const finTop = gear.flippers ? FIN_TOP : 1;
+  const topFlat = MAX_SWIM * finTop * wet + MAX_WALK * (1 - wet);
   const flat = Math.hypot(player.vel.x, player.vel.z);
   if (flat > topFlat) {
     player.vel.x *= topFlat / flat;
     player.vel.z *= topFlat / flat;
   }
   // falling is allowed to be faster than swimming down, or a jump looks silly
-  player.vel.y = Math.max(-Math.max(MAX_RISE, 30 * (1 - wet)),
-                          Math.min(MAX_RISE, player.vel.y));
+  const topRise = MAX_RISE * finTop;
+  player.vel.y = Math.max(-Math.max(topRise, 30 * (1 - wet)),
+                          Math.min(topRise, player.vel.y));
 
   player.pos.addScaledVector(player.vel, dt);
 
@@ -1794,7 +2373,7 @@ function step(dt) {
        there with no way to steer and no way out, forever. The promise is
        that floating up ALWAYS works, so nothing is allowed to be in the
        way of it. */
-    if (!dizzy) bumpIntoThings(player.pos);
+    if (!dizzy) { bumpIntoThings(player.pos); bumpIntoTrunks(player.pos); }
   }
 
   // ---- the edge of the lagoon: a push, never a wall ----
@@ -1818,8 +2397,10 @@ function step(dt) {
                      document.getElementById("floatup").classList.remove("on"); }
       }
     } else if (!cheats.air && !dizzy) {
-      const squeeze = mode === "free" ? 0
-                                      : DEEP_DRAIN * Math.min(1, -player.pos.y / 70);
+      /* The copper helmet takes the squeeze off entirely - which is to
+         say, it makes the deep behave the way Free Swim already does. */
+      const squeeze = (mode === "free" || gear.helmet) ? 0
+                    : DEEP_DRAIN * Math.min(1, -player.pos.y / 70);
       breath -= (1 + squeeze) * dt;
 
       for (const b of BUBBLERS) {
@@ -1841,9 +2422,9 @@ function step(dt) {
 
   // ---- treasure and creatures ----
   if (alive) {
-    for (const chest of chests) {
-      if (chest.open) continue;
-      if (chest.group.position.distanceTo(player.pos) < CHEST_REACH) openChest(chest);
+    for (const crate of crates) {
+      if (crate.open) continue;
+      if (crate.group.position.distanceTo(player.pos) < CRATE_REACH) openCrate(crate);
     }
 
     for (const c of CREATURES) {
@@ -1857,6 +2438,27 @@ function step(dt) {
     const deep = Math.max(0, -player.pos.y);
     if (deep > diveDeepest) diveDeepest = deep;
     if (deep > best.deepest) best.deepest = deep;
+  }
+
+  // ---- trees grow back, and more metal works loose off the wreck ----
+  if (alive) {
+    for (const t of PALMS) {
+      if (!t.down) continue;
+      t.back -= dt;
+      if (t.back <= 0) {                       // up comes a new one
+        t.down = false;
+        t.left = CHOPS;
+        t.fall = 0;
+        t.grow = 0;
+        t.root.rotation.x = 0;
+        t.root.visible = true;
+      }
+    }
+    for (const m of SCRAPS) {
+      if (m.here) continue;
+      m.back -= dt;
+      if (m.back <= 0) { m.here = true; m.group.visible = true; }
+    }
   }
 
   // ---- the creatures get on with their day whatever you're doing ----
@@ -1898,7 +2500,8 @@ function draw(time, dt) {
   // ---- how blue, and how dark, is it here? ----
   lightForDepth(camera.position.y);
   const density = waterAt(camera.position.y);
-  scene.fog.density = cheats.clear ? 0.002 : density;
+  scene.fog.density = cheats.clear ? 0.002
+                    : density * (gear.lamp ? 0.84 : 1);
   scene.fog.color.copy(_fogA);
   scene.background.copy(_fogA);          // same colour, or you'd see a seam
 
@@ -1936,6 +2539,32 @@ function draw(time, dt) {
   }
   snowGeo.attributes.position.needsUpdate = true;
 
+  /* ---- the diving lamp, if you've made one ----
+     Brightest where it's darkest, which is where you actually want it.
+     Turned up and down, never added or taken away. */
+  kit.light.intensity = gear.lamp
+    ? LAMP_POWER * (0.25 + 0.75 * smooth(-player.pos.y / 40)) : 0;
+
+  // ---- the palms sway, shake when you hit them, and topple over ----
+  for (const t of PALMS) {
+    if (t.grow < 1) {                       // a new one growing back up
+      t.grow = Math.min(1, t.grow + dt * 0.5);
+      t.root.scale.setScalar(0.1 + t.grow * 0.9);
+    }
+    if (t.down) {
+      if (t.fall < 1) {
+        t.fall = Math.min(1, t.fall + dt * 1.6);
+        t.root.rotation.x = t.fall * 1.5;   // over it goes
+        if (t.fall >= 1) t.root.visible = false;
+      }
+      continue;
+    }
+    if (t.shake > 0) t.shake = Math.max(0, t.shake - dt * 2);
+    const wobble = Math.sin(time * 8) * t.shake * 0.12;
+    t.top.rotation.z = Math.sin(time * 0.7 + t.x) * 0.07 + wobble;
+    t.top.rotation.x = Math.cos(time * 0.5 + t.z) * 0.05;
+  }
+
   // ---- weed leans in the current ----
   for (const w of swayers) {
     w.root.rotation.z = Math.sin(time * 0.8 + w.phase) * 0.18;
@@ -1949,14 +2578,14 @@ function draw(time, dt) {
     }
   }
 
-  // ---- chests: the lid swings open, the glow bobs ----
-  for (const chest of chests) {
-    if (chest.open && chest.swing > -1.9) {
-      chest.swing = Math.max(-1.9, chest.swing - dt * 4);
-      chest.hinge.rotation.x = chest.swing;
+  // ---- crates: the lid swings open, the glow bobs ----
+  for (const crate of crates) {
+    if (crate.open && crate.swing > -1.9) {
+      crate.swing = Math.max(-1.9, crate.swing - dt * 4);
+      crate.hinge.rotation.x = crate.swing;
     }
-    if (!chest.open) {
-      chest.glow.material.opacity = 0.55 + Math.sin(time * 2 + chest.spot.x) * 0.2;
+    if (!crate.open) {
+      crate.glow.material.opacity = 0.55 + Math.sin(time * 2 + crate.spot.x) * 0.2;
     }
   }
 
@@ -1982,6 +2611,30 @@ function draw(time, dt) {
   /* Never up in the sky - unless there's an island under it, and then it
      has to rise, or you'd spend the whole time watching your own feet. */
   _v.y = Math.min(_v.y, Math.max(1.6, camBed + 7));
+  /* If a palm has got between you and the camera, bring the camera IN
+     until it's this side of the tree. Shoving it sideways isn't enough -
+     stand next to a trunk and it just ends up pressed against the bark
+     with the screen full of tree. Coming closer always works. */
+  _look.subVectors(_v, player.pos);
+  const boom = Math.hypot(_look.x, _look.z);
+  if (boom > 0.01) {
+    const dx = _look.x / boom, dz = _look.z / boom;
+    let room = boom;
+    for (const t of TRUNKS) {
+      if (t.down) continue;
+      const rx = t.x - player.pos.x, rz = t.z - player.pos.z;
+      const along = rx * dx + rz * dz;                 // how far back the tree is
+      if (along <= 0.2 || along > boom) continue;      // behind you, or past it
+      const off = Math.hypot(rx - dx * along, rz - dz * along);
+      if (off < TRUNK_R + 0.9) room = Math.min(room, along - 1.0);
+    }
+    room = Math.max(1.8, room);
+    if (room < boom) {
+      _v.x = player.pos.x + dx * room;
+      _v.z = player.pos.z + dz * room;
+    }
+  }
+  bumpIntoTrunks(_v, 1.1);
   camera.position.lerp(_v, Math.min(1, dt * 5));
   camera.lookAt(_look.copy(player.pos).addScaledVector(_aim, 3));
 
@@ -2082,7 +2735,7 @@ function loop() {
   draw(now / 1000, dt);
 
   hudTick += dt;
-  if (hudTick > 0.1) { hudTick = 0; refreshHud(); }
+  if (hudTick > 0.1) { hudTick = 0; refreshHud(); refreshAction(); }
 }
 
 /* ---------------------------------------------------------------
@@ -2100,6 +2753,7 @@ addEventListener("keydown", e => {
   if (e.code === "KeyB") {
     if (document.getElementById("book").hidden) openBook(); else closeBook();
   }
+  if (e.code === "KeyE" || e.code === "Enter") doAction();
 });
 addEventListener("keyup", e => { keys[e.code] = false; });
 
@@ -2175,6 +2829,16 @@ document.getElementById("btn-again").addEventListener("click", () => startGame(m
 document.getElementById("bookbtn").addEventListener("click", openBook);
 document.getElementById("btn-book-start").addEventListener("click", openBook);
 document.getElementById("btn-book-close").addEventListener("click", closeBook);
+document.getElementById("btn-bench-close").addEventListener("click", closeBench);
+document.getElementById("btn-keep").addEventListener("click", () => {
+  // you've made everything - now go and use it
+  document.getElementById("done").hidden = true;
+  playing = true;
+  paused = false;
+  say("Off you go. The deep's all yours now.", 2.4);
+});
+actBtn.addEventListener("click", e => { e.preventDefault(); doAction(); });
+document.getElementById("actkey").hidden = HAS_TOUCH;
 
 addEventListener("pagehide", save);
 
@@ -2184,10 +2848,12 @@ addEventListener("pagehide", save);
 resize();
 load();
 refreshBook();
+refreshKitRow();
+refreshBench();
 resetDiver();
 refreshHud();
 refreshBreath();
-document.getElementById("chestpill").hidden = true;
+document.getElementById("matpill").hidden = true;
 document.getElementById("timepill").hidden = true;
 paused = true;                 // the sea moves, you don't, until you press DIVE IN
 loop();
@@ -2263,12 +2929,13 @@ const ADMIN_COMMANDS = [
     run: words => { cheats.ghost = wantsOn(words[0], cheats.ghost);
                     return "Ghost " + (cheats.ghost ? "on" : "off"); } },
 
-  { name: "chests", alias: ["treasure"], args: "",
-    help: "Open every chest at once",
+  { name: "crates", alias: ["chests", "treasure"], args: "",
+    help: "Open every supply crate at once",
+    state: () => cratesFound + "/" + CRATE_TOTAL,
     run: () => { if (mode !== "dive") return { bad: "You're just exploring" };
-                 if (!playing) return { bad: "You're not diving" };
-                 chests.filter(c => !c.open).forEach(openChest);
-                 return "Every chest, open"; } },
+                 if (!playing) return { bad: "You're not playing" };
+                 crates.filter(c => !c.open).forEach(openCrate);
+                 return "Every crate, open"; } },
 
   { name: "book", args: "[all/none]",
     help: "Fill in or wipe the Sea Book",
@@ -2293,10 +2960,33 @@ const ADMIN_COMMANDS = [
                     return c.name + ", right here"; } },
 
   { name: "best", args: "",
-    help: "Forget your best time (keeps the Sea Book)",
-    run: () => { best.time = 0; best.done = false; best.deepest = 0;
-                 save(); refreshHud();
-                 return "Best time and depth wiped — Sea Book kept"; } }
+    help: "Forget your best time and your kit (keeps the Sea Book)",
+    run: () => { best.time = 0; best.done = false; best.deepest = 0; best.made = {};
+                 save(); refreshHud(); refreshKitRow();
+                 return "Best time, depth and trophies wiped — Sea Book kept"; } },
+
+  { name: "wood", alias: ["stuff", "metal"], args: "<wood> [metal]",
+    help: "Give yourself wood and scrap metal",
+    state: () => wood + "w " + scrap + "m",
+    run: words => { wood = Math.round(number(words[0], 30, 0, 999));
+                    scrap = Math.round(number(words[1], wood, 0, 999));
+                    refreshHud(); refreshBench(); refreshAction();
+                    return wood + " wood, " + scrap + " metal"; } },
+
+  { name: "gear", alias: ["kit"], args: "[all/none/<name>]",
+    help: "Give yourself gear, or take it all away",
+    state: () => madeCount() + "/" + RECIPES.length,
+    run: words => { const w = String(words[0] || "all").toLowerCase();
+                    if (w === "none") RECIPES.forEach(r => { gear[r.id] = false; });
+                    else if (w === "all") RECIPES.forEach(r => { gear[r.id] = true; });
+                    else { const r = RECIPES.find(x => x.id === w);
+                           if (!r) return { bad: "Try all, none, or "
+                                            + RECIPES.map(x => x.id).join(", ") };
+                           gear[r.id] = true; }
+                    showBench(gear.bench); applyGear();
+                    refreshHud(); refreshBench(); refreshAction();
+                    // deliberately does NOT set the finish off - it's a cheat
+                    return "Gear: " + madeCount() + "/" + RECIPES.length; } }
 ];
 
 if (typeof OlliePlayer !== "undefined" && OlliePlayer.isAdmin()
