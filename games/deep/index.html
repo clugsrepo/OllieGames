@@ -678,7 +678,10 @@ const TRUNKS = [];
 function bumpIntoTrunks(pos, radius) {
   const r = TRUNK_R + (radius === undefined ? BODY_R : radius);
   for (const t of TRUNKS) {
-    if (t.down) continue;
+    /* A tree you've just chopped is still in the air, still standing in
+       your way. It stops being something you bump into the moment it
+       hits the ground, not the moment you swing at it. */
+    if (t.landed) continue;
     const dx = pos.x - t.x, dz = pos.z - t.z;
     const d = Math.hypot(dx, dz);
     if (d > r || d < 0.0001) continue;
@@ -941,6 +944,54 @@ function buildTunnel() {
   BUBBLERS.push({ x: at.x, y: y1, z: z0 + LONG - 4 });
 }
 
+/* ---- the logs a felled tree bursts into ----
+
+   Forty of them, made now and used over and over, the same as the gold
+   sparkles. Nothing in this game is ever built while you're playing.
+
+   They fall using the same how-wet-are-you number everything else uses,
+   so a log thrown onto the beach drops and settles, and one that lands
+   in the sea sinks slowly and gently. That's four lines for something
+   that would otherwise want a whole second set of rules. */
+const LOGS = [];
+const logGeo = new THREE.CylinderGeometry(0.22, 0.24, 1.1, 7);
+const logMat = new THREE.MeshLambertMaterial({ color: 0xa8845a });
+for (let i = 0; i < 40; i++) {
+  const mesh = new THREE.Mesh(logGeo, logMat);
+  mesh.rotation.z = Math.PI / 2;
+  mesh.visible = false;
+  scene.add(mesh);
+  LOGS.push({ mesh, out: false, vel: new THREE.Vector3(), spin: 0, rest: false });
+}
+
+function throwLogs(x, y, z, dirX, dirZ) {
+  let thrown = 0;
+  for (const log of LOGS) {
+    if (log.out || thrown >= LOGS_PER_TREE) continue;
+    /* Thrown flat and SHORT, in a little fan around the stump - a step
+       or three, no more. Never high and far: the palms on the rim are
+       only a few steps from the water, and a log that lands somewhere
+       you can't get to is wood you can never have. */
+    const sideways = (thrown - (LOGS_PER_TREE - 1) / 2) * 0.6;
+    const along = 0.8 + thrown * 0.45;
+    log.mesh.position.set(x + dirX * along - dirZ * sideways,
+                          y + 0.6,
+                          z + dirZ * along + dirX * sideways);
+    log.vel.set(dirX * 0.8 - dirZ * sideways * 0.5, 1.2,
+                dirZ * 0.8 + dirX * sideways * 0.5);
+    log.mesh.rotation.set(Math.random() * 3, Math.random() * 3, Math.PI / 2);
+    log.spin = 2 + Math.random() * 3;
+    log.out = true;
+    log.rest = false;
+    log.mesh.visible = true;
+    thrown++;
+  }
+}
+
+function clearLogs() {
+  for (const log of LOGS) { log.out = false; log.rest = false; log.mesh.visible = false; }
+}
+
 /* ---- the island: palm trees, and a clearing to build in ----
 
    Each palm is a leaning trunk with six leaves on a joint at the top,
@@ -951,10 +1002,18 @@ function buildTunnel() {
    grows up in its place - so however carelessly you chop, you can never
    end up stuck on an island with no wood left on it. */
 const TRUNK_R    = 0.55;
-const CHOPS      = 3;       // how many swings a tree takes
-const WOOD_CHOP  = 2;       // and how much wood each swing gives you
-const TREE_BACK  = 45;      // seconds until a new one has grown
+const CHOPS      = 3;         // how many swings a tree takes
+const TREE_BACK  = 45;        // seconds until a new one has grown
 const CHOP_REACH = 3.4;
+
+/* Chopping doesn't put wood in your pocket. It knocks the tree over, and
+   the tree BURSTS when it lands - six logs thrown out across the sand
+   for you to go and pick up. Same six wood a tree was always worth, but
+   you have to walk over them. */
+const LOGS_PER_TREE = 6;
+const WOOD_PER_LOG  = 1;
+const LOG_REACH     = 2.6;    // generous - hoovering them up should be easy
+const LOG_GRAVITY   = 22;
 
 const BENCH_SPOT = { x: 0, y: ISLAND.top, z: 6 };
 const BENCH_REACH = 3.4;
@@ -1077,7 +1136,7 @@ for (const b of BUBBLERS) {
 }
 
 /* ---- the treasure ---- */
-const CRATE_TOTAL = CRATE_SPOTS.length;      // eight, one per hiding place
+const CRATE_TOTAL = CRATE_SPOTS.length;      // fourteen, one per hiding place
 const CRATE_REACH = 2.2;
 const crates = [];
 
@@ -1456,17 +1515,22 @@ function costText(r) { return "🪵" + r.wood + (r.scrap ? " ⚙" + r.scrap : ""
 function chop(t) {
   t.shake = 0.45;
   t.left--;
-  wood += WOOD_CHOP;
-  if (t.left <= 0) {
-    t.down = true;
-    t.fall = 0;
-    t.back = TREE_BACK;
-    treesChopped++;
-    say("Timber! 🪵 " + wood + " wood", 1.8);
-  } else {
-    say("🪵 " + wood + " wood", 1.2);
-  }
-  refreshHud();
+  if (t.left > 0) { say("Whack!", 0.9); return; }
+
+  /* Over it goes - away from you, because that is the way a tree you
+     have just chopped ought to fall. */
+  const dx = t.x - player.pos.x, dz = t.z - player.pos.z;
+  const away = Math.hypot(dx, dz) || 1;
+  t.fallX = dx / away;
+  t.fallZ = dz / away;
+  t.down = true;
+  t.fallAngle = 0;
+  t.fallSpeed = 0;
+  t.landed = false;
+  t.gone = 0;
+  t.back = TREE_BACK;
+  treesChopped++;
+  say("Timber!", 1.6);
 }
 
 /* ---- prising a piece of metal off the wreck ---- */
@@ -2187,9 +2251,11 @@ function startGame(which) {
   for (const r of RECIPES) gear[r.id] = mode === "free";
 
   for (const t of PALMS) { t.down = false; t.left = CHOPS; t.back = 0;
-                           t.fall = 0; t.grow = 1; t.shake = 0;
-                           t.root.rotation.x = 0; t.root.visible = true;
+                           t.fallAngle = 0; t.fallSpeed = 0; t.landed = false;
+                           t.gone = 0; t.grow = 1; t.shake = 0;
+                           t.root.rotation.set(0, 0, 0); t.root.visible = true;
                            t.root.scale.setScalar(1); }
+  clearLogs();
   for (const m of SCRAPS) { m.here = true; m.back = 0; m.group.visible = true; }
 
   showBench(gear.bench);
@@ -2566,6 +2632,20 @@ function step(dt) {
     if (deep > best.deepest) best.deepest = deep;
   }
 
+  // ---- logs are picked up just by touching them ----
+  if (alive) {
+    for (const log of LOGS) {
+      if (!log.out) continue;
+      if (log.mesh.position.distanceTo(player.pos) > LOG_REACH) continue;
+      log.out = false;
+      log.mesh.visible = false;
+      wood += WOOD_PER_LOG;
+      sparkle(log.mesh.position);
+      refreshHud();
+      refreshBench();
+    }
+  }
+
   // ---- trees grow back, and more metal works loose off the wreck ----
   if (alive) {
     for (const t of PALMS) {
@@ -2574,9 +2654,12 @@ function step(dt) {
       if (t.back <= 0) {                       // up comes a new one
         t.down = false;
         t.left = CHOPS;
-        t.fall = 0;
+        t.fallAngle = 0;
+        t.fallSpeed = 0;
+        t.landed = false;
+        t.gone = 0;
         t.grow = 0;
-        t.root.rotation.x = 0;
+        t.root.rotation.set(0, 0, 0);
         t.root.visible = true;
       }
     }
@@ -2678,10 +2761,42 @@ function draw(time, dt) {
       t.root.scale.setScalar(0.1 + t.grow * 0.9);
     }
     if (t.down) {
-      if (t.fall < 1) {
-        t.fall = Math.min(1, t.fall + dt * 1.6);
-        t.root.rotation.x = t.fall * 1.5;   // over it goes
-        if (t.fall >= 1) t.root.visible = false;
+      if (!t.landed) {
+        /* A real tree starts slowly and finishes fast, so we don't ease
+           it by hand - we just let it speed up, which IS the easing and
+           is the honest one. */
+        t.fallSpeed += dt * 3.2;
+        t.fallAngle = Math.min(Math.PI / 2, t.fallAngle + t.fallSpeed * dt);
+
+        /* It topples the way it was pushed, which means turning it about
+           a line lying across that direction rather than always about x. */
+        t.root.rotation.set(0, 0, 0);
+        t.root.rotateOnWorldAxis(_v.set(t.fallZ, 0, -t.fallX).normalize(),
+                                 t.fallAngle);
+
+        if (t.fallAngle >= Math.PI / 2) {
+          t.landed = true;
+          t.bounce = 0.14;                  // one small thump as it hits
+          /* THE LANDING is what throws the wood out - not the chop, and
+             not somewhere up in mid-air. It hits the ground and the logs
+             go everywhere. */
+          throwLogs(t.x, ISLAND.top, t.z, t.fallX, t.fallZ);
+          say("Timber! Six logs to pick up.", 2.2);
+        }
+      } else if (t.bounce > 0) {
+        t.bounce = Math.max(0, t.bounce - dt * 0.9);
+        t.root.rotation.set(0, 0, 0);
+        t.root.rotateOnWorldAxis(_v.set(t.fallZ, 0, -t.fallX).normalize(),
+                                 Math.PI / 2 - t.bounce * Math.sin(time * 22));
+      } else if (t.gone < 1) {
+        // then it settles into the sand and fades away, rather than
+        // blinking out of existence the instant it lands
+        t.gone = Math.min(1, t.gone + dt * 0.5);
+        t.root.position.y = ISLAND.top - t.gone * 3.5;
+        if (t.gone >= 1) {
+          t.root.visible = false;
+          t.root.position.y = ISLAND.top;
+        }
       }
       continue;
     }
@@ -2689,6 +2804,37 @@ function draw(time, dt) {
     const wobble = Math.sin(time * 8) * t.shake * 0.12;
     t.top.rotation.z = Math.sin(time * 0.7 + t.x) * 0.07 + wobble;
     t.top.rotation.x = Math.cos(time * 0.5 + t.z) * 0.05;
+  }
+
+  /* ---- the logs, tumbling and settling ----
+     Same how-wet-are-you number as everything else: a log on the beach
+     drops and stops, and a log thrown out over the water BOBS BACK UP,
+     because wood floats. That last bit matters more than it sounds -
+     the palms on the rim are a couple of steps from the sea, and a log
+     that sank down the slope would be wood you could never have. */
+  for (const log of LOGS) {
+    if (!log.out || log.rest) continue;
+    const soggy = wetness(log.mesh.position.y);
+    log.vel.y -= LOG_GRAVITY * (1 - soggy) * dt;      // falls on land
+    log.vel.y += (2.5 - log.vel.y) * soggy * dt * 3;  // floats up in water
+    log.vel.x *= Math.exp(-(1.5 + 6 * (1 - soggy)) * dt);
+    log.vel.z *= Math.exp(-(1.5 + 6 * (1 - soggy)) * dt);
+    log.mesh.position.addScaledVector(log.vel, dt);
+    log.mesh.rotation.x += log.spin * dt;
+    log.spin *= Math.exp(-2 * dt);
+
+    const bed = seabedAt(log.mesh.position.x, log.mesh.position.z);
+    if (log.mesh.position.y - 0.24 <= bed) {          // down on the sand
+      log.mesh.position.y = bed + 0.24;
+      log.rest = true;
+    } else if (log.mesh.position.y >= -0.2 && bed < -0.4) {
+      log.mesh.position.y = -0.2;                     // bobbing at the top
+      log.rest = true;
+    }
+    if (log.rest) {
+      log.vel.set(0, 0, 0);
+      log.mesh.rotation.set(0, Math.random() * 3, Math.PI / 2);
+    }
   }
 
   // ---- weed leans in the current ----
@@ -3027,10 +3173,10 @@ const ADMIN_COMMANDS = [
                     refreshHud();
                     return "Down at " + Math.round(-player.pos.y) + "m"; } },
 
-  { name: "go", args: "<island/wreck/arch/cave/kelp/trench>",
+  { name: "go", args: "<island/wreck/arch/cave/tunnel/kelp/trench>",
     help: "Jump to somewhere worth seeing",
     run: words => { const spot = LANDMARKS[String(words[0] || "").toLowerCase()];
-                    if (!spot) return { bad: "Try island, wreck, arch, cave, kelp or trench" };
+                    if (!spot) return { bad: "Try island, wreck, arch, cave, tunnel, kelp or trench" };
                     if (words[0].toLowerCase() === "tunnel") {
                       // right outside the mouth, at the height of the hole
                       player.pos.set(TUNNEL_MOUTH.x, TUNNEL_MOUTH.y, TUNNEL_MOUTH.z);
