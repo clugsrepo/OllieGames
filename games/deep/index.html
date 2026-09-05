@@ -342,9 +342,26 @@ const SAVE_KEY = SAVE_PREFIX + whoAmI().toLowerCase();
 const SURFACE_Y   = 0;
 const BED_Y       = -34;      // the sandy floor
 const TRENCH_Y    = -78;      // the bottom of the deep trench
-const LAGOON_R    = 110;      // swim past this and the current turns you back
-const SEABED_SPAN = 240;
-const SEABED_SEGS = 120;      // one square every 2 steps, so the beach is a slope
+const LAGOON_R    = 220;      // swim past this and the current turns you back
+const SEABED_SPAN = 480;
+const SEABED_SEGS = 150;
+
+/* SMALL SQUARES NEAR HOME, BIG ONES FAR OUT.
+
+   The sea floor is one enormous square of sand and it is far and away
+   the biggest thing the computer has to draw. Making the sea twice as
+   wide makes it FOUR times as big, and if every square stayed the same
+   size that would be four times the work - which a phone would notice.
+
+   So the squares aren't all the same size. This bends them towards the
+   middle: tiny where the island and the beach are and you can see every
+   ripple, and enormous two hundred steps out where it's flat sand you're
+   mostly looking at through the murk anyway. Same sea, nearly the same
+   work, and nobody can tell.
+
+   It has to be one single sheet, mind. Two sheets of different sizes
+   would leave a crack along the join for you to fall through. */
+function spread(u) { return u * (0.35 + 0.65 * u * u); }   // u runs -1 to 1
 
 /* Scratch vectors. We make these ONCE and reuse them, because the
    drawing code runs sixty times a second and making new ones every
@@ -589,7 +606,12 @@ const caustics = makeCaustics();
 const bedGeo = new THREE.PlaneGeometry(SEABED_SPAN, SEABED_SPAN, SEABED_SEGS, SEABED_SEGS);
 bedGeo.rotateX(-Math.PI / 2);
 const bedPos = bedGeo.attributes.position;
+const bedHalf = SEABED_SPAN / 2;
 for (let i = 0; i < bedPos.count; i++) {
+  // bunch the corners in towards the middle first...
+  bedPos.setX(i, spread(bedPos.getX(i) / bedHalf) * bedHalf);
+  bedPos.setZ(i, spread(bedPos.getZ(i) / bedHalf) * bedHalf);
+  // ...and only then ask how high the sand is at wherever they ended up
   bedPos.setY(i, seabedAt(bedPos.getX(i), bedPos.getZ(i)));
 }
 bedGeo.computeVertexNormals();      // worked out ONCE, never again
@@ -678,10 +700,11 @@ function block(cx, cy, cz, sx, sy, sz, colour, solid) {
 const LANDMARKS = {
   island: { x:   0, z:    0 },
   home:   { x:   0, z:    0 },
-  wreck:  { x: -40, z:   18 },
-  arch:   { x:  30, z:   55 },
-  cave:   { x: -20, z:  -60 },
-  kelp:   { x: -74, z:  -22 },
+  wreck:  { x: -40, z:   18 },     // stays close: the only metal in the game
+  arch:   { x:  62, z:  100 },
+  cave:   { x: -44, z: -118 },
+  kelp:   { x:-136, z:  -40 },
+  tunnel: { x: 118, z:  -96 },
   trench: { x:  46, z:  -30 }
 };
 
@@ -771,8 +794,9 @@ function buildCave() {
    properly, corner by corner, would look about the same and cost the
    phone a hundred times as much. */
 const KELP_PATCHES = [
-  { x: -74, z: -22 }, { x: -62, z:  -6 }, { x: -84, z: -38 },
-  { x:  10, z:  74 }, { x:  22, z:  86 }, { x:  -2, z:  62 }
+  { x:-136, z: -40 }, { x:-118, z: -14 }, { x:-152, z: -66 },
+  { x:  20, z: 138 }, { x:  40, z: 160 }, { x:  -6, z: 116 },
+  { x: -70, z:  76 }, { x: 150, z:  40 }, { x:  86, z:-158 }
 ];
 
 function buildKelp() {
@@ -809,9 +833,9 @@ function buildKelp() {
 
 /* ---- scattered rocks and coral, so the sand isn't empty ---- */
 function buildRocks() {
-  for (let i = 0; i < 18; i++) {
+  for (let i = 0; i < 46; i++) {
     const angle = i * 1.7;
-    const dist = 20 + (i * 11) % 80;
+    const dist = 20 + (i * 17) % 185;
     const x = Math.cos(angle) * dist, z = Math.sin(angle) * dist;
     if (seabedAt(x, z) > -3) continue;            // not up on the island
     const size = 1.6 + (i % 4) * 0.9;
@@ -825,9 +849,9 @@ function buildRocks() {
 
   // coral: little bright knobbly clumps up in the shallow bit
   const coralColours = [0xff8fa3, 0xffc46b, 0xc98fff, 0x6bf0d0];
-  for (let i = 0; i < 22; i++) {
+  for (let i = 0; i < 40; i++) {
     const angle = i * 2.3;
-    const dist = 8 + (i * 7) % 40;
+    const dist = 8 + (i * 13) % 120;
     const x = Math.cos(angle) * dist, z = Math.sin(angle) * dist;
     if (seabedAt(x, z) > -3) continue;            // coral doesn't grow on a beach
     const c = new THREE.Mesh(new THREE.SphereGeometry(0.9 + (i % 3) * 0.4, 8, 6),
@@ -836,6 +860,85 @@ function buildRocks() {
     c.scale.y = 1.5;
     scene.add(c);
   }
+}
+
+/* ---- the long tunnel ----
+
+   A ridge of rock away out east with a hole bored right the way through
+   it. Forty-six steps of rock over your head, and dark as anything in
+   the middle.
+
+   It is four straight boxes - a floor, a roof and a wall down each side
+   - and not one of them is turned at an angle, which is the whole trick.
+   A turned box cannot be bumped into properly (you can only ever guess a
+   straight box around it) and a tunnel whose walls are a guess is a
+   tunnel you get stuck in.
+
+   It's flat, too, and that matters more than it sounds. I tried it with
+   a step up in the middle to hide the far end, and swimming along the
+   floor you simply stopped dead at the step - a five-step wall is not
+   something you can climb while you're lying down. Long and dark hides
+   the far end perfectly well and cannot trap anybody.
+
+   The bubbles are at the FAR end, deliberately. Getting all the way
+   through is what earns you a breath, so the honest way out is onward
+   rather than back the way you came. And the middle is pitch dark, which
+   is the first place the diving lamp really earns its keep. */
+const TUNNEL_MOUTH = { x: 0, y: 0, z: 0 };
+
+function buildTunnel() {
+  const at = LANDMARKS.tunnel;
+  const floor = seabedAt(at.x, at.z);
+  /* Roomy on purpose. You float upwards the whole time you're swimming,
+     so a hole exactly your own size is one you bounce off the top of.
+     Six across gives you somewhere to drift. */
+  const BORE = 6.4;
+  const WALL = 3;
+  const LONG = 46;
+  const y1 = floor + 3.6;           // the middle of the hole
+  const z0 = at.z;                  // the tunnel runs along +z from here
+  const rock = new THREE.MeshLambertMaterial({ color: 0x3b4547 });
+
+  function slab(cx, cy, cz, sx, sy, sz) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), rock);
+    m.position.set(cx, cy, cz);
+    scene.add(m);
+    solidBox(cx, cy, cz, sx, sy, sz);
+  }
+
+  const wide = BORE + WALL * 2;
+  const zMid = z0 + LONG / 2;
+  slab(at.x, y1 - BORE / 2 - WALL / 2, zMid, wide, WALL, LONG);   // the floor
+  slab(at.x, y1 + BORE / 2 + WALL / 2, zMid, wide, WALL, LONG);   // the roof
+  for (const side of [-1, 1]) {                                    // and the sides
+    slab(at.x + side * (BORE / 2 + WALL / 2), y1, zMid, WALL, BORE, LONG);
+  }
+
+  /* A ridge of boulders piled along the top and out to each side, so
+     from the outside it reads as a hill with a hole in it rather than a
+     box sitting on the sand. Kept well clear of the bore - a decoration
+     that pokes into the passage would fill your screen with rock. */
+  for (let i = 0; i < 14; i++) {
+    const along = -8 + (i / 13) * (LONG + 16);
+    const side = (i % 3 - 1) * (BORE + WALL + 2);
+    const lump = new THREE.Mesh(new THREE.DodecahedronGeometry(5 + (i % 3) * 1.6, 0),
+                                mat(0x46524f));
+    const ly = y1 + BORE / 2 + WALL + 4;
+    lump.position.set(at.x + side, ly, z0 + along);
+    lump.rotation.set(i, i * 1.4, i * 0.6);
+    scene.add(lump);
+  }
+
+  // where ";go tunnel" drops you: outside the near mouth, lined up to go in
+  TUNNEL_MOUTH.x = at.x;
+  TUNNEL_MOUTH.y = y1;
+  TUNNEL_MOUTH.z = z0 - 3;
+
+  CRATE_SPOTS.push({ x: at.x, y: y1 - BORE / 2 + 0.8, z: zMid,
+                     hint: "halfway through the long tunnel" });
+  CRATE_SPOTS.push({ x: at.x, y: y1 + 0.5, z: z0 + LONG + 5,
+                     hint: "out the far end of the tunnel" });
+  BUBBLERS.push({ x: at.x, y: y1, z: z0 + LONG - 4 });
 }
 
 /* ---- the island: palm trees, and a clearing to build in ----
@@ -922,12 +1025,39 @@ function buildTrench() {
 }
 
 buildWreck();
+buildTunnel();
 buildPalms();
 buildArch();
 buildCave();
 buildKelp();
 buildRocks();
 buildTrench();
+
+/* ---- a few more crates, hidden away in the wide new water ---- */
+function scatterMoreCrates() {
+  const spots = [
+    { x:  -70, z:   76, hint: "in the weeds out west" },
+    { x:  150, z:   40, hint: "in the far eastern weeds" },
+    { x:   64, z:  -66, hint: "on the rim of the trench" },
+    { x: -164, z:  108, hint: "right out at the edge of everything" }
+  ];
+  for (const spot of spots) {
+    // a couple of boulders to tuck it behind, so it isn't just sitting
+    // on bare sand looking silly
+    for (let i = 0; i < 3; i++) {
+      const a = i * 2.1;
+      const rx = spot.x + Math.cos(a) * 3.2, rz = spot.z + Math.sin(a) * 3.2;
+      const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(2 + i * 0.6, 0),
+                                  mat(0x44514f));
+      rock.position.set(rx, seabedAt(rx, rz) + 0.8, rz);
+      rock.rotation.set(i, i * 1.9, i * 0.4);
+      scene.add(rock);
+    }
+    CRATE_SPOTS.push({ x: spot.x, y: seabedAt(spot.x, spot.z) + 1,
+                       z: spot.z, hint: spot.hint });
+  }
+}
+scatterMoreCrates();
 
 /* ---- the streams of bubbles that top your air up ----
    Twelve little balls per stream, and when one reaches the top it's
@@ -1552,11 +1682,7 @@ function whatCanIDo() {
     const d = m.group.position.distanceTo(player.pos);
     if (d < SCRAP_REACH) offer(d, "⚙ Prise off", false, () => prise(m));
   }
-  for (const c of crates) {
-    if (c.open) continue;
-    const d = c.group.position.distanceTo(player.pos);
-    if (d < CRATE_REACH) offer(d, "📦 Open", false, () => openCrate(c));
-  }
+
   const db = flatTo(BENCH_SPOT.x, BENCH_SPOT.z);
   if (db < BENCH_REACH && Math.abs(player.pos.y - BENCH_SPOT.y) < 4) {
     if (gear.bench) offer(db, "🔨 Craft", false, openBench);
@@ -2905,9 +3031,15 @@ const ADMIN_COMMANDS = [
     help: "Jump to somewhere worth seeing",
     run: words => { const spot = LANDMARKS[String(words[0] || "").toLowerCase()];
                     if (!spot) return { bad: "Try island, wreck, arch, cave, kelp or trench" };
-                    const floor = seabedAt(spot.x, spot.z);
-                    player.pos.set(spot.x,
-                      floor > 0 ? floor + BELLY : Math.min(-2, floor + 9), spot.z);
+                    if (words[0].toLowerCase() === "tunnel") {
+                      // right outside the mouth, at the height of the hole
+                      player.pos.set(TUNNEL_MOUTH.x, TUNNEL_MOUTH.y, TUNNEL_MOUTH.z);
+                      camYaw = 0; camPitch = 0;          // looking straight in
+                    } else {
+                      const floor = seabedAt(spot.x, spot.z);
+                      player.pos.set(spot.x,
+                        floor > 0 ? floor + BELLY : Math.min(-2, floor + 9), spot.z);
+                    }
                     player.vel.set(0, 0, 0);
                     refreshHud();
                     return "Off to the " + words[0]; } },
