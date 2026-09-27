@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Chunk &amp; Pip</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: "Trebuchet MS", Verdana, sans-serif;
+    background: #15121f;
+    color: #fff;
+    touch-action: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  canvas { display: block; }
+  [hidden] { display: none !important; }
+
+  /* ---- the bits along the top ---- */
+  #hud {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    z-index: 10;
+  }
+  .pill {
+    position: absolute; top: max(12px, env(safe-area-inset-top));
+    font-size: 1rem; font-weight: bold;
+    padding: 9px 14px;
+    border-radius: 14px;
+    background: rgba(12,10,22,0.66);
+    border: 2px solid rgba(255,255,255,0.16);
+    color: #fff;
+    white-space: nowrap;
+  }
+  #floorpill { left: max(12px, env(safe-area-inset-left)); }
+  #timepill  { left: max(12px, env(safe-area-inset-left)); top: calc(max(12px, env(safe-area-inset-top)) + 46px); }
+  #whopill   { right: max(12px, env(safe-area-inset-right)); }
+  #floorname { color: #ffd93d; }
+  #besttime  { color: #9d95cc; font-weight: normal; font-size: 0.82rem; }
+
+  /* who is on the exit pad yet - two little lamps */
+  #padrow {
+    position: absolute; right: max(12px, env(safe-area-inset-right));
+    top: calc(max(12px, env(safe-area-inset-top)) + 46px);
+    display: flex; gap: 8px;
+  }
+  .lamp {
+    font-size: 0.85rem; font-weight: bold;
+    padding: 7px 11px; border-radius: 12px;
+    background: rgba(12,10,22,0.66);
+    border: 2px solid rgba(255,255,255,0.16);
+    opacity: 0.45;
+    transition: opacity 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .lamp.on {
+    opacity: 1;
+    border-color: #7ef7a0;
+    background: rgba(40,110,60,0.72);
+  }
+
+  /* ---- the hint, and things the game says ---- */
+  #hint {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    top: calc(max(12px, env(safe-area-inset-top)) + 92px);
+    max-width: min(520px, 76vw);
+    text-align: center;
+    font-size: 0.95rem;
+    padding: 9px 16px;
+    border-radius: 14px;
+    background: rgba(12,10,22,0.66);
+    border: 2px solid rgba(255,255,255,0.16);
+    line-height: 1.35;
+  }
+  #message {
+    position: absolute; left: 50%; top: 42%;
+    transform: translateX(-50%);
+    font-size: clamp(1.3rem, 4.4vw, 2.1rem);
+    font-weight: bold;
+    text-align: center;
+    text-shadow: 0 3px 14px rgba(0,0,0,0.8);
+    opacity: 0;
+    transition: opacity 0.25s;
+    white-space: pre-line;
+  }
+  #message.show { opacity: 1; }
+
+  #home {
+    position: fixed; z-index: 30;
+    top: max(12px, env(safe-area-inset-top)); left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.9rem; font-weight: bold;
+    text-decoration: none;
+    padding: 8px 14px; border-radius: 12px;
+    color: #9ff5c0; background: rgba(12,10,22,0.72);
+    border: 2px solid rgba(159,245,192,0.4);
+  }
+
+  /* ---- on-screen controls, phones only ---- */
+  #touch { position: fixed; inset: 0; z-index: 20; pointer-events: none; }
+  #stick-move {
+    position: absolute;
+    left: max(18px, env(safe-area-inset-left));
+    bottom: max(24px, calc(env(safe-area-inset-bottom) + 18px));
+    width: 132px; height: 132px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.09);
+    border: 2px solid rgba(255,255,255,0.22);
+    pointer-events: auto;
+  }
+  #knob {
+    position: absolute; left: 50%; top: 50%;
+    width: 58px; height: 58px; margin: -29px 0 0 -29px;
+    border-radius: 50%;
+    background: rgba(255,217,61,0.5);
+    border: 2px solid rgba(255,217,61,0.85);
+  }
+  .trim {
+    position: absolute;
+    right: max(18px, env(safe-area-inset-right));
+    width: 74px; height: 74px;
+    font-size: 1.5rem;
+    border-radius: 50%; cursor: pointer;
+    color: #fff; background: rgba(255,255,255,0.12);
+    border: 2px solid rgba(255,255,255,0.3);
+    pointer-events: auto;
+  }
+  #btn-jump { bottom: max(24px, calc(env(safe-area-inset-bottom) + 18px)); }
+  #btn-grab { bottom: max(108px, calc(env(safe-area-inset-bottom) + 102px)); }
+  .trim:active { transform: scale(0.93); }
+
+  /* ---- the big panels ---- */
+  .panel {
+    position: fixed; inset: 0; z-index: 40;
+    display: flex; align-items: center; justify-content: center;
+    padding: 18px;
+    background: rgba(8,6,16,0.82);
+    overflow-y: auto;
+  }
+  .box {
+    max-width: 600px; width: 100%;
+    background: #221b38;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-radius: 22px;
+    padding: 26px 24px;
+    text-align: center;
+  }
+  .box h1 { font-size: clamp(1.5rem, 5.5vw, 2.2rem); margin-bottom: 12px; }
+  .box p { color: #cfc9f5; line-height: 1.55; margin-bottom: 13px; font-size: 0.97rem; }
+  .box b { color: #fff; }
+  .btn {
+    font-family: inherit; font-size: 1.05rem; font-weight: bold;
+    padding: 12px 24px; margin: 5px 4px;
+    border-radius: 14px; cursor: pointer;
+    color: #1a1a2e; background: #ffd93d; border: none;
+    text-decoration: none; display: inline-block;
+  }
+  .btn.alt { color: #fff; background: rgba(255,255,255,0.14);
+             border: 2px solid rgba(255,255,255,0.3); }
+
+  /* the two of them, side by side on the start screen */
+  #pairrow { display: flex; gap: 14px; justify-content: center;
+             flex-wrap: wrap; margin: 16px 0 18px; }
+  .who {
+    flex: 1 1 210px; max-width: 250px;
+    border-radius: 16px; padding: 14px 13px;
+    background: rgba(0,0,0,0.26);
+    border: 2px solid rgba(255,255,255,0.16);
+    text-align: left;
+  }
+  .who h3 { font-size: 1.1rem; margin-bottom: 6px; }
+  .who p { font-size: 0.87rem; margin-bottom: 6px; color: #cfc9f5; }
+  .who .keys { font-size: 0.8rem; color: #ffd93d; font-weight: bold; }
+  #who-chunk { border-color: rgba(255,138,76,0.55); }
+  #who-chunk h3 { color: #ff8a4c; }
+  #who-pip   { border-color: rgba(126,247,160,0.55); }
+  #who-pip h3 { color: #7ef7a0; }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div class="pill" id="floorpill">🗼 Floor <b id="floornum">1</b>/<b id="floortotal">2</b> · <span id="floorname"></span></div>
+  <div class="pill" id="timepill">⏱ <b id="time">0.0</b>s <span id="besttime"></span></div>
+  <div id="padrow">
+    <div class="lamp" id="lamp-chunk">🟧 Chunk</div>
+    <div class="lamp" id="lamp-pip">🟩 Pip</div>
+  </div>
+  <div id="hint"></div>
+  <div id="message"></div>
+</div>
+
+<a id="home" href="../../index.html">← Home</a>
+
+<div id="touch" hidden>
+  <div id="stick-move"><div class="knob" id="knob"></div></div>
+  <button class="trim" id="btn-jump">⤴</button>
+  <button class="trim" id="btn-grab">✊</button>
+</div>
+
+<div class="panel" id="start">
+  <div class="box">
+    <h1>🤝 CHUNK &amp; PIP</h1>
+    <p>Two friends stuck at the bottom of a tumbledown tower. The only way
+       is up — and <b>neither of you can do it on your own</b>.</p>
+
+    <div id="pairrow">
+      <div class="who" id="who-chunk">
+        <h3>🟧 Chunk</h3>
+        <p>Big and heavy. Holds down the chunky floor plates, and later on
+           he can shove crates about and throw Pip across gaps.</p>
+        <p>Too big for the little doorways.</p>
+        <p class="keys" id="keys-chunk">W A S D · Space to jump</p>
+      </div>
+      <div class="who" id="who-pip">
+        <h3>🟩 Pip</h3>
+        <p>Small and quick. Squeezes through the little doorways Chunk can't
+           fit through, and can climb up on top of Chunk.</p>
+        <p>Far too light to hold a heavy plate down.</p>
+        <p class="keys" id="keys-pip">Arrow keys · Right Shift to jump</p>
+      </div>
+    </div>
+
+    <p><b>The door out only opens when you are BOTH standing on it.</b>
+       Getting yourself there is only half of it.</p>
+
+    <p id="how-desktop">Two of you, one keyboard. One takes the left side,
+       one takes the right.</p>
+    <p id="how-touch" hidden>The stick and the buttons move <b>Chunk</b>.
+       Playing with a friend on a phone needs the joining code, which is
+       coming next.</p>
+
+    <p>
+      <button class="btn" id="btn-play">START!</button>
+    </p>
+  </div>
+</div>
+
+<div class="panel" id="done" hidden>
+  <div class="box">
+    <h1 id="donetitle">🎉 OUT!</h1>
+    <p id="donetext"></p>
+    <p>
+      <button class="btn" id="btn-again">Go again</button>
+      <a class="btn alt" href="../../index.html">Home</a>
+    </p>
+  </div>
+</div>
+
+<script src="../../shared/player.js"></script>
+<script src="three.min.js"></script>
+<script src="../../shared/admin-panel.js"></script>
+<script>
+/* =====================================================================
+   CHUNK & PIP
+
+   A game for two. One of you is big and heavy, the other is small and
+   quick, and the whole point is that NEITHER of you can get out of a
+   floor on your own. Not "it's easier with a friend" - actually cannot.
+   The door out only opens when both of you are standing on it, so every
+   single floor ends with the two of you in the same place.
+
+   That one rule is doing an enormous amount of work. If both players
+   could do the same things, the second player would just be a spare
+   pair of hands and you'd end up taking turns. Because they are
+   DIFFERENT, every floor is a little conversation: "you stand there,
+   I'll go round".
+
+   Chunk is heavy, so he holds plates down and Pip can stand on his head.
+   Pip is small, so he fits through gaps Chunk can only look at.
+
+   The floors are just DATA - a list of boxes, plates and doors further
+   down. Adding a floor means adding one entry to that list, not writing
+   any more code.
+   ===================================================================== */
+
+/* ---------------------------------------------------------------------
+   THE SHAPE OF THE WORLD
+
+   Everything solid is a box, and every box is the same kind of thing:
+   a lump with a lowest and highest corner. Walls, floors, doors and the
+   two players are all boxes. One shape means one piece of bumping-into
+   code instead of four, and that code below has been the difference
+   between a game that feels solid and one that drops you through the
+   floor.
+   --------------------------------------------------------------------- */
+const SOLIDS = [];
+
+function solidBox(cx, cy, cz, w, h, d) {
+  /* Hands the box back so whoever made it can switch it off later - an
+     open door has to stop being solid, or you'd walk into the ghost of
+     it for the rest of the floor. */
+  const box = {
+    minX: cx - w / 2, maxX: cx + w / 2,
+    minY: cy,         maxY: cy + h,
+    minZ: cz - d / 2, maxZ: cz + d / 2,
+    off: false
+  };
+  SOLIDS.push(box);
+  return box;
+}
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x15121f);
+scene.fog = new THREE.FogExp2(0x15121f, 0.016);
+
+const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 300);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+document.body.appendChild(renderer.domElement);
+
+/* Both lights are made RIGHT HERE, at the start, and never added or
+   taken away again. Adding a light while the game is running makes
+   three.js rebuild every single material in the scene, and you get a
+   long freeze for your trouble. If a light needs to go out, turn it
+   down to nothing instead. */
+scene.add(new THREE.AmbientLight(0xbfc8ff, 0.62));
+const sun = new THREE.DirectionalLight(0xfff3d0, 0.85);
+sun.position.set(22, 40, 16);
+scene.add(sun);
+
+function mat(color) { return new THREE.MeshLambertMaterial({ color }); }
+
+/* One shared box shape, scaled to whatever size is needed. Making a
+   fresh BoxGeometry for every wall in every floor would be hundreds of
+   little piles of numbers doing the same job. */
+const BOX = new THREE.BoxGeometry(1, 1, 1);
+
+/* Everything the current floor put on the screen, so that loading the
+   next floor can take it all away again cleanly. */
+const FLOOR_BITS = [];
+
+function block(cx, cy, cz, w, h, d, color, solid) {
+  const mesh = new THREE.Mesh(BOX, mat(color));
+  mesh.scale.set(w, h, d);
+  mesh.position.set(cx, cy + h / 2, cz);
+  scene.add(mesh);
+  FLOOR_BITS.push(mesh);
+  return solid === false ? { mesh: mesh } : { mesh: mesh, box: solidBox(cx, cy, cz, w, h, d) };
+}
+
+/* ---------------------------------------------------------------------
+   THE TOWER
+
+   Every floor is one room. This writes the floor slab and the four walls
+   round the outside, so a floor's own entry below only has to describe
+   the interesting bits in the middle.
+   --------------------------------------------------------------------- */
+/* Walls are only as tall as they need to be. Chunk is 2.2, so 4 keeps
+   him in - and a wall much taller than that starts hiding the far side
+   of the room from a camera that is looking down into it, which in a
+   game about pointing at things and saying "you go there" is the worst
+   thing a wall can do. */
+const WALL_H = 4;
+const WALL_T = 1.2;
+const ROOM = { w: 34, d: 24 };
+
+function buildRoom(w, d) {
+  ROOM.w = w; ROOM.d = d;
+  block(0, -0.6, 0, w + WALL_T * 2, 0.6, d + WALL_T * 2, 0x3b3450);          // the slab
+  block(0, 0, -d / 2 - WALL_T / 2, w + WALL_T * 2, WALL_H, WALL_T, 0x2c2742); // back
+  block(-w / 2 - WALL_T / 2, 0, 0, WALL_T, WALL_H, d + WALL_T * 2, 0x322c4a); // left
+  block( w / 2 + WALL_T / 2, 0, 0, WALL_T, WALL_H, d + WALL_T * 2, 0x322c4a); // right
+
+  /* The front wall is solid but never drawn. The camera sits out in
+     front of the room looking in, so a wall there would simply be a wall
+     across the screen: you'd be staring at the back of it instead of at
+     the puzzle. Solid to walk into, invisible to look at - like the
+     open front of a doll's house. */
+  solidBox(0, 0, d / 2 + WALL_T / 2, w + WALL_T * 2, WALL_H, WALL_T);
+}
+
+/* A wall with a hole in it. The hole's HEIGHT is the whole trick: build
+   it 1.4 high and Pip strolls through while Chunk, who is 2.2 tall,
+   simply cannot - and that falls out of the bumping-into code on its
+   own, with no special rule about who is allowed where. The shape of
+   the building IS the puzzle. */
+function wallWithHole(cx, cz, w, d, holeAt, holeW, holeH, color) {
+  /* holeAt is measured from the middle of the wall, ALONG the wall -
+     which of course means we first have to know which way the wall is
+     lying. A wall that runs north-south is long in d, not in w, and
+     getting that backwards builds the hole and leaves off the wall. */
+  const along = w > d;                       // runs east-west?
+  const span = along ? w : d;                // how long it is
+  const holeLo = holeAt - holeW / 2;
+  const holeHi = holeAt + holeW / 2;
+
+  const put = (lo, hi) => {
+    if (hi - lo < 0.01) return;
+    const mid = (lo + hi) / 2, len = hi - lo;
+    block(along ? cx + mid : cx, 0, along ? cz : cz + mid,
+          along ? len : w, WALL_H, along ? d : len, color);
+  };
+  put(-span / 2, holeLo);                    // the wall before the hole
+  put(holeHi, span / 2);                     // and the wall after it
+
+  // the lintel: the bit of wall ABOVE the hole, which is what stops Chunk
+  if (holeH < WALL_H) {
+    block(along ? cx + holeAt : cx, holeH, along ? cz : cz + holeAt,
+          along ? holeW : w, WALL_H - holeH, along ? d : holeW, color);
+  }
+}
+
+/* ---------------------------------------------------------------------
+   PLATES AND DOORS
+
+   A plate is a square on the floor that notices weight on it. Chunk
+   weighs 3, Pip weighs 1. So a plate that needs 3 is a Chunk plate, and
+   one that needs 1 will take either of them. That single number is what
+   makes a floor say "you hold this, I'll go".
+   --------------------------------------------------------------------- */
+const PLATES = [];
+const DOORS  = [];
+
+const CHUNK_WEIGHT = 3;
+const PIP_WEIGHT   = 1;
+
+function addPlate(id, x, z, need) {
+  /* A plate is painted the colour of whoever can work it - orange for
+     Chunk's heavy ones, green for the light ones either of them can use.
+     You can tell whose job a plate is from right across the room without
+     anybody explaining it.
+
+     They're deliberately DULL versions of those colours, mind. Chunk and
+     Pip are the bright ones, and a bright plate the same green as Pip is
+     a plate you lose Pip against. */
+  const size = need >= CHUNK_WEIGHT ? 3.4 : 2.4;
+  const pad = block(x, 0.02, z, size, 0.22, size,
+                    need >= CHUNK_WEIGHT ? 0x8a3c1d : 0x1d6b3a, false);
+  PLATES.push({ id, x, z, need, size, down: false, mesh: pad.mesh, base: 0.02 });
+}
+
+/* `mode` is "all" or "any". "all" means every plate listed has to be
+   down at once - two people, two plates, no arguing. "any" means one is
+   enough, which is what lets the pair of them take it in turns: I hold
+   this side, you get across, now you hold that side and I'll come. */
+function addDoor(cx, cz, w, d, opens, mode, color) {
+  const made = block(cx, 0, cz, w, WALL_H, d, color === undefined ? 0x6b4fa8 : color);
+  DOORS.push({ x: cx, z: cz, w, d, opens,
+               mode: mode === "any" ? "any" : "all",
+               shut: 0, restY: WALL_H / 2, mesh: made.mesh, box: made.box });
+}
+
+/* Is there enough weight standing on this plate? Both players get asked,
+   and later on the crates get asked too. */
+function weightOn(plate) {
+  let total = 0;
+  for (const P of PLAYERS) {
+    if (Math.abs(P.pos.x - plate.x) > plate.size / 2 + P.r) continue;
+    if (Math.abs(P.pos.z - plate.z) > plate.size / 2 + P.r) continue;
+    if (P.pos.y > 0.9) continue;                 // has to actually be standing ON it
+    total += P.weight;
+  }
+  return total;
+}
+
+/* ---------------------------------------------------------------------
+   THE WAY OUT
+
+   One pad, and it only counts when BOTH of them are on it. This is the
+   whole game in four lines: you can be as clever as you like on your
+   own and the door still will not budge.
+   --------------------------------------------------------------------- */
+const EXIT = { x: 0, z: 0, r: 2.6, mesh: null, ring: null };
+
+function addExit(x, z) {
+  EXIT.x = x; EXIT.z = z;
+  const pad = block(x, 0.02, z, EXIT.r * 2, 0.16, EXIT.r * 2, 0x4a8fd6, false);
+  EXIT.mesh = pad.mesh;
+}
+
+function onExit(P) {
+  return Math.hypot(P.pos.x - EXIT.x, P.pos.z - EXIT.z) < EXIT.r && P.pos.y < 1.2;
+}
+
+/* ---------------------------------------------------------------------
+   THE TWO OF THEM
+
+   Same physics, different numbers. Chunk is tall, heavy and slow; Pip is
+   short, light and quick. Every difference between them is one of these
+   numbers, which is why the floors can be about cooperating rather than
+   about learning two sets of controls.
+   --------------------------------------------------------------------- */
+const GRAVITY = 30;
+const JUMP_UP = 10.5;
+
+function makeBody(name, colour, r, h, speed, weight, jump) {
+  const root = new THREE.Group();
+
+  const body = new THREE.Mesh(BOX, mat(colour));
+  body.scale.set(r * 2, h * 0.72, r * 2);
+  body.position.y = h * 0.36;
+  root.add(body);
+
+  const head = new THREE.Mesh(BOX, mat(colour));
+  head.scale.set(r * 1.7, h * 0.28, r * 1.7);
+  head.position.y = h * 0.86;
+  root.add(head);
+
+  // two white eyes, so you can tell which way they're facing
+  const eye = new THREE.BoxGeometry(1, 1, 1);
+  const white = mat(0xffffff);
+  for (const side of [-1, 1]) {
+    const e = new THREE.Mesh(eye, white);
+    e.scale.set(r * 0.36, r * 0.36, r * 0.2);
+    e.position.set(side * r * 0.42, h * 0.88, r * 0.85);
+    root.add(e);
+  }
+
+  scene.add(root);
+  return {
+    name, colour, root, r, h, speed, weight, jump,
+    pos: new THREE.Vector3(), vel: new THREE.Vector3(),
+    yaw: 0, onGround: false, held: null, carriedBy: null
+  };
+}
+
+const chunk = makeBody("Chunk", 0xff8a4c, 0.78, 2.2, 7.0, CHUNK_WEIGHT, JUMP_UP * 0.86);
+const pip   = makeBody("Pip",   0x7ef7a0, 0.40, 1.1, 9.5, PIP_WEIGHT,   JUMP_UP);
+const PLAYERS = [chunk, pip];
+
+/* ---------------------------------------------------------------------
+   BUMPING INTO THINGS
+
+   One axis at a time - up-and-down first, then east-west, then
+   north-south - and after each little move, anything we've ended up
+   inside pushes us straight back along THAT axis only.
+
+   Doing it one axis at a time is the whole reason this is reliable. The
+   obvious way is to move all three at once and then shove yourself out
+   whichever way is shortest, and that way lies the bug where walking
+   under a low doorway squeezes you down through the floor instead of
+   stopping you: the short way out was downwards. Move in x, get pushed
+   back in x. Nothing to argue about.
+   --------------------------------------------------------------------- */
+function insideBox(P, b) {
+  return P.pos.x + P.r > b.minX && P.pos.x - P.r < b.maxX
+      && P.pos.y + P.h > b.minY && P.pos.y      < b.maxY
+      && P.pos.z + P.r > b.minZ && P.pos.z - P.r < b.maxZ;
+}
+
+/* The other one of you is something to bump into as well - which is how
+   Pip gets to stand on Chunk's head without a single line of code about
+   standing on heads. He's just a box like everything else. */
+function bodyBox(P) {
+  return {
+    minX: P.pos.x - P.r, maxX: P.pos.x + P.r,
+    minY: P.pos.y,       maxY: P.pos.y + P.h,
+    minZ: P.pos.z - P.r, maxZ: P.pos.z + P.r,
+    off: false
+  };
+}
+
+function moveAxis(P, axis, amount, extras) {
+  if (amount === 0) return;
+
+  /* Where we were BEFORE this little move matters enormously, and
+     forgetting it cost me an afternoon. Land on top of a box only if you
+     were above it to start with; stop at a wall only if you were outside
+     it to start with.
+
+     Without that test, walking into a low doorway goes horribly wrong:
+     your head is inside the lintel, gravity pulls you down, the code
+     says "you're moving down and you're inside this box, so you must be
+     landing on it" - and puts you on the ROOF. Chunk went for a lovely
+     walk along the top of the wall and straight over the puzzle. */
+  const before = P.pos[axis];
+  P.pos[axis] += amount;
+
+  for (const list of [SOLIDS, extras]) {
+    if (!list) continue;
+    for (const b of list) {
+      if (b.off || !insideBox(P, b)) continue;
+      if (axis === "y") {
+        if (amount > 0) {
+          if (before + P.h <= b.minY + 0.01) { P.pos.y = b.minY - P.h; P.vel.y = 0; }  // bonk
+        } else if (before >= b.maxY - 0.01) {
+          P.pos.y = b.maxY; P.vel.y = 0; P.onGround = true; P.standingOn = b;
+        }
+      } else if (axis === "x") {
+        if (amount > 0) {
+          if (before + P.r <= b.minX + 0.01) { P.pos.x = b.minX - P.r; P.vel.x = 0; }
+        } else if (before - P.r >= b.maxX - 0.01) {
+          P.pos.x = b.maxX + P.r; P.vel.x = 0;
+        }
+      } else {
+        if (amount > 0) {
+          if (before + P.r <= b.minZ + 0.01) { P.pos.z = b.minZ - P.r; P.vel.z = 0; }
+        } else if (before - P.r >= b.maxZ - 0.01) {
+          P.pos.z = b.maxZ + P.r; P.vel.z = 0;
+        }
+      }
+    }
+  }
+}
+
+/* ...and a last resort, for when you end up inside something without
+   ever having moved into it: a door shutting on you, or an admin
+   dropping you in a wall. Shove out the shortest way, but NEVER
+   downwards - being pushed up onto a wall you can walk off is a bad
+   moment, being pushed down through the floor is the end of the game. */
+function unstick(P, extras) {
+  for (const list of [SOLIDS, extras]) {
+    if (!list) continue;
+    for (const b of list) {
+      if (b.off || !insideBox(P, b)) continue;
+      const outX = P.pos.x < (b.minX + b.maxX) / 2
+        ? b.minX - P.r - P.pos.x : b.maxX + P.r - P.pos.x;
+      const outZ = P.pos.z < (b.minZ + b.maxZ) / 2
+        ? b.minZ - P.r - P.pos.z : b.maxZ + P.r - P.pos.z;
+      const outY = b.maxY - P.pos.y;
+      if (Math.abs(outX) <= Math.abs(outZ) && Math.abs(outX) <= Math.abs(outY)) {
+        P.pos.x += outX; P.vel.x = 0;
+      } else if (Math.abs(outZ) <= Math.abs(outY)) {
+        P.pos.z += outZ; P.vel.z = 0;
+      } else {
+        P.pos.y += outY; P.vel.y = Math.max(0, P.vel.y); P.onGround = true;
+      }
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------
+   THE FLOORS
+
+   Each one is a small pile of numbers. The engine above knows how to
+   read them, so a new floor is a new entry here and nothing else.
+
+   Floor 1 teaches the little doorway. Floor 2 teaches the heavy plate.
+   Both of them are impossible on your own, and there is a check in the
+   test suite for each floor that proves it.
+   --------------------------------------------------------------------- */
+const LEVELS = [
+  {
+    name: "The Little Door",
+    hint: "Pip fits through the small doorway. Chunk definitely doesn't — " +
+          "so Pip had better find a way to let him in.",
+    w: 34, d: 24,
+    chunk: { x: -12, z: 6 },
+    pip:   { x: -12, z: -6 },
+    exit:  { x: 13, z: 0 },
+    build() {
+      /* One wall down the middle with two ways through it: a little one
+         Pip can use straight away, and a big one that is shut. The plate
+         that opens the big one is on the FAR side, so somebody has to get
+         over there first, and only one of them can. */
+      wallWithHole(0, -7, 1.2, 10, 0, 3.4, 1.4, 0x4a4168);     // the little door
+      wallWithHole(0,  7, 1.2, 10, 0, 4.2, WALL_H, 0x4a4168);     // the big doorway
+      block(0, 0, 0, 1.2, WALL_H, 4, 0x4a4168);                // wall between them
+      addDoor(0, 7, 1.2, 4.2, ["a"], "all");
+      addPlate("a", 9, -7, PIP_WEIGHT);
+    }
+  },
+  {
+    name: "You Hold It, I'll Go",
+    hint: "One door, and two plates that each hold it open. The orange " +
+          "one is far too heavy for Pip — so take it in turns.",
+    w: 34, d: 24,
+    chunk: { x: -12, z: -5 },
+    pip:   { x: -12, z: 5 },
+    exit:  { x: 13, z: 5 },
+    build() {
+      /* The take-it-in-turns floor, and the first one that really feels
+         like teamwork.
+
+         Chunk stands on the heavy plate and the door opens. Pip nips
+         through to the far side and stands on the light plate over
+         there, which holds the SAME door open - so now Chunk can step
+         off his plate and walk through himself.
+
+         Neither of them can do it alone, and the reason is worth saying
+         out loud: Chunk cannot be on his plate AND through the door at
+         the same time, and the plate is a long way from the door on
+         purpose, so there is no sprinting through as it closes. Pip
+         cannot shift the heavy plate at all, and cannot reach the light
+         one until somebody opens the door for him. */
+      wallWithHole(0, 0, 1.2, 24, 0, 4.6, WALL_H, 0x4a4168);
+      addDoor(0, 0, 1.2, 4.6, ["heavy", "light"], "any");
+      addPlate("heavy", -11, 8, CHUNK_WEIGHT);     // left, and deliberately far
+      addPlate("light", 10, -8, PIP_WEIGHT);       // right, anybody will do
+    }
+  }
+];
+
+/* ---------------------------------------------------------------------
+   PLAYING
+   --------------------------------------------------------------------- */
+let level = 0;
+let playing = false;
+let clock = 0;
+let finished = false;
+
+const el = id => document.getElementById(id);
+const hintEl = el("hint"), msgEl = el("message");
+
+let sayFor = 0;
+function say(text, seconds) {
+  msgEl.textContent = text;
+  msgEl.classList.add("show");
+  sayFor = seconds === undefined ? 1.6 : seconds;
+}
+
+function clearFloor() {
+  for (const m of FLOOR_BITS) {
+    scene.remove(m);
+    if (m.material && m.material.dispose) m.material.dispose();
+  }
+  FLOOR_BITS.length = 0;
+  SOLIDS.length = 0;
+  PLATES.length = 0;
+  DOORS.length = 0;
+}
+
+function loadLevel(n) {
+  level = Math.max(0, Math.min(LEVELS.length - 1, n));
+  const L = LEVELS[level];
+  clearFloor();
+  buildRoom(L.w, L.d);
+  L.build();
+  addExit(L.exit.x, L.exit.z);
+
+  chunk.pos.set(L.chunk.x, 0.4, L.chunk.z);
+  pip.pos.set(L.pip.x, 0.4, L.pip.z);
+  for (const P of PLAYERS) { P.vel.set(0, 0, 0); P.yaw = 0; }
+
+  el("floornum").textContent = level + 1;
+  el("floortotal").textContent = LEVELS.length;
+  el("floorname").textContent = L.name;
+  hintEl.textContent = L.hint;
+  refreshLamps();
+}
+
+function nextLevel() {
+  if (level + 1 >= LEVELS.length) { finish(); return; }
+  say("Floor " + (level + 2) + "!", 1.4);
+  loadLevel(level + 1);
+}
+
+function finish() {
+  playing = false;
+  finished = true;
+  el("donetext").textContent =
+    "You got all the way up the tower in " + clock.toFixed(1) + " seconds — " +
+    "and not one floor of it could have been done on your own.";
+  el("done").hidden = false;
+}
+
+function startGame() {
+  el("start").hidden = true;
+  el("done").hidden = true;
+  clock = 0;
+  finished = false;
+  playing = true;
+  loadLevel(0);
+  say("Floor 1 — off you go!", 1.8);
+}
+
+function refreshLamps() {
+  el("lamp-chunk").classList.toggle("on", onExit(chunk));
+  el("lamp-pip").classList.toggle("on", onExit(pip));
+}
+
+/* ---------------------------------------------------------------------
+   ONE STEP OF THE WORLD
+   --------------------------------------------------------------------- */
+const _aim = new THREE.Vector3();
+
+function stepPlayer(P, input, dt) {
+  const other = P === chunk ? pip : chunk;
+  const otherBox = [bodyBox(other)];
+
+  // which way are they pushing? straight compass directions, no camera
+  // turning to think about - both players share one fixed view, so
+  // "up" always means up the screen for both of them.
+  _aim.set(input.x, 0, input.z);
+  if (_aim.lengthSq() > 1) _aim.normalize();
+
+  const push = P.speed * 34 * dt;
+  P.vel.x += _aim.x * push;
+  P.vel.z += _aim.z * push;
+
+  // Slowing down by TIME, not by frames. A fast computer and a slow one
+  // then play exactly the same, which matters twice as much here because
+  // two people might be on two very different machines.
+  const drag = Math.exp(-11 * dt);
+  P.vel.x *= drag;
+  P.vel.z *= drag;
+
+  const flat = Math.hypot(P.vel.x, P.vel.z);
+  if (flat > P.speed) {
+    P.vel.x = P.vel.x / flat * P.speed;
+    P.vel.z = P.vel.z / flat * P.speed;
+  }
+  if (flat > 0.4) P.yaw = Math.atan2(P.vel.x, P.vel.z);
+
+  P.vel.y -= GRAVITY * dt;
+  if (input.jump && P.onGround) { P.vel.y = P.jump; P.onGround = false; }
+
+  P.onGround = false;
+  P.standingOn = null;
+  moveAxis(P, "y", P.vel.y * dt, otherBox);
+  moveAxis(P, "x", P.vel.x * dt, otherBox);
+  moveAxis(P, "z", P.vel.z * dt, otherBox);
+  unstick(P, otherBox);
+
+  // fell off the world? pop them back where they started, no fuss
+  if (P.pos.y < -14) {
+    const L = LEVELS[level];
+    const home = P === chunk ? L.chunk : L.pip;
+    P.pos.set(home.x, 0.4, home.z);
+    P.vel.set(0, 0, 0);
+    say(P.name + " got dizzy!", 1.1);
+  }
+
+  P.root.position.copy(P.pos);
+  P.root.rotation.y = P.yaw;
+}
+
+function step(dt) {
+  if (!playing) return;
+  clock += dt;
+  el("time").textContent = clock.toFixed(1);
+
+  stepPlayer(chunk, readInput(chunk), dt);
+  stepPlayer(pip, readInput(pip), dt);
+
+  // plates notice weight, and doors do as they're told
+  for (const p of PLATES) {
+    const down = weightOn(p) >= p.need;
+    /* Only say something when a plate goes DOWN. Announcing every time
+       somebody steps off one as well turns a floor where you're shuffling
+       about working it out into a wall of text. */
+    if (down !== p.down) {
+      p.down = down;
+      if (down) say("Something opened!", 0.9);
+    }
+    p.mesh.position.y = p.base + (down ? -0.06 : 0.11);
+  }
+  for (const d of DOORS) {
+    const pressed = id => {
+      const p = PLATES.find(q => q.id === id);
+      return !!(p && p.down);
+    };
+    const open = d.mode === "any" ? d.opens.some(pressed) : d.opens.every(pressed);
+    d.shut += ((open ? 1 : 0) - d.shut) * Math.min(1, dt * 7);
+    d.mesh.position.y = d.restY - d.shut * (WALL_H + 0.3);   // slides down into the floor
+    d.box.off = d.shut > 0.72;
+  }
+
+  refreshLamps();
+
+  // BOTH of them, or it doesn't count
+  if (onExit(chunk) && onExit(pip)) nextLevel();
+
+  if (sayFor > 0) {
+    sayFor -= dt;
+    if (sayFor <= 0) msgEl.classList.remove("show");
+  }
+}
+
+/* ---------------------------------------------------------------------
+   PUTTING IT ON THE SCREEN
+
+   One camera for two people, which means it has to keep BOTH of them in
+   shot at once. It looks at the point halfway between them and backs off
+   as they get further apart - the same trick the Lego games use, and the
+   reason two people can share one telly without anybody shouting.
+   --------------------------------------------------------------------- */
+const _mid = new THREE.Vector3();
+const _want = new THREE.Vector3();
+
+function aimCamera(dt) {
+  /* The whole room, always. It is tempting to follow the two of them
+     about, but in a game where you have to say "stand on that one while
+     I go round there", the pair of you need to be able to SEE that one
+     and round there. So the camera frames the room and only leans a
+     little way towards wherever they happen to be. */
+  _mid.copy(chunk.pos).add(pip.pos).multiplyScalar(0.5);
+  // lean towards them, but only a little, and never far enough to push
+  // the far side of the room off the edge of the screen
+  const lookX = Math.max(-3, Math.min(3, _mid.x * 0.2));
+  const lookZ = Math.max(-3, Math.min(3, _mid.z * 0.2));
+
+  const span = Math.max(ROOM.w, ROOM.d * 1.3);
+  _want.set(lookX, span * 0.78, lookZ + span * 0.86);
+  camera.position.lerp(_want, Math.min(1, dt * 3.4));   // glide, never snap
+  camera.lookAt(lookX, 1.2, lookZ);
+}
+
+function draw(dt) {
+  aimCamera(dt);
+  renderer.render(scene, camera);
+}
+
+/* ---------------------------------------------------------------------
+   CONTROLS
+
+   Two people, one keyboard: Chunk has the left-hand side, Pip has the
+   arrows. Jump keys are deliberately generous - Right Shift, Enter and
+   the numpad zero all work for Pip, because which key feels like "jump"
+   on the right of a keyboard depends entirely on the keyboard.
+   --------------------------------------------------------------------- */
+const keys = {};
+addEventListener("keydown", e => {
+  if (e.repeat) return;
+  keys[e.code] = true;
+  if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].indexOf(e.code) >= 0) {
+    e.preventDefault();
+  }
+});
+addEventListener("keyup", e => { keys[e.code] = false; });
+addEventListener("blur", () => { for (const k in keys) keys[k] = false; });
+
+// on a phone there's one stick, and it drives Chunk
+const touchMove = { x: 0, z: 0 };
+let touchJump = false;
+
+function readInput(P) {
+  if (P === chunk) {
+    let x = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+    let z = (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0);
+    if (touchMove.x || touchMove.z) { x = touchMove.x; z = touchMove.z; }
+    return { x, z, jump: keys.Space || touchJump };
+  }
+  return {
+    x: (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0),
+    z: (keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0),
+    jump: keys.ShiftRight || keys.Enter || keys.Numpad0 || keys.Slash
+  };
+}
+
+/* ---- the on-screen stick, for phones ---- */
+const stick = el("stick-move"), knob = el("knob");
+let stickId = null;
+
+function stickAt(touch) {
+  const r = stick.getBoundingClientRect();
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  let dx = (touch.clientX - cx) / (r.width / 2);
+  let dy = (touch.clientY - cy) / (r.height / 2);
+  const len = Math.hypot(dx, dy);
+  if (len > 1) { dx /= len; dy /= len; }
+  touchMove.x = Math.abs(dx) < 0.18 ? 0 : dx;
+  touchMove.z = Math.abs(dy) < 0.18 ? 0 : dy;
+  knob.style.transform = "translate(" + dx * 34 + "px," + dy * 34 + "px)";
+}
+
+stick.addEventListener("touchstart", e => {
+  e.preventDefault();
+  stickId = e.changedTouches[0].identifier;
+  stickAt(e.changedTouches[0]);
+}, { passive: false });
+stick.addEventListener("touchmove", e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) if (t.identifier === stickId) stickAt(t);
+}, { passive: false });
+function dropStick(e) {
+  for (const t of e.changedTouches) {
+    if (t.identifier !== stickId) continue;
+    stickId = null;
+    touchMove.x = touchMove.z = 0;
+    knob.style.transform = "";
+  }
+}
+stick.addEventListener("touchend", dropStick);
+stick.addEventListener("touchcancel", dropStick);
+
+function trimButton(id, set) {
+  const b = el(id);
+  const on = e => { e.preventDefault(); set(true); };
+  const off = e => { e.preventDefault(); set(false); };
+  b.addEventListener("touchstart", on, { passive: false });
+  b.addEventListener("touchend", off);
+  b.addEventListener("touchcancel", off);
+  b.addEventListener("mousedown", on);
+  addEventListener("mouseup", off);
+}
+trimButton("btn-jump", on => { touchJump = on; });
+trimButton("btn-grab", () => { /* Chunk's grab arrives with the crates */ });
+
+/* Phones get the stick, computers get the keyboard instructions. */
+const isTouch = matchMedia("(pointer: coarse)").matches;
+if (isTouch) {
+  el("touch").hidden = false;
+  el("how-touch").hidden = false;
+  el("how-desktop").hidden = true;
+}
+
+/* ---------------------------------------------------------------------
+   GO!
+   --------------------------------------------------------------------- */
+function fitScreen() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+addEventListener("resize", fitScreen);
+fitScreen();
+
+el("btn-play").addEventListener("click", startGame);
+el("btn-again").addEventListener("click", startGame);
+
+loadLevel(0);            // something to look at behind the start panel
+
+let last = performance.now();
+function frame(now) {
+  /* A safety catch on the clock. If the browser gets busy and a frame
+     takes half a second, we pretend it took a twentieth - otherwise one
+     stutter moves everybody so far in a single go that they go straight
+     through a wall. */
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+  step(dt);
+  draw(dt);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ---------------------------------------------------------------------
+   ADMIN
+
+   The same panel every game in here has. Press P, or the spanner. These
+   are also exactly what the tests drive the game with, so they're real
+   shipped commands rather than a back door.
+   --------------------------------------------------------------------- */
+const ADMIN_COMMANDS = [
+  { name: "floor", alias: ["level"], args: "<number>",
+    help: "Jump straight to a floor",
+    state: () => (level + 1) + "/" + LEVELS.length,
+    run: words => {
+      const n = parseInt(words[0], 10);
+      if (!(n >= 1 && n <= LEVELS.length)) return { bad: "Floors are 1 to " + LEVELS.length };
+      if (!playing) startGame();
+      loadLevel(n - 1);
+      return "Floor " + n + ": " + LEVELS[level].name;
+    } },
+
+  { name: "put", args: "<chunk/pip> <x> <z>",
+    help: "Put one of them somewhere",
+    run: words => {
+      const who = String(words[0] || "").toLowerCase();
+      const P = who === "chunk" ? chunk : who === "pip" ? pip : null;
+      if (!P) return { bad: "Say chunk or pip" };
+      const x = Number(words[1]), z = Number(words[2]);
+      if (!isFinite(x) || !isFinite(z)) return { bad: "Needs an x and a z" };
+      P.pos.set(x, 1.2, z);
+      P.vel.set(0, 0, 0);
+      return P.name + " is at " + x + ", " + z;
+    } },
+
+  { name: "exit", args: "<chunk/pip/both>",
+    help: "Stand them on the way out",
+    run: words => {
+      const who = String(words[0] || "both").toLowerCase();
+      const list = who === "both" ? PLAYERS
+                 : who === "chunk" ? [chunk] : who === "pip" ? [pip] : null;
+      if (!list) return { bad: "Say chunk, pip or both" };
+      for (const P of list) { P.pos.set(EXIT.x, 0.6, EXIT.z); P.vel.set(0, 0, 0); }
+      return "On the pad";
+    } },
+
+  { name: "plates", args: "",
+    help: "Press every plate on this floor",
+    state: () => PLATES.filter(p => p.down).length + "/" + PLATES.length,
+    run: () => {
+      for (const p of PLATES) p.down = true;
+      for (const d of DOORS) { d.shut = 1; d.box.off = true; }
+      return "All " + PLATES.length + " plates pressed";
+    } },
+
+  { name: "where", args: "",
+    help: "Say where they both are",
+    run: () => "Chunk " + chunk.pos.x.toFixed(1) + "," + chunk.pos.z.toFixed(1) +
+               " · Pip " + pip.pos.x.toFixed(1) + "," + pip.pos.z.toFixed(1) }
+];
+
+if (window.OllieAdmin) OllieAdmin.start({ commands: ADMIN_COMMANDS });
+</script>
+
+</body>
+</html>
