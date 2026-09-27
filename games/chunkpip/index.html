@@ -211,7 +211,7 @@
         <p>Big and heavy. Holds down the chunky floor plates, and later on
            he can shove crates about and throw Pip across gaps.</p>
         <p>Too big for the little doorways.</p>
-        <p class="keys" id="keys-chunk">W A S D · Space to jump</p>
+        <p class="keys" id="keys-chunk">W A S D · Space to jump · E to pick Pip up and throw him</p>
       </div>
       <div class="who" id="who-pip">
         <h3>🟩 Pip</h3>
@@ -356,9 +356,21 @@ const WALL_H = 4;
 const WALL_T = 1.2;
 const ROOM = { w: 34, d: 24 };
 
-function buildRoom(w, d) {
+function buildRoom(w, d, pit) {
   ROOM.w = w; ROOM.d = d;
-  block(0, -0.6, 0, w + WALL_T * 2, 0.6, d + WALL_T * 2, 0x3b3450);          // the slab
+  const full = w + WALL_T * 2, deep = d + WALL_T * 2;
+  if (pit) {
+    /* A floor with a hole clean through it. Two slabs and a gap, and the
+       gap is the puzzle: too wide for either of them to jump, easy for a
+       thrown Pip. Anybody who drops in just gets popped back to the start
+       of the floor, which is the gentlest thing a hole can do. */
+    const loEnd = pit.at - pit.w / 2, hiEnd = pit.at + pit.w / 2;
+    const leftW = loEnd - (-full / 2), rightW = (full / 2) - hiEnd;
+    block(-full / 2 + leftW / 2, -0.6, 0, leftW, 0.6, deep, 0x3b3450);
+    block(hiEnd + rightW / 2, -0.6, 0, rightW, 0.6, deep, 0x3b3450);
+  } else {
+    block(0, -0.6, 0, full, 0.6, deep, 0x3b3450);                            // the slab
+  }
   block(0, 0, -d / 2 - WALL_T / 2, w + WALL_T * 2, WALL_H, WALL_T, 0x2c2742); // back
   block(-w / 2 - WALL_T / 2, 0, 0, WALL_T, WALL_H, d + WALL_T * 2, 0x322c4a); // left
   block( w / 2 + WALL_T / 2, 0, 0, WALL_T, WALL_H, d + WALL_T * 2, 0x322c4a); // right
@@ -416,6 +428,17 @@ const DOORS  = [];
 const CHUNK_WEIGHT = 3;
 const PIP_WEIGHT   = 1;
 
+/* A lever is a plate that STAYS down once it has been pressed. It matters
+   more than it sounds: an ordinary plate needs somebody standing on it,
+   so whoever presses it is stuck there, and half the floors below would
+   end with one of them marooned on top of a pillar watching the other
+   walk out. A lever is how you open something and then both leave. */
+function addLever(id, x, z, y) {
+  const pad = block(x, y, z, 1.8, 0.5, 1.8, 0xd8b23a, false);
+  PLATES.push({ id, x, z, y, need: PIP_WEIGHT, size: 1.8,
+                latch: true, down: false, mesh: pad.mesh, base: y });
+}
+
 function addPlate(id, x, z, need) {
   /* A plate is painted the colour of whoever can work it - orange for
      Chunk's heavy ones, green for the light ones either of them can use.
@@ -428,29 +451,137 @@ function addPlate(id, x, z, need) {
   const size = need >= CHUNK_WEIGHT ? 3.4 : 2.4;
   const pad = block(x, 0.02, z, size, 0.22, size,
                     need >= CHUNK_WEIGHT ? 0x8a3c1d : 0x1d6b3a, false);
-  PLATES.push({ id, x, z, need, size, down: false, mesh: pad.mesh, base: 0.02 });
+  PLATES.push({ id, x, z, y: 0, need, size, down: false, mesh: pad.mesh, base: 0.02 });
+}
+
+/* ---- crates: the only thing in here that neither of them owns ----
+
+   Chunk can shove one about; Pip hasn't a hope. Both of them can climb
+   on top of one, which is the entire point - a crate is a step, and
+   Chunk is the one who decides where the step goes. */
+const CRATES = [];
+const CRATE_SIZE = 1.6;
+const CRATE_WEIGHT = 2;
+
+function addCrate(x, z) {
+  /* A crate keeps its own box and deliberately stays OUT of the main
+     solid list. That list is checked by everything, so a crate in it is
+     a crate that stops Chunk dead - and then the shoving code below
+     never sees him touching it and nothing ever moves. Which is exactly
+     the bug I wrote first time. */
+  const made = block(x, 0, z, CRATE_SIZE, CRATE_SIZE, CRATE_SIZE, 0xcbb187, false);
+  const c = { x, z, y: 0, mesh: made.mesh, vy: 0,
+              box: { minX: 0, maxX: 0, minY: 0, maxY: 0, minZ: 0, maxZ: 0, off: false } };
+  CRATES.push(c);
+  moveCrate(c, 0, 0, 0);            // puts the box where the crate is
+  return c;
+}
+
+function moveCrate(c, dx, dz, dy) {
+  c.x += dx; c.z += dz; c.y += dy;
+  c.box.minX = c.x - CRATE_SIZE / 2; c.box.maxX = c.x + CRATE_SIZE / 2;
+  c.box.minY = c.y;                  c.box.maxY = c.y + CRATE_SIZE;
+  c.box.minZ = c.z - CRATE_SIZE / 2; c.box.maxZ = c.z + CRATE_SIZE / 2;
+  c.mesh.position.set(c.x, c.y + CRATE_SIZE / 2, c.z);
+}
+
+/* Would the crate be inside a wall, or another crate, if it were here? */
+function crateBlocked(c) {
+  const hits = b => {
+    if (b.off) return false;
+    if (c.box.maxX <= b.minX || c.box.minX >= b.maxX) return false;
+    if (c.box.maxY <= b.minY + 0.02 || c.box.minY >= b.maxY - 0.02) return false;
+    if (c.box.maxZ <= b.minZ || c.box.minZ >= b.maxZ) return false;
+    return true;
+  };
+  for (const b of SOLIDS) if (hits(b)) return true;
+  for (const o of CRATES) if (o !== c && hits(o.box)) return true;   // stacked up
+  return false;
+}
+
+function stepCrates(dt) {
+  for (const c of CRATES) {
+    // fall until something is underneath
+    c.vy -= GRAVITY * dt;
+    const drop = c.vy * dt;
+    moveCrate(c, 0, 0, drop);
+    if (crateBlocked(c)) {           // landed - back up to where it fits
+      let tries = 0;
+      while (crateBlocked(c) && tries++ < 40) moveCrate(c, 0, 0, 0.05);
+      c.vy = 0;
+    }
+
+    /* Chunk shoving. He is NOT stopped by crates the way Pip is - he
+       walks into one and it goes. If it turns out the crate can't go
+       (wall behind it, or another crate) then it's Chunk who gets put
+       back instead, which is what makes a stuck crate feel like a solid
+       thing rather than a bug. */
+    if (!insideBox(chunk, c.box)) continue;
+    /* How far the crate has to shift to stop being inside Chunk - AWAY
+       from him, which is the whole trick and very easy to get backwards.
+       Chunk standing to the west of a crate shoves it east. */
+    const dx = chunk.pos.x < c.x
+      ? (chunk.pos.x + chunk.r) - c.box.minX      // he's west, crate goes east
+      : (chunk.pos.x - chunk.r) - c.box.maxX;     // he's east, crate goes west
+    const dz = chunk.pos.z < c.z
+      ? (chunk.pos.z + chunk.r) - c.box.minZ
+      : (chunk.pos.z - chunk.r) - c.box.maxZ;
+    const pushX = Math.abs(dx) <= Math.abs(dz);
+    const by = pushX ? dx : dz;
+    moveCrate(c, pushX ? by : 0, pushX ? 0 : by, 0);
+    if (crateBlocked(c)) {
+      moveCrate(c, pushX ? -by : 0, pushX ? 0 : -by, 0);   // it can't go
+      if (pushX) { chunk.pos.x -= by; chunk.vel.x = 0; }   // so HE stops instead
+      else       { chunk.pos.z -= by; chunk.vel.z = 0; }
+    }
+  }
 }
 
 /* `mode` is "all" or "any". "all" means every plate listed has to be
    down at once - two people, two plates, no arguing. "any" means one is
    enough, which is what lets the pair of them take it in turns: I hold
    this side, you get across, now you hold that side and I'll come. */
-function addDoor(cx, cz, w, d, opens, mode, color) {
-  const made = block(cx, 0, cz, w, WALL_H, d, color === undefined ? 0x6b4fa8 : color);
+function addDoor(cx, cz, w, d, opens, mode, hold, color) {
+  const made = block(cx, 0, cz, w, WALL_H, d,
+                     color === undefined ? (hold ? 0x3f7fb5 : 0x6b4fa8) : color);
   DOORS.push({ x: cx, z: cz, w, d, opens,
                mode: mode === "any" ? "any" : "all",
+               hold: hold || 0, timer: 0,
                shut: 0, restY: WALL_H / 2, mesh: made.mesh, box: made.box });
+}
+
+/* ---- a bridge: a door lying on its back ----
+   It waits down in the dark and comes UP when somebody works the lever,
+   which is the other half of every pit in the game. Chunk can't be
+   thrown and can't jump a gap, so if Pip gets across on his own, Pip had
+   better send something back for him. */
+const BRIDGES = [];
+
+function addBridge(cx, cz, w, d, opens) {
+  const made = block(cx, -6, cz, w, 0.6, d, 0x8d7bb5);
+  made.box.off = true;
+  BRIDGES.push({ opens, up: 0, mesh: made.mesh, box: made.box, w, d, x: cx, z: cz });
 }
 
 /* Is there enough weight standing on this plate? Both players get asked,
    and later on the crates get asked too. */
 function weightOn(plate) {
   let total = 0;
+  const top = plate.y + (plate.latch ? 0.5 : 0.24);
   for (const P of PLAYERS) {
     if (Math.abs(P.pos.x - plate.x) > plate.size / 2 + P.r) continue;
     if (Math.abs(P.pos.z - plate.z) > plate.size / 2 + P.r) continue;
-    if (P.pos.y > 0.9) continue;                 // has to actually be standing ON it
+    // standing ON it, not sailing over the top of it
+    if (Math.abs(P.pos.y - top) > 0.9) continue;
     total += P.weight;
+  }
+  // a crate left sitting on a plate holds it down just as well as a person,
+  // which is how Chunk gets to walk away from one
+  for (const c of CRATES) {
+    if (Math.abs(c.x - plate.x) > plate.size / 2 + CRATE_SIZE / 2) continue;
+    if (Math.abs(c.z - plate.z) > plate.size / 2 + CRATE_SIZE / 2) continue;
+    if (Math.abs(c.y - top) > 0.9) continue;
+    total += CRATE_WEIGHT;
   }
   return total;
 }
@@ -516,7 +647,7 @@ function makeBody(name, colour, r, h, speed, weight, jump) {
   };
 }
 
-const chunk = makeBody("Chunk", 0xff8a4c, 0.78, 2.2, 7.0, CHUNK_WEIGHT, JUMP_UP * 0.86);
+const chunk = makeBody("Chunk", 0xff6b3d, 0.78, 2.2, 7.0, CHUNK_WEIGHT, JUMP_UP * 0.86);
 const pip   = makeBody("Pip",   0x7ef7a0, 0.40, 1.1, 9.5, PIP_WEIGHT,   JUMP_UP);
 const PLAYERS = [chunk, pip];
 
@@ -680,6 +811,95 @@ const LEVELS = [
       addPlate("heavy", -11, 8, CHUNK_WEIGHT);     // left, and deliberately far
       addPlate("light", 10, -8, PIP_WEIGHT);       // right, anybody will do
     }
+  },
+  {
+    name: "Give Us a Lift",
+    hint: "That switch is miles up. Chunk can pick Pip up — press E (or ✊) " +
+          "next to him, and again to throw him.",
+    w: 32, d: 22,
+    chunk: { x: -11, z: 4 },
+    pip:   { x: -11, z: -4 },
+    exit:  { x: 12, z: 0 },
+    build() {
+      /* The lift-me-up floor. The switch sits on top of a pillar that is
+         higher than Pip can jump from the ground, and Chunk cannot climb
+         anything at all. So Chunk picks Pip up, carries him over, and Pip
+         hops off onto the top.
+
+         It's a LEVER rather than a plate, so once Pip has pressed it the
+         door stays open and he can come back down. A plate up there would
+         leave him stranded on a pillar watching Chunk leave. */
+      wallWithHole(4, 0, 1.2, 22, 0, 4.6, WALL_H, 0x4a4168);
+      addDoor(4, 0, 1.2, 4.6, ["up"], "all");
+      block(-4, 0, -3, 3.2, 2.4, 3.2, 0x574b7d);   // the pillar
+      addLever("up", -4, -3, 2.4);
+    }
+  },
+  {
+    name: "Something to Stand On",
+    hint: "Chunk can shove that crate about. Pip can climb on it. " +
+          "Between you, that's a way up to the ledge.",
+    w: 34, d: 24,
+    chunk: { x: -2, z: 9 },
+    pip:   { x: -13, z: 6 },
+    exit:  { x: 14, z: 0 },
+    build() {
+      /* Chunk shoves the crate across to under the ledge, Pip climbs on
+         it and jumps up to the lever. Neither half works alone: Pip
+         cannot budge the crate, and Chunk cannot get up onto the ledge
+         even with the crate there - he simply doesn't jump high enough. */
+      wallWithHole(6, 0, 1.2, 24, 0, 4.6, WALL_H, 0x4a4168);
+      addDoor(6, 0, 1.2, 4.6, ["ledge"], "all");
+      block(-2, 0, -9, 9, 3.0, 5, 0x574b7d);       // the ledge, up against the back wall
+      addLever("ledge", -2, -8, 3.0);
+      addCrate(-2, 5);
+    }
+  },
+  {
+    name: "Over You Go",
+    hint: "Neither of you can jump that. Chunk can THROW Pip across it " +
+          "though — and there's a lever over there that puts a bridge up.",
+    w: 36, d: 22,
+    pit: { at: 1, w: 7 },
+    chunk: { x: -13, z: 0 },
+    pip:   { x: -10, z: 0 },
+    exit:  { x: 15, z: 0 },
+    build() {
+      /* The throwing floor.
+
+         The gap is seven across. Pip running flat out and jumping covers
+         about five and a half; Chunk manages four. Thrown off Chunk's
+         shoulders, Pip clears eight - so the ONLY way over is the two of
+         them working together, and the numbers are what make that true
+         rather than a sign telling you so.
+
+         Pip lands on the far side and pulls the lever, and the bridge
+         comes up out of the dark for Chunk to walk over. Getting across
+         yourself is only half the job; the other half is sending
+         something back for your friend. */
+      addBridge(1, 0, 8, 6, ["far"]);
+      addLever("far", 9, -6, 0);
+    }
+  },
+  {
+    name: "Both At Once",
+    hint: "Two plates, and this door wants BOTH of them held down at the " +
+          "same time. It stays open for a bit once you manage it — so run.",
+    w: 36, d: 26,
+    chunk: { x: -14, z: 8 },
+    pip:   { x: -14, z: -8 },
+    exit:  { x: 15, z: 0 },
+    build() {
+      /* Everything so far, and a stopwatch. The door needs both plates
+         down together, which means both of them standing still in two
+         different corners - and then it holds open for eight seconds
+         while they leg it. The first floor that needs the two of you to
+         actually say something to each other. */
+      wallWithHole(6, 0, 1.2, 26, 0, 5, WALL_H, 0x4a4168);
+      addDoor(6, 0, 1.2, 5, ["a", "b"], "all", 8);
+      addPlate("a", -12, 9, CHUNK_WEIGHT);
+      addPlate("b", -12, -9, PIP_WEIGHT);
+    }
   }
 ];
 
@@ -710,13 +930,16 @@ function clearFloor() {
   SOLIDS.length = 0;
   PLATES.length = 0;
   DOORS.length = 0;
+  CRATES.length = 0;
+  BRIDGES.length = 0;
+  chunk.held = null;              // never carry Pip into the next floor
 }
 
 function loadLevel(n) {
   level = Math.max(0, Math.min(LEVELS.length - 1, n));
   const L = LEVELS[level];
   clearFloor();
-  buildRoom(L.w, L.d);
+  buildRoom(L.w, L.d, L.pit);
   L.build();
   addExit(L.exit.x, L.exit.z);
 
@@ -766,9 +989,59 @@ function refreshLamps() {
    --------------------------------------------------------------------- */
 const _aim = new THREE.Vector3();
 
+/* ---- Chunk picking Pip up, and putting him where he's needed ----
+
+   The one thing Chunk does that isn't just "being heavy". He grabs Pip,
+   Pip rides on his head, and a second press lobs him - over a wall, onto
+   a ledge, wherever Pip needs to be and can't get to.
+
+   Pip can always hop off by himself. Being carried about by somebody
+   bigger than you should never feel like being stuck. */
+const GRAB_REACH = 2.6;
+const THROW_OUT = 15;
+const THROW_UP = 9.5;
+
+function tryGrab() {
+  if (chunk.held) { throwPip(); return; }
+  if (Math.hypot(pip.pos.x - chunk.pos.x, pip.pos.z - chunk.pos.z) > GRAB_REACH) return;
+  if (Math.abs(pip.pos.y - chunk.pos.y) > 2.6) return;
+  chunk.held = pip;
+  pip.vel.set(0, 0, 0);
+  say("Up you come, Pip!", 1);
+}
+
+function throwPip() {
+  if (!chunk.held) return;
+  chunk.held = null;
+  /* Say out loud that he is in the air. He has been riding on Chunk's
+     head, so his own "standing on something" flag is still set from
+     before he was picked up - and a Pip who thinks he's standing up gets
+     the ground drag and the walking speed limit applied to him on the
+     very frame he's launched, which turns a throw into a shove. */
+  pip.onGround = false;
+  pip.vel.set(Math.sin(chunk.yaw) * THROW_OUT, THROW_UP, Math.cos(chunk.yaw) * THROW_OUT);
+  say("Wheee!", 0.9);
+}
+
 function stepPlayer(P, input, dt) {
   const other = P === chunk ? pip : chunk;
-  const otherBox = [bodyBox(other)];
+  // while Pip is being carried the two of them are one thing, so they
+  // mustn't be bumping into each other
+  const otherBox = chunk.held ? [] : [bodyBox(other)];
+
+  // riding on Chunk's head: Pip goes where Chunk goes, and hops off if
+  // he'd rather not
+  if (P === pip && chunk.held === pip) {
+    if (input.jump) { chunk.held = null; pip.onGround = false; pip.vel.set(0, 4.5, 0); }
+    else {
+      pip.pos.set(chunk.pos.x, chunk.pos.y + chunk.h, chunk.pos.z);
+      pip.vel.set(0, 0, 0);
+      pip.yaw = chunk.yaw;
+      pip.root.position.copy(pip.pos);
+      pip.root.rotation.y = pip.yaw;
+      return;
+    }
+  }
 
   // which way are they pushing? straight compass directions, no camera
   // turning to think about - both players share one fixed view, so
@@ -780,15 +1053,23 @@ function stepPlayer(P, input, dt) {
   P.vel.x += _aim.x * push;
   P.vel.z += _aim.z * push;
 
-  // Slowing down by TIME, not by frames. A fast computer and a slow one
-  // then play exactly the same, which matters twice as much here because
-  // two people might be on two very different machines.
-  const drag = Math.exp(-11 * dt);
+  /* Slowing down by TIME, not by frames. A fast computer and a slow one
+     then play exactly the same, which matters twice as much here because
+     two people might be on two very different machines.
+
+     Gripping the floor is one thing; sailing through the air is quite
+     another. The first version used the same big drag for both, and a
+     thrown Pip stopped dead about a foot from Chunk's hands - all the
+     lovely arc scrubbed off him in three frames. */
+  const drag = Math.exp(-(P.onGround ? 11 : 0.6) * dt);
   P.vel.x *= drag;
   P.vel.z *= drag;
 
+  /* And the speed limit is a limit on RUNNING, not on being thrown. Cap
+     it in the air too and Chunk's throw comes out at Pip's walking pace,
+     which rather takes the fun out of it. */
   const flat = Math.hypot(P.vel.x, P.vel.z);
-  if (flat > P.speed) {
+  if (P.onGround && flat > P.speed) {
     P.vel.x = P.vel.x / flat * P.speed;
     P.vel.z = P.vel.z / flat * P.speed;
   }
@@ -799,10 +1080,18 @@ function stepPlayer(P, input, dt) {
 
   P.onGround = false;
   P.standingOn = null;
-  moveAxis(P, "y", P.vel.y * dt, otherBox);
-  moveAxis(P, "x", P.vel.x * dt, otherBox);
-  moveAxis(P, "z", P.vel.z * dt, otherBox);
-  unstick(P, otherBox);
+  /* Crates are solid to stand ON for both of them, but only Pip is
+     STOPPED by one sideways. Chunk walks straight into a crate and the
+     shoving code further down takes over - which is the whole reason
+     he's the one who can move them. */
+  const crateBoxes = CRATES.map(c => c.box);
+  const standOn = otherBox.concat(crateBoxes);
+  const pushPast = P === chunk ? otherBox : standOn;
+
+  moveAxis(P, "y", P.vel.y * dt, standOn);
+  moveAxis(P, "x", P.vel.x * dt, pushPast);
+  moveAxis(P, "z", P.vel.z * dt, pushPast);
+  unstick(P, pushPast);
 
   // fell off the world? pop them back where they started, no fuss
   if (P.pos.y < -14) {
@@ -822,8 +1111,11 @@ function step(dt) {
   clock += dt;
   el("time").textContent = clock.toFixed(1);
 
+  if (tookTap("KeyE") || tookTap("ShiftLeft") || touchGrabTap) { touchGrabTap = false; tryGrab(); }
+
   stepPlayer(chunk, readInput(chunk), dt);
   stepPlayer(pip, readInput(pip), dt);
+  stepCrates(dt);
 
   // plates notice weight, and doors do as they're told
   for (const p of PLATES) {
@@ -831,21 +1123,42 @@ function step(dt) {
     /* Only say something when a plate goes DOWN. Announcing every time
        somebody steps off one as well turns a floor where you're shuffling
        about working it out into a wall of text. */
-    if (down !== p.down) {
-      p.down = down;
-      if (down) say("Something opened!", 0.9);
-    }
-    p.mesh.position.y = p.base + (down ? -0.06 : 0.11);
+    if (down && !p.down) say(p.latch ? "Clunk — that's staying open!" : "Something opened!", 1);
+    if (p.latch) p.down = p.down || down;      // a lever never comes back up
+    else p.down = down;
+    p.mesh.position.y = p.base + (p.down ? -0.06 : 0.11);
   }
   for (const d of DOORS) {
     const pressed = id => {
       const p = PLATES.find(q => q.id === id);
       return !!(p && p.down);
     };
-    const open = d.mode === "any" ? d.opens.some(pressed) : d.opens.every(pressed);
+    let open = d.mode === "any" ? d.opens.some(pressed) : d.opens.every(pressed);
+
+    /* A door on a timer. Once the pair of them get it open it STAYS open
+       for a bit, which is what turns "both stand here at once" from a
+       riddle with no answer into a race: press it together, then run. */
+    if (d.hold) {
+      if (open) d.timer = d.hold;
+      else if (d.timer > 0) { d.timer -= dt; open = true; }
+    }
+
     d.shut += ((open ? 1 : 0) - d.shut) * Math.min(1, dt * 7);
     d.mesh.position.y = d.restY - d.shut * (WALL_H + 0.3);   // slides down into the floor
     d.box.off = d.shut > 0.72;
+  }
+
+  // bridges come up out of the pit the moment their lever goes
+  for (const br of BRIDGES) {
+    const up = br.opens.every(id => {
+      const p = PLATES.find(q => q.id === id);
+      return !!(p && p.down);
+    });
+    br.up += ((up ? 1 : 0) - br.up) * Math.min(1, dt * 3.5);
+    const y = -6 + br.up * 5.4;   // flush with the floor, not a step
+    br.mesh.position.y = y + 0.3;
+    br.box.minY = y; br.box.maxY = y + 0.6;
+    br.box.off = br.up < 0.8;         // only something to walk on once it's nearly there
   }
 
   refreshLamps();
@@ -902,9 +1215,20 @@ function draw(dt) {
    on the right of a keyboard depends entirely on the keyboard.
    --------------------------------------------------------------------- */
 const keys = {};
+const tapped = {};
+/* Some things you HOLD (walking) and some things you PRESS (grabbing).
+   A press has to count exactly once however long the key is held down,
+   or one tap on the grab button picks Pip up and throws him again sixty
+   times a second. */
+function tookTap(code) {
+  if (!tapped[code]) return false;
+  tapped[code] = false;
+  return true;
+}
 addEventListener("keydown", e => {
   if (e.repeat) return;
   keys[e.code] = true;
+  tapped[e.code] = true;
   if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].indexOf(e.code) >= 0) {
     e.preventDefault();
   }
@@ -915,6 +1239,7 @@ addEventListener("blur", () => { for (const k in keys) keys[k] = false; });
 // on a phone there's one stick, and it drives Chunk
 const touchMove = { x: 0, z: 0 };
 let touchJump = false;
+let touchGrabTap = false;
 
 function readInput(P) {
   if (P === chunk) {
@@ -977,7 +1302,7 @@ function trimButton(id, set) {
   addEventListener("mouseup", off);
 }
 trimButton("btn-jump", on => { touchJump = on; });
-trimButton("btn-grab", () => { /* Chunk's grab arrives with the crates */ });
+trimButton("btn-grab", on => { if (on) touchGrabTap = true; });
 
 /* Phones get the stick, computers get the keyboard instructions. */
 const isTouch = matchMedia("(pointer: coarse)").matches;
@@ -1071,9 +1396,15 @@ const ADMIN_COMMANDS = [
     } },
 
   { name: "where", args: "",
-    help: "Say where they both are",
+    help: "Say where everything is",
     run: () => "Chunk " + chunk.pos.x.toFixed(1) + "," + chunk.pos.z.toFixed(1) +
-               " · Pip " + pip.pos.x.toFixed(1) + "," + pip.pos.z.toFixed(1) }
+                 " h" + chunk.pos.y.toFixed(1) +
+               " · Pip " + pip.pos.x.toFixed(1) + "," + pip.pos.z.toFixed(1) +
+                 " h" + pip.pos.y.toFixed(1) +
+               (CRATES.length
+                 ? " · crates " + CRATES.map(c =>
+                     c.x.toFixed(1) + "," + c.y.toFixed(1) + "," + c.z.toFixed(1)).join(" ")
+                 : "") }
 ];
 
 if (window.OllieAdmin) OllieAdmin.start({ commands: ADMIN_COMMANDS });
