@@ -1,0 +1,23 @@
+# Cloudflare Worker settings for the room server.
+# See README.md in this folder for the full setup. Nothing here costs
+# anything - there is no AI in this one, it only passes messages along.
+
+name = "game-rooms"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+[vars]
+# Only these sites may open rooms. Comma-separated.
+# Add "http://localhost:8099" if you want to test from a local server.
+ALLOWED_ORIGINS = "https://clugsrepo.github.io"
+
+# One Durable Object class, and each room is one instance of it named
+# after its four-letter code. "new_sqlite_classes" is the free-plan kind
+# and is what you want for this.
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "GameRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GameRoom"]
