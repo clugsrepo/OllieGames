@@ -66,17 +66,25 @@ shapes the game — **every WebSocket message counts as one**. Sending
 positions sixty times a second for two players would be 120 messages a
 second and would spend the whole day's allowance in under twenty minutes.
 
-So the game doesn't do that. It sends positions **ten** times a second and
-smooths them out at the other end, and it **only sends anything when
-something actually changed** — two children standing still working out a
-puzzle send nothing whatsoever, which is a surprising amount of the time in
-a game like this.
+So the game doesn't do that. It sends positions **six** times a second and
+smooths them out at the other end over a fifth of a second, and it **only
+sends anything when something actually changed** — two children standing
+still working out a puzzle send nothing whatsoever, which is a surprising
+amount of the time in a game like this.
+
+Measured, with both of them charging about and shoving crates:
 
 | | roughly |
 |---|---|
-| Two of them charging about | about **12 messages a second** |
-| Two of them standing still thinking | **nothing at all** |
-| A day's free allowance | a couple of hours of solid charging about, and a lot more in practice |
+| Two of them charging about | about **16 messages a second** |
+| One holding a plate while the other thinks | about **6** |
+| Two of them standing still working it out | **nothing at all** |
+| A day's free allowance | about **1.7 hours** of *constant* motion, and several times that in practice |
+
+The game counts its own messages as it goes — type `;net` in the admin
+panel and it tells you the rate per hour. The tests assert on it, so a
+change that makes the game chatty fails the build rather than quietly
+spending the allowance.
 
 If the allowance ever does run out, the game says so in plain words and
 offers the one-keyboard option instead of breaking.

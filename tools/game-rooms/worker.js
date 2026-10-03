@@ -25,14 +25,15 @@ import { DurableObject } from "cloudflare:workers";
 
 /* The only things anybody is allowed to say.
      p - where I am            [x, y, z, yaw]
-     w - what the world is up to (doors, crates, which floor) - host only
+     w - what the world is up to (crates, levers, which floor) - host only
+     a - I just did something  [which]
      e - an emote, by number
      f - the floor changed - host only
-     r - restart
+     r - start again
 
    Note what is NOT in that list: anything at all with words in it. See
    `tidy` below, which is where that promise is actually kept. */
-const KINDS = new Set(["p", "w", "e", "f", "r"]);
+const KINDS = new Set(["p", "w", "a", "e", "f", "r"]);
 
 const MAX_IN_A_ROOM = 2;
 const MAX_MESSAGE = 400;          // bytes; a position update is about 40

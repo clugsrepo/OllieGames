@@ -176,6 +176,46 @@
   #who-chunk h3 { color: #ff8a4c; }
   #who-pip   { border-color: rgba(126,247,160,0.55); }
   #who-pip h3 { color: #7ef7a0; }
+
+  /* the four letters that get you into somebody's game */
+  #bigcode {
+    font-size: clamp(2.6rem, 11vw, 4.2rem);
+    font-weight: bold;
+    letter-spacing: 0.3em;
+    text-indent: 0.3em;
+    color: #ffd93d;
+    margin: 10px 0 16px;
+  }
+  #codein {
+    font-family: inherit;
+    font-size: clamp(2rem, 9vw, 3rem);
+    font-weight: bold;
+    letter-spacing: 0.25em;
+    text-indent: 0.25em;
+    text-align: center;
+    text-transform: uppercase;
+    width: min(280px, 80%);
+    padding: 10px 8px;
+    border-radius: 14px;
+    border: 2px solid rgba(255,255,255,0.3);
+    background: rgba(0,0,0,0.35);
+    color: #ffd93d;
+  }
+  #onlinestatus { color: #ffd93d; min-height: 1.4em; }
+  #nojoin { color: #ffb4a2; font-size: 0.88rem; }
+  .btn[disabled] { opacity: 0.4; cursor: default; }
+
+  /* a quiet note that your friend has wandered off */
+  #waiting {
+    position: absolute; left: 50%; top: 56%;
+    transform: translateX(-50%);
+    font-size: 1rem; font-weight: bold;
+    padding: 10px 18px; border-radius: 14px;
+    background: rgba(12,10,22,0.82);
+    border: 2px solid rgba(255,217,61,0.5);
+    color: #ffd93d;
+    white-space: nowrap;
+  }
 </style>
 </head>
 <body>
@@ -189,6 +229,7 @@
   </div>
   <div id="hint"></div>
   <div id="message"></div>
+  <div id="waiting" hidden>Waiting for your friend…</div>
 </div>
 
 <a id="home" href="../../index.html">← Home</a>
@@ -227,13 +268,40 @@
 
     <p id="how-desktop">Two of you, one keyboard. One takes the left side,
        one takes the right.</p>
-    <p id="how-touch" hidden>The stick and the buttons move <b>Chunk</b>.
-       Playing with a friend on a phone needs the joining code, which is
-       coming next.</p>
+    <p id="how-touch" hidden>The stick and the buttons move <b>Chunk</b>.</p>
 
     <p>
-      <button class="btn" id="btn-play">START!</button>
+      <button class="btn" id="btn-play">TWO OF US HERE</button>
     </p>
+    <p>
+      <button class="btn alt" id="btn-make">MAKE A GAME</button>
+      <button class="btn alt" id="btn-join">JOIN A GAME</button>
+    </p>
+    <p id="nojoin" hidden>Joining by code isn't switched on yet — a grown-up
+      needs to set it up first (it's in <b>tools/game-rooms</b>). Until then,
+      <b>two of you on one keyboard</b> works perfectly.</p>
+  </div>
+</div>
+
+<div class="panel" id="online" hidden>
+  <div class="box">
+    <h1 id="onlinetitle">🔗 YOUR CODE</h1>
+
+    <div id="codeshow" hidden>
+      <p>Tell your friend these four letters. They pick <b>JOIN A GAME</b>
+         and type them in.</p>
+      <div id="bigcode">····</div>
+    </div>
+
+    <div id="codeask" hidden>
+      <p>What's your friend's code?</p>
+      <input id="codein" maxlength="4" autocomplete="off" spellcheck="false"
+             autocapitalize="characters" placeholder="ABCD">
+      <p><button class="btn" id="btn-gojoin">GO</button></p>
+    </div>
+
+    <p id="onlinestatus">Getting ready…</p>
+    <p><button class="btn alt" id="btn-online-back">Never mind</button></p>
   </div>
 </div>
 
@@ -466,7 +534,7 @@ const CRATE_WEIGHT = 2;
 function addCrate(x, z) {
   /* A crate keeps its own box and deliberately stays OUT of the main
      solid list. That list is checked by everything, so a crate in it is
-     a crate that stops Chunk dead - and then the shoving code below
+     a crate that stops Chunk flat - and then the shoving code below
      never sees him touching it and nothing ever moves. Which is exactly
      the bug I wrote first time. */
   const made = block(x, 0, z, CRATE_SIZE, CRATE_SIZE, CRATE_SIZE, 0xcbb187, false);
@@ -935,6 +1003,294 @@ function clearFloor() {
   chunk.held = null;              // never carry Pip into the next floor
 }
 
+/* ---------------------------------------------------------------------
+   PLAYING WITH SOMEBODY IN ANOTHER HOUSE
+
+   Everything above this point is the game. Everything below it is the
+   post. The game does not know or care whether the other character is
+   being driven by the other half of a keyboard or by a friend three
+   miles away - a player is a body with an input source, and this just
+   provides a different source.
+
+   Whoever makes the game is CHUNK and owns the world: the crates, the
+   levers, which floor you are on. Whoever joins is PIP and owns Pip.
+   Each of you moves your own body with no lag whatsoever, because your
+   own body never travels over the wire - only the news of where it got
+   to.
+
+   One rule is absolute: ONLY THE HOST MOVES EVERYBODY ON TO THE NEXT
+   FLOOR. Everything else here can disagree for a tenth of a second and
+   nobody will ever notice. Two machines disagreeing about whether you
+   finished the floor is the one thing that would actually break.
+   --------------------------------------------------------------------- */
+
+/* Put the Worker's address in here to switch joining on. Empty means
+   "not set up yet", and the game says so kindly and carries on offering
+   two-players-on-one-keyboard. See tools/game-rooms/README.md. */
+const ROOM_SERVER = "";
+
+/* Four letters, and none of them ones you can misread down the phone to
+   a friend: no I, O, S or Z, and nothing that rhymes with another. The
+   room server checks the same alphabet. */
+const CODE_LETTERS = "ABCDEFGHJKLMNPQRTUVWXY";
+
+/* Six times a second, not sixty. Every message counts against the free
+   allowance on the room server, and sixty a second would spend a whole
+   day of it before lunch. Six is plenty when the other end smooths
+   between them - see glideRemote. */
+const SEND_EVERY = 1 / 6;
+const SMOOTH_OVER = 0.2;        // run their body this far behind, and glide
+const MOVED_ENOUGH = 0.04;      // metres - below this we don't say anything
+const TURNED_ENOUGH = 0.05;     // radians
+
+const net = {
+  on: false, ws: null, host: false, code: "",
+  me: null, them: null,          // which body is mine, which is theirs
+  mate: false,                   // is my friend actually here?
+  sent: 0, got: 0, since: 0,     // for the message counter
+  lastX: 0, lastZ: 0, lastYaw: 0, wasStill: true,
+  buf: [],                       // where they said they were, and when
+  carry: false,
+  tries: 0, retryAt: 0
+};
+
+function netSend(msg) {
+  if (!net.ws || net.ws.readyState !== 1) return;
+  try { net.ws.send(JSON.stringify(msg)); net.sent++; } catch (e) {}
+}
+
+function makeCode() {
+  let s = "";
+  for (let i = 0; i < 4; i++) {
+    s += CODE_LETTERS[Math.floor(Math.random() * CODE_LETTERS.length)];
+  }
+  return s;
+}
+
+function netStatus(text) { el("onlinestatus").textContent = text; }
+
+function joinRoom(code, asHost) {
+  net.code = code;
+  net.host = asHost;
+  net.me = asHost ? chunk : pip;
+  net.them = asHost ? pip : chunk;
+  net.buf.length = 0;
+  net.mate = false;
+
+  const url = ROOM_SERVER.replace(/^http/, "ws").replace(/\/$/, "") + "/room/" + code;
+  let ws;
+  try { ws = new WebSocket(url); }
+  catch (e) { netStatus("Couldn't reach the rooms. Try again in a minute."); return; }
+  net.ws = ws;
+
+  ws.addEventListener("open", () => {
+    net.tries = 0;
+    netStatus(asHost ? "Waiting for your friend to join…" : "Knocking…");
+  });
+
+  ws.addEventListener("message", e => {
+    net.got++;
+    let m;
+    try { m = JSON.parse(String(e.data)); } catch (err) { return; }
+    if (!Array.isArray(m)) return;
+    takeMessage(m);
+  });
+
+  ws.addEventListener("close", () => {
+    if (!net.on) { netStatus("That didn't work. Check the four letters?"); return; }
+    /* Mid-game and the wire went. Hold everything and keep trying - the
+       one thing this must never do is carry on as though your friend
+       were still there. */
+    net.mate = false;
+    el("waiting").hidden = false;
+    net.retryAt = 1.5;
+  });
+
+  ws.addEventListener("error", () => {
+    if (!net.on) netStatus("Couldn't reach the rooms. Is it switched on?");
+  });
+}
+
+function takeMessage(m) {
+  const kind = m[0];
+
+  if (kind === "hello") {
+    // the server decides who was first, and first is the host
+    net.host = m[1] === 1;
+    net.me = net.host ? chunk : pip;
+    net.them = net.host ? pip : chunk;
+    return;
+  }
+
+  if (kind === "mate") {
+    if (m[1] === 1) {
+      net.mate = true;
+      el("waiting").hidden = true;
+      if (!net.on) startOnlineGame();
+      else if (net.host) sendWorld(true);     // bring them up to date at once
+    } else {
+      net.mate = false;
+      if (net.on) el("waiting").hidden = false;
+    }
+    return;
+  }
+
+  if (kind === "p") {
+    // where they say they got to, with the time we heard it
+    net.buf.push({ t: clock, x: m[1], y: m[2], z: m[3], yaw: m[4] });
+    if (net.buf.length > 8) net.buf.shift();
+    return;
+  }
+
+  if (kind === "w" && !net.host) {
+    applyWorld(m);
+    return;
+  }
+
+  if (kind === "f" && !net.host) {
+    const want = m[1] | 0;
+    if (want >= LEVELS.length) { finish(); return; }
+    if (want !== level) { say("Floor " + (want + 1) + "!", 1.4); loadLevel(want); }
+    return;
+  }
+
+  if (kind === "a") {
+    // 1 = Pip hopped off by himself. Only the host acts on it, because
+    // the host is the one holding him.
+    if (m[1] === 1 && net.host && chunk.held) {
+      chunk.held = null;
+      pip.onGround = false;
+      pip.vel.set(0, 4.5, 0);
+    }
+    return;
+  }
+
+  if (kind === "r") { startGame(); return; }
+}
+
+/* ---- the world, as the host sees it ----
+   Crates, which levers have latched, which floor, and whether Pip is
+   being carried. Sent only when one of them actually changes, which in
+   a game about standing still and thinking is most of the time. */
+let worldWas = "";
+
+function sendWorld(force) {
+  if (!net.on || !net.host) return;
+  let bits = 0;
+  for (let i = 0; i < PLATES.length && i < 24; i++) {
+    if (PLATES[i].latch && PLATES[i].down) bits |= (1 << i);
+  }
+  const msg = ["w", level, bits, chunk.held ? 1 : 0];
+  for (const c of CRATES) {
+    msg.push(Math.round(c.x * 100) / 100,
+             Math.round(c.y * 100) / 100,
+             Math.round(c.z * 100) / 100);
+  }
+  const now = JSON.stringify(msg);
+  if (!force && now === worldWas) return;
+  worldWas = now;
+  netSend(msg);
+}
+
+function applyWorld(m) {
+  const want = m[1] | 0;
+  if (want !== level && want < LEVELS.length) { loadLevel(want); }
+  const bits = m[2] | 0;
+  for (let i = 0; i < PLATES.length && i < 24; i++) {
+    if (PLATES[i].latch && (bits & (1 << i))) PLATES[i].down = true;
+  }
+  net.carry = m[3] === 1;
+  for (let i = 0; i < CRATES.length; i++) {
+    const at = 4 + i * 3;
+    if (at + 2 >= m.length) break;
+    const c = CRATES[i];
+    moveCrate(c, m[at] - c.x, m[at + 2] - c.z, m[at + 1] - c.y);
+  }
+}
+
+/* ---- their body ----
+   Run it a fifth of a second behind and glide between the last two
+   things they told us. Six updates a second looks like teleporting if
+   you just slam the body down where it said; smoothed, it looks like
+   somebody walking. */
+function glideRemote(P, dt) {
+  if (net.carry && P === pip) {
+    // Chunk has hold of him, and Chunk's machine is in charge of that
+    P.pos.set(chunk.pos.x, chunk.pos.y + chunk.h, chunk.pos.z);
+    P.yaw = chunk.yaw;
+    P.root.position.copy(P.pos);
+    P.root.rotation.y = P.yaw;
+    return;
+  }
+  const when = clock - SMOOTH_OVER;
+  let a = null, b = null;
+  for (const s of net.buf) {
+    if (s.t <= when) a = s;
+    else { b = s; break; }
+  }
+  if (!a && !b) return;
+  if (!a) a = b;
+  if (!b) b = a;
+  const span = b.t - a.t;
+  const k = span > 0.0001 ? Math.max(0, Math.min(1, (when - a.t) / span)) : 1;
+  P.pos.set(a.x + (b.x - a.x) * k, a.y + (b.y - a.y) * k, a.z + (b.z - a.z) * k);
+  // turn the short way round, so they never spin the long way
+  let turn = b.yaw - a.yaw;
+  while (turn > Math.PI) turn -= Math.PI * 2;
+  while (turn < -Math.PI) turn += Math.PI * 2;
+  P.yaw = a.yaw + turn * k;
+  P.root.position.copy(P.pos);
+  P.root.rotation.y = P.yaw;
+  while (net.buf.length > 2 && net.buf[1].t <= when) net.buf.shift();
+}
+
+/* ---- telling them where I got to ----
+   Only when I actually moved. Somebody stood on a plate holding a door
+   open for their friend sends nothing at all, which is both the cheapest
+   and the commonest thing that happens in this game. */
+function sendMe(dt) {
+  if (!net.on || !net.me) return;
+  net.since += dt;
+  if (net.since < SEND_EVERY) return;
+  net.since = 0;
+
+  const P = net.me;
+  const moved = Math.abs(P.pos.x - net.lastX) > MOVED_ENOUGH
+             || Math.abs(P.pos.z - net.lastZ) > MOVED_ENOUGH
+             || Math.abs(P.yaw - net.lastYaw) > TURNED_ENOUGH;
+
+  /* One last message when you stop, so you never freeze mid-stride on
+     their screen, and then silence until you move again. */
+  if (!moved) {
+    if (net.wasStill) return;
+    net.wasStill = true;
+  } else {
+    net.wasStill = false;
+  }
+
+  net.lastX = P.pos.x; net.lastZ = P.pos.z; net.lastYaw = P.yaw;
+  netSend(["p", Math.round(P.pos.x * 100) / 100,
+                Math.round(P.pos.y * 100) / 100,
+                Math.round(P.pos.z * 100) / 100,
+                Math.round(P.yaw * 100) / 100]);
+}
+
+function startOnlineGame() {
+  net.on = true;
+  el("online").hidden = true;
+  el("waiting").hidden = true;
+  startGame();
+  say(net.host ? "You're Chunk — the big one!" : "You're Pip — the quick one!", 2.2);
+}
+
+function leaveRoom() {
+  net.on = false;
+  net.mate = false;
+  if (net.ws) { try { net.ws.close(); } catch (e) {} }
+  net.ws = null;
+  el("waiting").hidden = true;
+}
+
 function loadLevel(n) {
   level = Math.max(0, Math.min(LEVELS.length - 1, n));
   const L = LEVELS[level];
@@ -955,9 +1311,12 @@ function loadLevel(n) {
 }
 
 function nextLevel() {
-  if (level + 1 >= LEVELS.length) { finish(); return; }
+  if (level + 1 >= LEVELS.length) { netSend(["f", LEVELS.length]); finish(); return; }
   say("Floor " + (level + 2) + "!", 1.4);
   loadLevel(level + 1);
+  // the host has moved everybody on, so say so, and send the new world
+  // in the same breath or they'll be stood in last floor's doorway
+  if (net.on && net.host) { netSend(["f", level]); sendWorld(true); }
 }
 
 function finish() {
@@ -1059,7 +1418,7 @@ function stepPlayer(P, input, dt) {
 
      Gripping the floor is one thing; sailing through the air is quite
      another. The first version used the same big drag for both, and a
-     thrown Pip stopped dead about a foot from Chunk's hands - all the
+     thrown Pip stopped short about a foot from Chunk's hands - all the
      lovely arc scrubbed off him in three frames. */
   const drag = Math.exp(-(P.onGround ? 11 : 0.6) * dt);
   P.vel.x *= drag;
@@ -1108,14 +1467,38 @@ function stepPlayer(P, input, dt) {
 
 function step(dt) {
   if (!playing) return;
+
+  /* Your friend has dropped out: hold everything exactly where it is and
+     keep knocking. Carrying on without them would wreck the floor you
+     were halfway through. */
+  if (net.on && !net.mate) {
+    if (net.retryAt > 0) {
+      net.retryAt -= dt;
+      if (net.retryAt <= 0 && net.tries < 40) { net.tries++; joinRoom(net.code, net.host); }
+    }
+    return;
+  }
+
   clock += dt;
   el("time").textContent = clock.toFixed(1);
 
-  if (tookTap("KeyE") || tookTap("ShiftLeft") || touchGrabTap) { touchGrabTap = false; tryGrab(); }
+  if (tookTap("KeyE") || tookTap("ShiftLeft") || touchGrabTap) {
+    touchGrabTap = false;
+    /* Online, only Chunk's machine does the holding. If I'm Pip, this
+       button means "put me down" and the host is the one who acts on it. */
+    if (!net.on || net.host) tryGrab();
+    else if (net.carry) netSend(["a", 1]);
+  }
 
-  stepPlayer(chunk, readInput(chunk), dt);
-  stepPlayer(pip, readInput(pip), dt);
-  stepCrates(dt);
+  /* THE SEAM. One body off the keyboard, one off the wire - or both off
+     the keyboard when the two of you are sat on the same sofa. */
+  for (const P of PLAYERS) {
+    if (net.on && P !== net.me) { glideRemote(P, dt); continue; }
+    stepPlayer(P, readInput(P), dt);
+  }
+
+  // crates are the host's business; everybody else is told where they went
+  if (!net.on || net.host) stepCrates(dt);
 
   // plates notice weight, and doors do as they're told
   for (const p of PLATES) {
@@ -1163,8 +1546,15 @@ function step(dt) {
 
   refreshLamps();
 
-  // BOTH of them, or it doesn't count
-  if (onExit(chunk) && onExit(pip)) nextLevel();
+  /* BOTH of them, or it doesn't count - and ONLY the host decides. If
+     both machines worked this out for themselves they could disagree
+     about whether you'd finished, which is the one disagreement that
+     would actually spoil it. */
+  if ((!net.on || net.host) && onExit(chunk) && onExit(pip)) nextLevel();
+
+  // and now tell the other end what happened
+  sendMe(dt);
+  if (net.on && net.host) sendWorld(false);
 
   if (sayFor > 0) {
     sayFor -= dt;
@@ -1242,17 +1632,34 @@ let touchJump = false;
 let touchGrabTap = false;
 
 function readInput(P) {
-  if (P === chunk) {
-    let x = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
-    let z = (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0);
-    if (touchMove.x || touchMove.z) { x = touchMove.x; z = touchMove.z; }
-    return { x, z, jump: keys.Space || touchJump };
+  /* Sat together on one sofa, you take half a keyboard each. Playing from
+     two different houses you've each got a WHOLE keyboard, so either set
+     of keys drives your own character and it doesn't matter which one
+     you reach for. */
+  const mine = !net.on || P === net.me;
+  const left = { x: (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0),
+                 z: (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0),
+                 jump: !!keys.Space };
+  const right = { x: (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0),
+                  z: (keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0),
+                  jump: !!(keys.ShiftRight || keys.Enter || keys.Numpad0 || keys.Slash) };
+
+  if (net.on) {
+    if (!mine) return { x: 0, z: 0, jump: false };
+    const x = left.x || right.x, z = left.z || right.z;
+    const touched = touchMove.x || touchMove.z;
+    return { x: touched ? touchMove.x : x,
+             z: touched ? touchMove.z : z,
+             jump: left.jump || right.jump || touchJump };
   }
-  return {
-    x: (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0),
-    z: (keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0),
-    jump: keys.ShiftRight || keys.Enter || keys.Numpad0 || keys.Slash
-  };
+
+  if (P === chunk) {
+    const touched = touchMove.x || touchMove.z;
+    return { x: touched ? touchMove.x : left.x,
+             z: touched ? touchMove.z : left.z,
+             jump: left.jump || touchJump };
+  }
+  return right;
 }
 
 /* ---- the on-screen stick, for phones ---- */
@@ -1324,8 +1731,61 @@ function fitScreen() {
 addEventListener("resize", fitScreen);
 fitScreen();
 
-el("btn-play").addEventListener("click", startGame);
-el("btn-again").addEventListener("click", startGame);
+el("btn-play").addEventListener("click", () => { leaveRoom(); startGame(); });
+el("btn-again").addEventListener("click", () => { netSend(["r"]); startGame(); });
+
+/* ---- making and joining ---- */
+function showOnline(title, mode) {
+  el("start").hidden = true;
+  el("online").hidden = false;
+  el("onlinetitle").textContent = title;
+  el("codeshow").hidden = mode !== "show";
+  el("codeask").hidden = mode !== "ask";
+}
+
+el("btn-make").addEventListener("click", () => {
+  const code = makeCode();
+  showOnline("🔗 YOUR CODE", "show");
+  el("bigcode").textContent = code;
+  netStatus("Opening a room…");
+  joinRoom(code, true);
+});
+
+el("btn-join").addEventListener("click", () => {
+  showOnline("🔗 JOIN A GAME", "ask");
+  netStatus("");
+  el("codein").value = "";
+  el("codein").focus();
+});
+
+function tryJoinTyped() {
+  const code = String(el("codein").value || "").toUpperCase().replace(/[^A-Z]/g, "");
+  if (code.length !== 4) { netStatus("It's four letters."); return; }
+  for (const ch of code) {
+    if (CODE_LETTERS.indexOf(ch) < 0) { netStatus("No code has a " + ch + " in it."); return; }
+  }
+  netStatus("Knocking…");
+  joinRoom(code, false);
+}
+el("btn-gojoin").addEventListener("click", tryJoinTyped);
+el("codein").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); tryJoinTyped(); }
+});
+
+el("btn-online-back").addEventListener("click", () => {
+  leaveRoom();
+  el("online").hidden = true;
+  el("start").hidden = false;
+});
+
+/* Nothing to join until a grown-up has switched the rooms on. Say so
+   plainly, leave the buttons where they are so it's obvious what's
+   missing, and point at the thing that does work. */
+if (!ROOM_SERVER) {
+  el("btn-make").disabled = true;
+  el("btn-join").disabled = true;
+  el("nojoin").hidden = false;
+}
 
 loadLevel(0);            // something to look at behind the start panel
 
@@ -1393,6 +1853,19 @@ const ADMIN_COMMANDS = [
       for (const p of PLATES) p.down = true;
       for (const d of DOORS) { d.shut = 1; d.box.off = true; }
       return "All " + PLATES.length + " plates pressed";
+    } },
+
+  { name: "net", args: "",
+    help: "How the joining-by-code is doing",
+    state: () => net.on ? (net.host ? "host" : "guest") + " " + net.code : "off",
+    run: () => {
+      if (!ROOM_SERVER) return "Joining isn't switched on (see tools/game-rooms)";
+      if (!net.on) return "Not in a room";
+      const perHour = clock > 0 ? Math.round(net.sent / clock * 3600) : 0;
+      return (net.host ? "Host (Chunk)" : "Guest (Pip)") + " in room " + net.code +
+             " · friend " + (net.mate ? "here" : "away") +
+             " · sent " + net.sent + ", got " + net.got +
+             " · that's about " + perHour + " an hour";
     } },
 
   { name: "where", args: "",
