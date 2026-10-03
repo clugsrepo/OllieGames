@@ -1,0 +1,11 @@
+# Wrangler's local scratch: miniflare's databases and build output. It
+# rebuilds this from nothing every time, and about a megabyte of it once
+# ended up committed to a website by a careless "git add -A". Not again.
+.wrangler/
+
+# Local-only settings for "wrangler dev". Nothing secret lives in ours,
+# but this is where a secret would go, so it stays out of the repo.
+.dev.vars
+
+node_modules/
+.DS_Store
