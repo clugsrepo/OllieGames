@@ -241,6 +241,12 @@
    --------------------------------------------------------------------- */
 const SOLIDS = [];
 
+/* The flat things a portal can be stuck to. Kept apart from SOLIDS
+   because one is about walking into things and the other is about
+   pointing at them, and they are not the same list - a painted hole is
+   something you can shoot a portal at and walk straight through. */
+const SHOOTABLE = [];
+
 function solidBox(cx, cy, cz, w, h, d) {
   const box = {
     minX: cx - w / 2, maxX: cx + w / 2,
@@ -265,8 +271,8 @@ const canvas = renderer.domElement;
 /* Both lights made here at the start and never added or taken away
    again. Adding one while the game is running makes three.js rebuild
    every material in the scene and everything stops still for a moment. */
-scene.add(new THREE.AmbientLight(0xaab4e0, 0.55));
-const sun = new THREE.DirectionalLight(0xfff0d8, 0.9);
+scene.add(new THREE.AmbientLight(0xaab4e0, 0.8));
+const sun = new THREE.DirectionalLight(0xfff0d8, 1.0);
 sun.position.set(30, 50, 20);
 scene.add(sun);
 
@@ -278,6 +284,7 @@ function block(cx, cy, cz, w, h, d, color, solid) {
   mesh.scale.set(w, h, d);
   mesh.position.set(cx, cy + h / 2, cz);
   scene.add(mesh);
+  SHOOTABLE.push(mesh);
   return solid === false ? { mesh } : { mesh, box: solidBox(cx, cy, cz, w, h, d) };
 }
 
@@ -293,11 +300,11 @@ const WALL_T = 1.5;
 
 function buildRoom() {
   const { w, d, h } = ROOM;
-  block(0, -1, 0, w + WALL_T * 2, 1, d + WALL_T * 2, 0x2b3048);          // floor
-  block(0, 0, -d / 2 - WALL_T / 2, w + WALL_T * 2, h, WALL_T, 0x232942);  // back
-  block(0, 0,  d / 2 + WALL_T / 2, w + WALL_T * 2, h, WALL_T, 0x232942);  // front
-  block(-w / 2 - WALL_T / 2, 0, 0, WALL_T, h, d + WALL_T * 2, 0x272d47);  // left
-  block( w / 2 + WALL_T / 2, 0, 0, WALL_T, h, d + WALL_T * 2, 0x272d47);  // right
+  block(0, -1, 0, w + WALL_T * 2, 1, d + WALL_T * 2, 0x414a6e);          // floor
+  block(0, 0, -d / 2 - WALL_T / 2, w + WALL_T * 2, h, WALL_T, 0x343c61);  // back
+  block(0, 0,  d / 2 + WALL_T / 2, w + WALL_T * 2, h, WALL_T, 0x343c61);  // front
+  block(-w / 2 - WALL_T / 2, 0, 0, WALL_T, h, d + WALL_T * 2, 0x3a4269);  // left
+  block( w / 2 + WALL_T / 2, 0, 0, WALL_T, h, d + WALL_T * 2, 0x3a4269);  // right
   block(0, h, 0, w + WALL_T * 2, WALL_T, d + WALL_T * 2, 0x1b2036);       // ceiling
 
   /* A grid painted on the floor. It is not decoration: a flat even grid
@@ -305,7 +312,7 @@ function buildRoom() {
      exactly what every trick in here is going to lie about. Take it
      away and forced perspective stops being surprising, because there
      was never anything to be wrong about. */
-  const lineMat = new THREE.MeshBasicMaterial({ color: 0x3c4568 });
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0x5d6a9c });
   const lineGeo = new THREE.PlaneGeometry(1, 1);
   const stripe = (x, z, sx, sz) => {
     const line = new THREE.Mesh(lineGeo, lineMat);
@@ -321,8 +328,323 @@ function buildRoom() {
      real size you already know. An illusion needs honest things stood
      next to it or there is nothing to compare it against. */
   for (const [x, z] of [[-18, -18], [18, -18], [-18, 18], [18, 18]]) {
-    block(x, 0, z, 2, 5, 2, 0x4a5570);
+    block(x, 0, z, 2, 5, 2, 0x6b7aa8);
   }
+}
+
+
+/* ---------------------------------------------------------------------
+   PORTALS
+
+   Two doorways that are really the same doorway. Look into the blue one
+   and you see out of the orange one; walk into the blue one and you come
+   out of the orange one, still going the speed you went in.
+
+   HOW THE SEEING-THROUGH WORKS. A portal is a flat rectangle with a
+   picture painted on it, and the picture is the scene drawn from
+   somewhere else. To work out where "somewhere else" is: take where your
+   eye is, describe it in terms of the blue portal ("two metres in front,
+   half a metre left"), then put a second camera in exactly that spot
+   relative to the orange one, turned round to face back out. Draw the
+   scene from there into an off-screen picture, paint that picture on the
+   blue portal, and your eye cannot tell it from a hole in the wall.
+
+   WHAT IT COSTS. Two extra draws of the whole room every frame, so three
+   times the work. That is a lot, so three things keep it honest:
+
+     - the off-screen pictures are HALF SIZE. A portal is a small thing
+       on the screen and nobody has ever noticed.
+     - a portal you cannot see is not drawn at all. Behind you, facing
+       away, or miles off, and it keeps the picture from last time.
+     - no portal-inside-a-portal. One level deep, and a portal seen
+       through a portal is just a flat colour. Infinite mirrors are where
+       frame rates go to disappear, and nobody needs more than one.
+   --------------------------------------------------------------------- */
+const PORTAL_W = 2.2, PORTAL_H = 3.4;
+const PORTAL_SEE = 55;            // past this, don't bother drawing it
+
+const portalCam = new THREE.PerspectiveCamera(70, 1, 0.1, 400);
+const PORTALS = [];
+
+/* Scratch vectors, made once. Nothing in here is ever allowed to make a
+   new one while the game is running. */
+const _look = new THREE.Vector3();
+const _fwd = new THREE.Vector3();
+const _rel = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+const _v3 = new THREE.Vector3();
+const _v4 = new THREE.Vector3();
+
+function makeTarget() {
+  /* Half size on purpose - see the note above. */
+  const t = new THREE.WebGLRenderTarget(
+    Math.max(256, Math.floor(innerWidth / 2)),
+    Math.max(256, Math.floor(innerHeight / 2)),
+    { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter }
+  );
+  return t;
+}
+
+function makePortal(colour) {
+  const target = makeTarget();
+  const group = new THREE.Group();
+
+  /* The window itself.
+
+     The picture has to be sampled by WHERE ON THE SCREEN this bit of the
+     portal ended up, not by the portal's own corners. Paint it on by its
+     corners and you get the whole view squashed into the rectangle, like
+     a telly hung on the wall. Sample it by screen position and the
+     rectangle becomes a hole, because every pixel of it shows exactly
+     what would have been behind it. */
+  const faceMat = new THREE.ShaderMaterial({
+    uniforms: {
+      tex: { value: target.texture },
+      tint: { value: new THREE.Color(colour) },
+      paired: { value: 0 }
+    },
+    vertexShader: [
+      "varying vec4 vScreen;",
+      "void main() {",
+      "  vScreen = projectionMatrix * modelViewMatrix * vec4(position, 1.0);",
+      "  gl_Position = vScreen;",
+      "}"
+    ].join("\n"),
+    fragmentShader: [
+      "uniform sampler2D tex;",
+      "uniform vec3 tint;",
+      "uniform float paired;",
+      "varying vec4 vScreen;",
+      "void main() {",
+      "  vec2 uv = (vScreen.xy / vScreen.w) * 0.5 + 0.5;",
+      "  vec3 through = texture2D(tex, uv).rgb;",
+      "  gl_FragColor = vec4(mix(tint, through, paired), 1.0);",
+      "}"
+    ].join("\n")
+  });
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(PORTAL_W, PORTAL_H), faceMat);
+  face.position.y = PORTAL_H / 2;
+  group.add(face);
+
+  // a ring round it so you can always see where it is
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(1, 0.1, 6, 20),
+    new THREE.MeshBasicMaterial({ color: colour })
+  );
+  ring.scale.set(PORTAL_W / 1.8, PORTAL_H / 1.8, 1);
+  ring.position.y = PORTAL_H / 2;
+  group.add(ring);
+
+  group.visible = false;
+  scene.add(group);
+  const P = { group, face, ring, target, colour, placed: false, wall: null,
+              normal: new THREE.Vector3(0, 0, 1) };
+  PORTALS.push(P);
+  return P;
+}
+
+const bluePortal = makePortal(0x4ea8ff);
+const orangePortal = makePortal(0xff9a3c);
+function otherPortal(P) { return P === bluePortal ? orangePortal : bluePortal; }
+
+/* Which solid is this portal stuck to? Whatever is just BEHIND it. We
+   need to know, because a portal on a wall has to be a hole in that
+   wall - otherwise you walk up to a lovely window and bonk your nose on
+   the bricks it is painted on. */
+function boxBehind(point, normal) {
+  /* The portal is lying flat ON one of this box's faces, so look for the
+     box whose face in the direction the portal is pointing is right here.
+
+     The first go at this just asked "which box is the spot behind the
+     portal inside of?" - and a portal standing on the floor against a
+     wall has its foot on BOTH, so it found the floor, punched a hole in
+     that instead, and you fell out of the world. */
+  for (const b of SOLIDS) {
+    let face, along;
+    if (Math.abs(normal.x) > 0.5) { face = normal.x > 0 ? b.maxX : b.minX; along = point.x; }
+    else if (Math.abs(normal.y) > 0.5) { face = normal.y > 0 ? b.maxY : b.minY; along = point.y; }
+    else { face = normal.z > 0 ? b.maxZ : b.minZ; along = point.z; }
+    if (Math.abs(along - face) > 0.25) continue;
+    if (point.x < b.minX - 0.3 || point.x > b.maxX + 0.3) continue;
+    if (point.y < b.minY - 0.3 || point.y > b.maxY + 0.3) continue;
+    if (point.z < b.minZ - 0.3 || point.z > b.maxZ + 0.3) continue;
+    return b;
+  }
+  return null;
+}
+
+/* Put a portal flat against a surface, facing out of it. */
+function placePortal(P, point, normal) {
+  P.group.position.copy(point).addScaledVector(normal, 0.06);
+  P.normal.copy(normal);
+  P.group.lookAt(P.group.position.clone().add(normal));   // stand it up facing out
+  P.wall = boxBehind(point, normal);
+  P.placed = true;
+  P.group.visible = true;
+  refreshPortalFaces();
+}
+
+/* Am I standing in the mouth of a portal? If so, the thing it is stuck
+   to stops counting, and I walk through instead of into it. */
+function wallToIgnore() {
+  for (const P of PORTALS) {
+    if (!P.placed || !P.wall || !otherPortal(P).placed) continue;
+    _rel.subVectors(me.pos, P.group.position);
+    const along = _rel.dot(P.normal);
+    if (along < -1.2 || along > 1.6) continue;            // not near its plane
+    _v2.copy(me.pos).applyMatrix4(_mInv.copy(P.group.matrixWorld).invert());
+    if (Math.abs(_v2.x) > PORTAL_W / 2 - BODY_R * 0.5) continue;
+    if (_v2.y < -0.3 || _v2.y + BODY_H > PORTAL_H + 0.5) continue;
+    return P.wall;
+  }
+  return null;
+}
+
+function refreshPortalFaces() {
+  for (const P of PORTALS) {
+    P.face.material.uniforms.paired.value =
+      (P.placed && otherPortal(P).placed) ? 1 : 0;
+  }
+}
+
+/* ---- the one matrix everything here is built on ----
+   It answers: "if this thing were standing in front of the BLUE portal,
+   where would it be standing in front of the ORANGE one?" Turned round
+   by half a turn on the way, because you come OUT of a portal facing
+   away from it, not into it. Both the second camera and the walking
+   through use this same answer. */
+const _flip = new THREE.Matrix4().makeRotationY(Math.PI);
+const _mHop = new THREE.Matrix4();
+const _mInv = new THREE.Matrix4();
+const _mView = new THREE.Matrix4();
+const _dir = new THREE.Vector3();
+
+function portalMatrix(from, to) {
+  return _mHop.copy(to.group.matrixWorld)
+              .multiply(_flip)
+              .multiply(_mInv.copy(from.group.matrixWorld).invert());
+}
+
+function portalView(from, to) {
+  return _mView.multiplyMatrices(portalMatrix(from, to), camera.matrixWorld);
+}
+
+function drawPortals() {
+  if (!bluePortal.placed || !orangePortal.placed) return;
+  camera.getWorldDirection(_fwd);
+
+  for (const P of PORTALS) {
+    const other = otherPortal(P);
+
+    /* Worth drawing at all? Too far away, or behind us, and we keep last
+       frame's picture - which nobody can see, because if we cannot see
+       the portal we cannot see what is painted on it either. */
+    if (camera.position.distanceTo(P.group.position) > PORTAL_SEE) continue;
+    _look.subVectors(P.group.position, camera.position).normalize();
+    if (_look.dot(_fwd) < 0) continue;
+
+    portalCam.matrixAutoUpdate = false;
+    portalCam.matrix.copy(portalView(P, other));
+    portalCam.matrix.decompose(portalCam.position, portalCam.quaternion, portalCam.scale);
+    portalCam.matrixWorldNeedsUpdate = true;
+    portalCam.aspect = camera.aspect;
+    portalCam.fov = camera.fov;
+
+    /* Start seeing only AT the far portal, not before it.
+
+       The second camera stands behind the far portal, which means there
+       is a wall between it and the room - and it would faithfully draw
+       the back of that wall and nothing else, which is why the first
+       version of this showed a lovely portal full of dark nothing.
+       Pushing the near plane out to the portal itself slices the wall
+       away. */
+    _rel.subVectors(portalCam.position, other.group.position);
+    portalCam.near = Math.max(0.08, Math.abs(_rel.dot(other.normal)) - 0.12);
+    portalCam.updateProjectionMatrix();
+
+    /* Hide BOTH windows while drawing the view through one of them: the
+       far portal would otherwise appear in its own picture, which is the
+       portal-inside-a-portal we are deliberately not doing. */
+    const wasP = P.group.visible, wasO = other.group.visible;
+    P.group.visible = false;
+    other.group.visible = false;
+    renderer.setRenderTarget(P.target);
+    renderer.clear();
+    renderer.render(scene, portalCam);
+    renderer.setRenderTarget(null);
+    P.group.visible = wasP;
+    other.group.visible = wasO;
+  }
+}
+
+/* ---- going through one ----
+   Crossing the PLANE of a portal is what counts, not touching the frame.
+   A plane has two sides and you are always on one of them, so there is
+   no way to half-arrive: one frame you are in front of it, the next you
+   are behind it, and that is the moment you come out of the other one.
+
+   Then we work out exactly where on the frame you crossed, in the
+   portal's own reckoning, and only send you through if you went through
+   the HOLE rather than past the side of it. */
+function sideOf(P, point) {
+  return _rel.subVectors(point, P.group.position).dot(P.normal);
+}
+
+function tryPortalHop(prevPos) {
+  if (!bluePortal.placed || !orangePortal.placed) return false;
+
+  const nowAt = _v2.set(me.pos.x, me.pos.y + EYE * 0.5, me.pos.z);
+  const wasAt = _v3.set(prevPos.x, prevPos.y + EYE * 0.5, prevPos.z);
+
+  for (const P of PORTALS) {
+    const before = sideOf(P, wasAt);
+    const after = sideOf(P, nowAt);
+    if (!(before > 0 && after <= 0)) continue;           // didn't cross inwards
+
+    // where on the frame, in the portal's own reckoning?
+    const t = before / (before - after || 1);
+    _v4.lerpVectors(wasAt, nowAt, t);
+    _v4.applyMatrix4(_mInv.copy(P.group.matrixWorld).invert());
+    if (Math.abs(_v4.x) > PORTAL_W / 2) continue;        // past the side
+    if (_v4.y < -0.1 || _v4.y > PORTAL_H + 0.1) continue; // over or under
+
+    const other = otherPortal(P);
+    const m = portalMatrix(P, other);
+
+    me.pos.applyMatrix4(m);
+    me.pos.addScaledVector(other.normal, 0.9);           // well clear of the frame
+
+    // come out going the way you went in, at the speed you went in
+    _dir.set(-Math.sin(me.yaw), 0, -Math.cos(me.yaw)).transformDirection(m);
+    me.yaw = Math.atan2(-_dir.x, -_dir.z);
+    const speed = me.vel.length();
+    if (speed > 0.01) me.vel.transformDirection(m).multiplyScalar(speed);
+
+    say("Through you go!", 0.8);
+    return true;
+  }
+  return false;
+}
+
+/* ---- the gun ----
+   Point at a wall or the floor and shoot. Left for blue, right for
+   orange, the way everybody already expects. */
+const shooter = new THREE.Raycaster();
+const _screenMid = new THREE.Vector2(0, 0);
+
+function shootPortal(which) {
+  if (!playing) return;
+  shooter.setFromCamera(_screenMid, camera);
+  const hits = shooter.intersectObjects(SHOOTABLE, false);
+  if (!hits.length) { say("Nothing to put it on.", 0.9); return; }
+  const hit = hits[0];
+  const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+  /* Only on something you could actually walk out of - a near-enough
+     upright wall, or the floor. A portal on a ceiling you drop out of
+     for ever is funny exactly once. */
+  if (n.y < -0.5) { say("Not on the ceiling.", 1); return; }
+  placePortal(which, hit.point, n);
+  say(which === bluePortal ? "Blue." : "Orange.", 0.7);
 }
 
 /* ---------------------------------------------------------------------
@@ -369,11 +691,12 @@ function insideBox(P, b) {
       && P.pos.z + BODY_R > b.minZ && P.pos.z - BODY_R < b.maxZ;
 }
 
-function moveAxis(P, axis, amount) {
+function moveAxis(P, axis, amount, ignore) {
   if (amount === 0) return;
   const before = P.pos[axis];
   P.pos[axis] += amount;
   for (const b of SOLIDS) {
+    if (b === ignore) continue;          // a portal has made a hole in this one
     if (b.off || !insideBox(P, b)) continue;
     if (axis === "y") {
       if (amount > 0) {
@@ -401,28 +724,39 @@ function moveAxis(P, axis, amount) {
    ONE STEP OF THE WORLD
    --------------------------------------------------------------------- */
 const _aim = new THREE.Vector3();
+const _prev = new THREE.Vector3();
 
 function step(dt) {
   if (!playing) return;
 
   const input = readMove();
-  const fwdX = Math.sin(me.yaw), fwdZ = Math.cos(me.yaw);
+
+  /* Which way is forward? A three.js camera with no rotation looks down
+     MINUS z, so "the way I am looking" is -(sin yaw, cos yaw) and not
+     +(sin yaw, cos yaw). Getting that backwards makes W walk away from
+     whatever you are looking at, and because it is exactly reversed it
+     still passes any test that only checks where you ended up - which
+     is precisely how it survived until somebody looked at a picture. */
+  const fx = -Math.sin(me.yaw), fz = -Math.cos(me.yaw);   // forward
+  const rx = -fz, rz = fx;                                 // and to the right
 
   if (building) {
     /* Floating. No gravity, no walls, straight to wherever you point -
        including up and down, and including through things. Lining up a
        trick means getting your eye in an exact spot, and a floor would
        only ever be in the way of that. */
-    _aim.set(fwdX * -input.z + fwdZ * input.x, 0, fwdZ * -input.z - fwdX * input.x);
+    _aim.set(fx * -input.z + rx * input.x, 0, fz * -input.z + rz * input.x);
     if (_aim.lengthSq() > 1) _aim.normalize();
     const rise = (keys.Space || touchUp ? 1 : 0) - (keys.ShiftLeft || keys.ShiftRight || touchDown ? 1 : 0);
+    _prev.copy(me.pos);
     me.pos.x += _aim.x * FLY_SPEED * dt;
     me.pos.z += _aim.z * FLY_SPEED * dt;
     me.pos.y += rise * FLY_SPEED * dt;
     me.pos.y = Math.max(-6, Math.min(ROOM.h + 24, me.pos.y));
     me.vel.set(0, 0, 0);
+    tryPortalHop(_prev);
   } else {
-    _aim.set(fwdX * -input.z + fwdZ * input.x, 0, fwdZ * -input.z - fwdX * input.x);
+    _aim.set(fx * -input.z + rx * input.x, 0, fz * -input.z + rz * input.x);
     if (_aim.lengthSq() > 1) _aim.normalize();
 
     const push = WALK_SPEED * 36 * dt;
@@ -444,9 +778,12 @@ function step(dt) {
     if ((keys.Space || touchUp) && me.onGround) { me.vel.y = JUMP_UP; me.onGround = false; }
 
     me.onGround = false;
-    moveAxis(me, "y", me.vel.y * dt);
-    moveAxis(me, "x", me.vel.x * dt);
-    moveAxis(me, "z", me.vel.z * dt);
+    _prev.copy(me.pos);
+    const through = wallToIgnore();      // the wall a portal has opened up
+    moveAxis(me, "y", me.vel.y * dt, through);
+    moveAxis(me, "x", me.vel.x * dt, through);
+    moveAxis(me, "z", me.vel.z * dt, through);
+    tryPortalHop(_prev);
 
     if (me.pos.y < -30) { me.pos.set(0, 1, 24); me.vel.set(0, 0, 0); say("Back you come.", 1); }
   }
@@ -462,6 +799,8 @@ function draw() {
   camera.rotation.set(0, 0, 0);
   camera.rotateY(me.yaw);
   camera.rotateX(me.pitch);
+  camera.updateMatrixWorld(true);     // the portal cameras are worked out from this
+  drawPortals();
   renderer.render(scene, camera);
 }
 
@@ -575,6 +914,18 @@ function dropLook(e) {
 }
 addEventListener("touchend", dropLook);
 addEventListener("touchcancel", dropLook);
+
+/* ---- shooting the portal gun ----
+   Left for blue, right for orange, the way everybody already expects.
+   The right button has to have its menu turned off or you get the
+   browser's one instead. */
+canvas.addEventListener("mousedown", e => {
+  if (!playing) return;
+  if (!HAS_TOUCH && !pointerLocked) return;      // that click was to grab the mouse
+  if (e.button === 0) shootPortal(bluePortal);
+  if (e.button === 2) shootPortal(orangePortal);
+});
+canvas.addEventListener("contextmenu", e => e.preventDefault());
 
 /* ---- the stick ---- */
 const stick = el("stick-move"), knob = el("knob");
@@ -696,6 +1047,32 @@ const ADMIN_COMMANDS = [
       me.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, p));
       return "Looking " + y.toFixed(2) + ", " + p.toFixed(2);
     } },
+
+  { name: "portal", alias: ["shoot"], args: "<blue/orange> [x y z nx ny nz]",
+    help: "Shoot a portal, or put one exactly somewhere",
+    state: () => (bluePortal.placed ? "B" : "-") + (orangePortal.placed ? "O" : "-"),
+    run: words => {
+      const which = String(words[0] || "").toLowerCase();
+      const P = which === "blue" ? bluePortal : which === "orange" ? orangePortal : null;
+      if (!P) return { bad: "Say blue or orange" };
+      if (words.length >= 7) {
+        const n = words.slice(1, 7).map(Number);
+        if (n.some(v => !isFinite(v))) return { bad: "Needs x y z and a direction nx ny nz" };
+        placePortal(P, new THREE.Vector3(n[0], n[1], n[2]),
+                       new THREE.Vector3(n[3], n[4], n[5]).normalize());
+        return which + " put at " + n.slice(0, 3).join(",");
+      }
+      shootPortal(P);
+      return P.placed ? which + " is at " +
+        P.group.position.toArray().map(v => v.toFixed(1)).join(",") : "nothing to put it on";
+    } },
+
+  { name: "portals", args: "",
+    help: "Say where both portals are",
+    run: () => PORTALS.map(P => (P === bluePortal ? "blue " : "orange ") +
+      (P.placed ? P.group.position.toArray().map(v => v.toFixed(1)).join(",") +
+                  " facing " + P.normal.toArray().map(v => v.toFixed(1)).join(",")
+                : "not placed")).join(" · ") },
 
   { name: "where", args: "",
     help: "Say where you are and which way you're facing",
