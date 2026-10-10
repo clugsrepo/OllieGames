@@ -99,6 +99,16 @@
   .tool.on { color: #141018; background: #ffd93d; border-color: #fff3b0; }
   .tool.on b { color: #141018; }
   .tool.wipe { color: #ffb4a2; border-color: rgba(255,180,162,0.4); }
+  .tool.make { color: #9ff5c0; border-color: rgba(159,245,192,0.45); }
+
+  /* On a narrow screen the words come off and the pictures do the
+     talking - nine labelled buttons would take three rows and sit on
+     top of the swap button. Tapping one still says its name out loud in
+     the middle of the screen. */
+  @media (max-width: 620px) {
+    .tool span { display: none; }
+    .tool { padding: 8px 9px; font-size: 0.9rem; }
+  }
 
   #touch { position: fixed; inset: 0; z-index: 20; pointer-events: none; }
   #stick-move {
@@ -174,7 +184,7 @@
 
 <div id="hud">
   <div class="pill" id="modepill">👁 <span id="modename">BUILDING</span></div>
-  <div class="pill" id="countpill">🌀 <b id="count">0</b> tricks</div>
+  <div class="pill" id="countpill">🌀 <b id="count">0</b> <span id="countword">tricks</span></div>
   <div class="pill" id="helppill"></div>
   <div id="dot"></div>
   <div id="message"></div>
@@ -184,13 +194,15 @@
 <button id="swap" hidden>WALK IN AND BE FOOLED</button>
 
 <div id="tools" hidden>
-  <button class="tool on" id="tool0"><b>1</b> 🔵 Blue portal</button>
-  <button class="tool" id="tool1"><b>2</b> 🟠 Orange portal</button>
-  <button class="tool" id="tool2"><b>3</b> ⚫ Painted hole</button>
-  <button class="tool" id="tool3"><b>4</b> 🕳 Real hole</button>
-  <button class="tool" id="tool4"><b>5</b> 🚪 Hidden door</button>
-  <button class="tool" id="tool5"><b>6</b> ✖ Rub out</button>
-  <button class="tool wipe" id="tool-clear">Clear the lot</button>
+  <button class="tool on" id="tool0"><b>1</b> 🔵 <span>Blue portal</span></button>
+  <button class="tool" id="tool1"><b>2</b> 🟠 <span>Orange portal</span></button>
+  <button class="tool" id="tool2"><b>3</b> ⚫ <span>Painted hole</span></button>
+  <button class="tool" id="tool3"><b>4</b> 🕳 <span>Real hole</span></button>
+  <button class="tool" id="tool4"><b>5</b> 🚪 <span>Hidden door</span></button>
+  <button class="tool" id="tool5"><b>6</b> 📦 <span>Twin boxes</span></button>
+  <button class="tool" id="tool6"><b>7</b> ✖ <span>Rub out</span></button>
+  <button class="tool make" id="tool-shed">🏠 <span>Magic shed</span></button>
+  <button class="tool wipe" id="tool-clear">✖✖ <span>Clear the lot</span></button>
 </div>
 
 <div id="touch" hidden>
@@ -305,6 +317,15 @@ scene.add(new THREE.AmbientLight(0xaab4e0, 0.8));
 const sun = new THREE.DirectionalLight(0xfff0d8, 1.0);
 sun.position.set(30, 50, 20);
 scene.add(sun);
+
+/* A second, softer light coming the other way. Without it, every face
+   turned away from the sun is lit by nothing but the ambient and goes
+   nearly black - which was fine out in the room and hopeless inside
+   the big hall, where the wall you walk in facing is turned away from
+   the sun by definition. */
+const fill = new THREE.DirectionalLight(0xc4d0ff, 0.5);
+fill.position.set(-26, 22, -44);
+scene.add(fill);
 
 function mat(color) { return new THREE.MeshLambertMaterial({ color }); }
 const BOX = new THREE.BoxGeometry(1, 1, 1);
@@ -735,6 +756,11 @@ function holeUnderfoot() {
 function removeTrick(T) {
   scene.remove(T.mesh);
   if (T.mark) scene.remove(T.mark);
+  /* Most tricks are only something to look at, so taking them out of
+     the scene is the end of it. The shed is a building, with walls you
+     bump into and surfaces you can shoot at, so it has its own tidying
+     up to do. */
+  if (T.undo) T.undo();
   const i = TRICKS.indexOf(T);
   if (i >= 0) TRICKS.splice(i, 1);
   refreshTricks();
@@ -750,8 +776,9 @@ function clearTricks() {
 /* The signs come off the moment you go walking. */
 function refreshTricks() {
   for (const T of TRICKS) if (T.mark) T.mark.visible = building;
-  el("count").textContent = TRICKS.length + (bluePortal.placed ? 1 : 0)
-                                          + (orangePortal.placed ? 1 : 0);
+  const n = TRICKS.length + (bluePortal.placed ? 1 : 0) + (orangePortal.placed ? 1 : 0);
+  el("count").textContent = n;
+  el("countword").textContent = n === 1 ? "trick" : "tricks";
 }
 
 /* Find the nearest trick to where you are pointing, so you can take it
@@ -788,6 +815,22 @@ function trickAt(point) {
    --------------------------------------------------------------------- */
 const ANA_PIECES = 24;
 const anaGeo = new THREE.BoxGeometry(1, 1, 1);
+
+/* The magic spot, painted on the floor. Building only - the whole point
+   is that from anywhere else there is nothing to see. Both the hidden
+   door and the twin boxes have one, because both of them are built for
+   one pair of eyes and finding your way back to those eyes is otherwise
+   pure guesswork. */
+const ringGeo = new THREE.RingGeometry(0.45, 0.72, 20);
+const ringMat = new THREE.MeshBasicMaterial({ color: 0x6bff9f, side: THREE.DoubleSide });
+
+function spotRing(x, z) {
+  const foot = new THREE.Mesh(ringGeo, ringMat);
+  foot.rotation.x = -Math.PI / 2;
+  foot.position.set(x, 0.03, z);
+  scene.add(foot);
+  return foot;
+}
 
 /* The outline of a door, as a ring of points about a metre and a half
    wide and a bit over two high. */
@@ -865,22 +908,237 @@ function addAnamorph(spot, facing) {
 
   scene.add(group);
 
-  /* The magic spot, painted on the floor. Building only - the whole
-     trick is that from anywhere else there is nothing to see. */
-  const foot = new THREE.Mesh(
-    new THREE.RingGeometry(0.45, 0.72, 20),
-    new THREE.MeshBasicMaterial({ color: 0x6bff9f, side: THREE.DoubleSide })
-  );
-  foot.rotation.x = -Math.PI / 2;
-  foot.position.set(spot.x, 0.03, spot.z);
-  scene.add(foot);
-
+  const foot = spotRing(spot.x, spot.z);
   const T = { kind: "anamorph", x: spot.x, z: spot.z,
               mesh: group, mark: foot, pieces: made,
               eye: eye.clone(), facing: fwd.clone() };
   TRICKS.push(T);
   refreshTricks();
   return T;
+}
+
+/* ---------------------------------------------------------------------
+   TWO BOXES THE SAME SIZE, ONE OF THEM ENORMOUS
+
+   Forced perspective. From the magic spot the pair look like twins
+   stood side by side. One of them is a little box three paces away and
+   the other is a whopper fifteen metres off, and you cannot tell,
+   because a box three times as far away and three times as big covers
+   exactly the same patch of your eye. Take two steps sideways and the
+   near one slides right across the room while the far one barely
+   budges, and the game is up.
+
+   WHY THEY FLOAT, which looks like laziness and isn't.
+
+   Say both boxes sat on the floor instead. A box of size s with its
+   bottom on the floor, d away, has its middle (s/2 - EYE) above your
+   eye line, so it lands at (s/2 - EYE)/d on your view. For the pair to
+   be the same SIZE you need the far one scaled by d2/d1. Put that in:
+
+       (s/2 x d2/d1 - EYE) / d2   =   (s/2 - EYE) / d1
+        s/(2 d1) - EYE/d2         =    s/(2 d1) - EYE/d1
+                      EYE/d2      =            EYE/d1
+                           d2     =            d1
+
+   The only way two boxes on the floor can match both in size AND in
+   where they sit on your view is to be the SAME DISTANCE away - which
+   is to say, no trick at all. Touching the floor tells your eye how far
+   away a thing is, and forced perspective is exactly the business of
+   not letting your eye know that. Which is why every photo of somebody
+   holding up the Leaning Tower of Pisa has their hand in mid-air.
+
+   So: both boxes float at eye height, dead level, and the illusion is
+   perfect instead of nearly.
+   --------------------------------------------------------------------- */
+const PAIR_BASE = 5;         // the pretend plane the pair is lined up on
+const PAIR_SIZE = 1.0;       // how big they look, measured on that plane
+const PAIR_SPREAD = 0.95;    // how far apart they look, likewise
+const PAIR_STOPS = [3.2, 15];
+const pairGeo = new THREE.BoxGeometry(1, 1, 1);
+
+function addPair(spot, facing) {
+  const eye = new THREE.Vector3(spot.x, EYE, spot.z);
+  const fwd = new THREE.Vector3(facing.x, 0, facing.z).normalize();
+  const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
+  const turn = Math.atan2(fwd.x, fwd.z);
+
+  const group = new THREE.Group();
+  const made = [];
+  const _ray = new THREE.Vector3();
+  const _target = new THREE.Vector3();
+
+  for (let i = 0; i < 2; i++) {
+    const side = i === 0 ? -1 : 1;        // one to the left, one to the right
+
+    // where it is pretending to be, on a plane five metres in front
+    _target.copy(eye).addScaledVector(fwd, PAIR_BASE)
+           .addScaledVector(right, side * PAIR_SPREAD);
+    _ray.subVectors(_target, eye);
+    const base = _ray.length();
+    _ray.normalize();
+
+    const howFar = Math.max(1.2, Math.min(PAIR_STOPS[i], roomRoom(eye, _ray) - 2));
+    const scale = howFar / base;
+
+    const cube = new THREE.Mesh(pairGeo, mat(0xff7fb0));
+    cube.position.copy(eye).addScaledVector(_ray, howFar);
+    cube.scale.setScalar(PAIR_SIZE * scale);
+    cube.rotation.set(0, turn, 0);        // same way round, or the faces give it away
+    group.add(cube);
+    made.push(cube);
+  }
+
+  scene.add(group);
+  const foot = spotRing(spot.x, spot.z);
+  const T = { kind: "pair", x: spot.x, z: spot.z,
+              mesh: group, mark: foot, pieces: made,
+              eye: eye.clone(), facing: fwd.clone() };
+  TRICKS.push(T);
+  refreshTricks();
+  return T;
+}
+
+
+/* ---------------------------------------------------------------------
+   THE SHED THAT IS BIGGER INSIDE THAN OUTSIDE
+
+   This is what the portals were really for, and it is one button
+   because getting it right by hand is fiddly and the result is worth
+   having straight away.
+
+   Out in the room there is a shed four metres across. Miles off in the
+   corner there is a great sealed hall with no way in. The shed's
+   doorway is a portal, and the other end of it is inside the hall. So
+   you walk into a shed you could put a bicycle in and come out in
+   something the size of a sports centre - and walking back out puts you
+   on the grass in front of the shed again.
+
+   Nothing here is pretending. Both buildings are really that size; the
+   doorway really does lead to the far one. The only lie is that your
+   eye assumed a doorway leads to the inside of the thing it is in.
+   --------------------------------------------------------------------- */
+const SHED = { x: 0, z: 14, w: 4, d: 4, h: 3.9, t: 0.3, door: 2.4, top: 3.6 };
+/* Long the way you walk in, not wide. You come out of the portal at
+   one end of it, and a hall you look ACROSS tells you much less than a
+   hall you look DOWN. */
+const HALL = { x: 0, z: -22, w: 26, d: 22, h: 10, t: 0.6 };
+
+function addShed() {
+  const group = new THREE.Group();
+  const boxes = [], meshes = [];
+
+  /* Same job as block(), but everything it makes is written down so the
+     whole lot can be taken away again. Nothing else in the room can be
+     un-built, so nothing else needed this. */
+  const put = (cx, cy, cz, w, h, d, colour) => {
+    const mesh = new THREE.Mesh(BOX, mat(colour));
+    mesh.scale.set(w, h, d);
+    mesh.position.set(cx, cy + h / 2, cz);
+    group.add(mesh);
+    SHOOTABLE.push(mesh);
+    meshes.push(mesh);
+    boxes.push(solidBox(cx, cy, cz, w, h, d));
+  };
+
+  // ---- the little shed ----
+  const sx = SHED.x, sz = SHED.z, hw = SHED.w / 2, hd = SHED.d / 2, t = SHED.t;
+  const front = sz + hd - t / 2, back = sz - hd + t / 2;
+  const post = (SHED.w - SHED.door) / 2;
+  put(sx - hw + t / 2, 0, sz, t, SHED.h, SHED.d, 0xb1794a);            // left
+  put(sx + hw - t / 2, 0, sz, t, SHED.h, SHED.d, 0xb1794a);            // right
+  put(sx, 0, back, SHED.w, SHED.h, t, 0x9c6a40);                       // back
+  put(sx - hw + post / 2, 0, front, post, SHED.h, t, 0xb1794a);        // door post
+  put(sx + hw - post / 2, 0, front, post, SHED.h, t, 0xb1794a);        // door post
+  put(sx, SHED.top, front, SHED.door, SHED.h - SHED.top, t, 0xb1794a); // over the door
+  put(sx, SHED.h, sz, SHED.w + 0.4, 0.3, SHED.d + 0.4, 0x7d5330);      // roof
+
+  /* ---- the great sealed hall, right across the room ----
+     Pale on purpose. The first go had it the same dark blue as the
+     walls of the room and it was hopeless: you came through the
+     doorway, saw a dark flat nothing, and had no idea you had arrived
+     anywhere at all. A room only feels big if you can SEE it. */
+  const hx = HALL.x, hz = HALL.z;
+  const Hw = HALL.w / 2 + HALL.t, Hd = HALL.d / 2 + HALL.t;
+  put(hx, 0, hz - HALL.d / 2 - HALL.t / 2, Hw * 2, HALL.h, HALL.t, 0x8d97c6);  // far side
+  put(hx, 0, hz + HALL.d / 2 + HALL.t / 2, Hw * 2, HALL.h, HALL.t, 0x8d97c6);  // near side
+  put(hx - HALL.w / 2 - HALL.t / 2, 0, hz, HALL.t, HALL.h, Hd * 2, 0x818cbe);
+  put(hx + HALL.w / 2 + HALL.t / 2, 0, hz, HALL.t, HALL.h, Hd * 2, 0x818cbe);
+  put(hx, HALL.h, hz, Hw * 2, HALL.t, Hd * 2, 0xaab3da);                       // roof
+
+  /* Pillars floor to ceiling, and a floor of its own with lines on it.
+     A big empty box does not read as big - you need things in it whose
+     size you already know, and lines on the floor running away from
+     you, or there is nothing for your eye to measure the place by. */
+  for (const [px, pz] of [[-9, hz - 7], [9, hz - 7], [-9, hz + 7], [9, hz + 7]]) {
+    put(hx + px, 0, pz, 1.4, HALL.h, 1.4, 0xe7c37a);
+  }
+
+  const slab = new THREE.Mesh(new THREE.PlaneGeometry(HALL.w, HALL.d), mat(0x6d5f93));
+  slab.rotation.x = -Math.PI / 2;
+  slab.position.set(hx, 0.014, hz);
+  group.add(slab);
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0x9d8fc4 });
+  const lineGeo = new THREE.PlaneGeometry(1, 1);
+  const stripe = (x, z, sx, sz) => {
+    const line = new THREE.Mesh(lineGeo, lineMat);
+    line.rotation.x = -Math.PI / 2;
+    line.scale.set(sx, sz, 1);
+    line.position.set(x, 0.022, z);
+    group.add(line);
+  };
+  for (let i = -HALL.w / 2 + 4; i < HALL.w / 2 - 1; i += 4) stripe(hx + i, hz, 0.1, HALL.d);
+  for (let i = -HALL.d / 2 + 4; i < HALL.d / 2 - 1; i += 4) stripe(hx, hz + i, HALL.w, 0.1);
+
+  scene.add(group);
+
+  /* And now the one thing that makes it a trick instead of two sheds:
+     the doorway of the little one, and the inside of the big one, are
+     the same doorway. */
+  _v2.set(sx, 0, sz + hd);
+  _dir.set(0, 0, 1);
+  placePortal(bluePortal, _v2, _dir);
+  _v3.set(hx, 0, hz - HALL.d / 2);
+  _dir.set(0, 0, 1);
+  placePortal(orangePortal, _v3, _dir);
+
+  const T = {
+    kind: "shed", x: sx, z: sz, mesh: group, mark: null,
+    undo: () => {
+      for (const b of boxes) { const i = SOLIDS.indexOf(b); if (i >= 0) SOLIDS.splice(i, 1); }
+      for (const m of meshes) { const i = SHOOTABLE.indexOf(m); if (i >= 0) SHOOTABLE.splice(i, 1); }
+      for (const P of PORTALS) { P.placed = false; P.wall = null; P.group.visible = false; }
+      refreshPortalFaces();
+    }
+  };
+  TRICKS.push(T);
+  refreshTricks();
+  return T;
+}
+
+/* How much room is there where I am standing? Four rays, and the
+   nearest solid each way. This is how the shed gets CHECKED rather than
+   admired: stand outside and it says four metres, walk through the
+   doorway and it says twenty-four. */
+function roomFor(p, axis, sign) {
+  const A = axis === "x" ? "X" : "Z", O = axis === "x" ? "Z" : "X";
+  const other = axis === "x" ? "z" : "x";
+  let best = Infinity;
+  for (const b of SOLIDS) {
+    if (b.off) continue;
+    if (p.y < b.minY || p.y > b.maxY) continue;
+    if (p[other] < b["min" + O] || p[other] > b["max" + O]) continue;
+    const d = sign > 0 ? b["min" + A] - p[axis] : p[axis] - b["max" + A];
+    if (d >= 0) best = Math.min(best, d);
+  }
+  return best === Infinity ? 999 : best;
+}
+
+function spanHere() {
+  const p = { x: me.pos.x, y: me.pos.y + 1, z: me.pos.z };
+  return {
+    across: roomFor(p, "x", -1) + roomFor(p, "x", 1),
+    deep: roomFor(p, "z", -1) + roomFor(p, "z", 1)
+  };
 }
 
 /* ---- what the gun is loaded with ---- */
@@ -890,7 +1148,8 @@ const TOOLS = [
   { id: "fakehole", name: "Painted hole", key: "3" },
   { id: "realhole", name: "Real hole",    key: "4" },
   { id: "anamorph", name: "Hidden door",  key: "5" },
-  { id: "rubout",   name: "Rub out",      key: "6" }
+  { id: "pair",     name: "Twin boxes",   key: "6" },
+  { id: "rubout",   name: "Rub out",      key: "7" }
 ];
 let tool = 0;
 
@@ -932,6 +1191,13 @@ function useTool() {
     return;
   }
 
+  if (kind === "pair") {
+    _dir.set(-Math.sin(me.yaw), 0, -Math.cos(me.yaw));
+    addPair({ x: me.pos.x, z: me.pos.z }, _dir);
+    say("Twins. Now go and look at them from the side.", 2.2);
+    return;
+  }
+
   if (kind === "rubout") {
     const T = trickAt(hit.point);
     if (T) { removeTrick(T); say("Gone.", 0.7); }
@@ -964,7 +1230,10 @@ const FLY_SPEED = 16;
 const me = {
   pos: new THREE.Vector3(0, 0, 24),
   vel: new THREE.Vector3(),
-  yaw: Math.PI, pitch: -0.05,
+  /* Facing nought is facing down MINUS z, which from back here is
+     across the whole room. Facing half a turn would have you staring at
+     the wall two paces behind you with the room at your back. */
+  yaw: 0, pitch: -0.05,
   onGround: false
 };
 
@@ -1167,7 +1436,7 @@ addEventListener("keydown", e => {
   if (e.repeat) return;
   keys[e.code] = true;
   if (e.code === "Tab") { e.preventDefault(); if (playing) setMode(!building); }
-  if (/^Digit[1-6]$/.test(e.code) && playing) pickTool(Number(e.code.slice(5)) - 1);
+  if (/^Digit[1-7]$/.test(e.code) && playing) pickTool(Number(e.code.slice(5)) - 1);
   if (e.code === "KeyF" && playing) useTool();
   if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].indexOf(e.code) >= 0) {
     e.preventDefault();
@@ -1310,7 +1579,7 @@ function startGame() {
   el("swap").hidden = false;
   playing = true;
   me.pos.set(0, 8, 24);
-  me.yaw = Math.PI; me.pitch = -0.25;
+  me.yaw = 0; me.pitch = -0.25;
   setMode(true);
   if (!HAS_TOUCH) canvas.requestPointerLock();
 }
@@ -1318,6 +1587,11 @@ for (let i = 0; i < TOOLS.length; i++) {
   const b = el("tool" + i);
   if (b) b.addEventListener("click", () => pickTool(i));
 }
+el("tool-shed").addEventListener("click", () => {
+  if (TRICKS.some(t => t.kind === "shed")) { say("There is one already.", 1.2); return; }
+  addShed();
+  say("A shed, and a hall right across the room.\nWalk in the shed door.", 2.6);
+});
 el("tool-clear").addEventListener("click", () => { clearTricks(); say("All gone.", 1); });
 el("btn-play").addEventListener("click", startGame);
 el("swap").addEventListener("click", () => { if (playing) setMode(!building); });
@@ -1464,6 +1738,71 @@ const ADMIN_COMMANDS = [
       return "all " + infront + " pieces fit in a box " +
              (maxX - minX).toFixed(3) + " wide and " +
              (maxY - minY).toFixed(3) + " tall on the screen";
+    } },
+
+  { name: "pair", args: "[x z yaw]",
+    help: "Build twin boxes, and stand on their spot",
+    run: words => {
+      let x = me.pos.x, z = me.pos.z, yaw = me.yaw;
+      if (words.length >= 3) {
+        x = Number(words[0]); z = Number(words[1]); yaw = Number(words[2]);
+        if (!isFinite(x) || !isFinite(z) || !isFinite(yaw)) return { bad: "Needs x z yaw" };
+      }
+      _dir.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+      const T = addPair({ x, z }, _dir);
+      me.pos.set(x, 0.2, z);
+      me.yaw = yaw; me.pitch = 0;
+      return "twins " + T.pieces.map(c => c.scale.x.toFixed(2) + "m at " +
+             c.position.distanceTo(T.eye).toFixed(1) + "m").join(" and ");
+    } },
+
+  { name: "twins", args: "",
+    help: "Do the twin boxes still look the same size from here?",
+    run: () => {
+      const T = TRICKS.filter(t => t.kind === "pair").pop();
+      if (!T) return { bad: "No twin boxes in the room" };
+      /* How wide each box looks ON THE SCREEN. Lined up properly the
+         two numbers match; anywhere else the near one has swollen and
+         the far one has shrivelled. */
+      camera.updateMatrixWorld(true);
+      /* Sideways as the CAMERA means it, not as the world means it -
+         measure a box's width along the world's x axis and the answer
+         changes as you walk round it, which would make this tell
+         fibs. */
+      const sideways = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+      const seen = T.pieces.map(c => {
+        const w = c.scale.x / 2;
+        const lx = c.position.clone().addScaledVector(sideways, -w).project(camera).x;
+        const rx = c.position.clone().addScaledVector(sideways, w).project(camera).x;
+        return { wide: Math.abs(rx - lx), where: (lx + rx) / 2 };
+      });
+      const ratio = seen[0].wide / (seen[1].wide || 1e-6);
+      /* "where" is across the screen, with the middle at nought and the
+         edges at one. Past one and the thing has gone off the side
+         altogether, which is what happens to the near box the moment
+         you step aside. */
+      return "near " + seen[0].wide.toFixed(3) + " wide at " + seen[0].where.toFixed(3) +
+             " · far " + seen[1].wide.toFixed(3) + " wide at " + seen[1].where.toFixed(3) +
+             " · same size to " + ratio.toFixed(2) + "x · " +
+             Math.abs(seen[0].where - seen[1].where).toFixed(3) + " apart";
+    } },
+
+  { name: "shed", args: "",
+    help: "Build the shed that is bigger inside than outside",
+    run: () => {
+      if (TRICKS.some(t => t.kind === "shed")) return { bad: "There is one already" };
+      addShed();
+      return "shed " + SHED.w.toFixed(1) + " x " + SHED.d.toFixed(1) +
+             " outside, hall " + HALL.w.toFixed(1) + " x " + HALL.d.toFixed(1) +
+             " inside, doorway at 0," + (SHED.z + SHED.d / 2).toFixed(1);
+    } },
+
+  { name: "span", args: "",
+    help: "How much room is there where I am standing?",
+    run: () => {
+      const g = spanHere();
+      return "the space you are in is " + g.across.toFixed(1) +
+             " across and " + g.deep.toFixed(1) + " deep";
     } },
 
   { name: "where", args: "",
