@@ -202,7 +202,27 @@
     color: #ffd93d;
   }
   #onlinestatus { color: #ffd93d; min-height: 1.4em; }
-  #nojoin { color: #ffb4a2; font-size: 0.88rem; }
+  #nojoin {
+    color: #d8d2ff; font-size: 0.86rem; line-height: 1.6;
+    background: rgba(0,0,0,0.3);
+    border: 2px solid rgba(255,180,162,0.4);
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin-top: 6px;
+  }
+  #nojoin code {
+    display: block;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.85rem;
+    color: #ffd93d;
+    background: rgba(0,0,0,0.45);
+    border-radius: 9px;
+    padding: 8px 10px;
+    margin: 7px 0;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  #nojoin .showthem { display: block; margin-top: 5px; color: #ffb4a2; }
   .btn[disabled] { opacity: 0.4; cursor: default; }
 
   /* a quiet note that your friend has wandered off */
@@ -277,9 +297,16 @@
       <button class="btn alt" id="btn-make">MAKE A GAME</button>
       <button class="btn alt" id="btn-join">JOIN A GAME</button>
     </p>
-    <p id="nojoin" hidden>Joining by code isn't switched on yet — a grown-up
-      needs to set it up first (it's in <b>tools/game-rooms</b>). Until then,
-      <b>two of you on one keyboard</b> works perfectly.</p>
+    <p id="nojoin" hidden>
+      <b>Joining by code is built and ready — it just needs switching on once.</b>
+      That's a grown-up job: it takes about two minutes and costs nothing to run.
+      <span class="showthem">Show them this:</span>
+      <code>cd tools/game-rooms &amp;&amp; npx wrangler deploy</code>
+      <span class="showthem">then paste the address it prints into <b>ROOM_SERVER</b>
+      near the top of this game's script. The full instructions are in
+      <b>tools/game-rooms/README.md</b>.</span>
+      Until then, <b>TWO OF US HERE</b> plays the whole tower perfectly.
+    </p>
   </div>
 </div>
 
