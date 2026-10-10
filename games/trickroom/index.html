@@ -188,7 +188,8 @@
   <button class="tool" id="tool1"><b>2</b> 🟠 Orange portal</button>
   <button class="tool" id="tool2"><b>3</b> ⚫ Painted hole</button>
   <button class="tool" id="tool3"><b>4</b> 🕳 Real hole</button>
-  <button class="tool" id="tool4"><b>5</b> ✖ Rub out</button>
+  <button class="tool" id="tool4"><b>5</b> 🚪 Hidden door</button>
+  <button class="tool" id="tool5"><b>6</b> ✖ Rub out</button>
   <button class="tool wipe" id="tool-clear">Clear the lot</button>
 </div>
 
@@ -764,13 +765,132 @@ function trickAt(point) {
   return best;
 }
 
+
+/* ---------------------------------------------------------------------
+   THE DOOR THAT IS ONLY THERE FROM ONE SPOT
+
+   Scatter a dozen lumps round the room at all different distances, and
+   from everywhere in the world they are a dozen lumps. From ONE spot,
+   at ONE height, they line up into a door.
+
+   This is not a painting trick, it is just perspective used on purpose.
+   For every piece: fire a ray from the magic spot out through a point on
+   the shape you want, drop the piece somewhere random along that ray,
+   and make it bigger in proportion to how far along it went. Anything on
+   that ray covers the same spot of your view, so a piece four times as
+   far away and four times as big looks exactly the same size and lands
+   in exactly the same place. Walk two steps sideways and the whole thing
+   falls to bits, because now you are looking down a different set of
+   rays.
+
+   The spot is painted on the floor while you are building. Finding it
+   again is half the fun and all of the frustration otherwise.
+   --------------------------------------------------------------------- */
+const ANA_PIECES = 24;
+const anaGeo = new THREE.BoxGeometry(1, 1, 1);
+
+/* The outline of a door, as a ring of points about a metre and a half
+   wide and a bit over two high. */
+function doorOutline(n) {
+  const pts = [];
+  const w = 0.72, top = 2.1, bot = 0.15;
+  const tall = top - bot, wide = 2 * w;
+  const round = 2 * tall + 2 * wide;       // all the way round the outline
+  for (let i = 0; i < n; i++) {
+    let at = (i / n) * round;
+    if (at < tall) pts.push([-w, bot + at]);                     // up the left
+    else if ((at -= tall) < wide) pts.push([-w + at, top]);      // across the top
+    else if ((at -= wide) < tall) pts.push([w, top - at]);       // down the right
+    else pts.push([w - (at - tall), bot]);                       // back along the bottom
+  }
+  return pts;
+}
+
+/* How far can we go that way before we are inside a wall? The pieces
+   have to live IN the room - fling one out past the wall and it is
+   simply gone, and the door comes out with bits missing. */
+function roomRoom(eye, dir) {
+  let best = Infinity;
+  const edges = [[-ROOM.w / 2, ROOM.w / 2, eye.x, dir.x],
+                 [0.3, ROOM.h - 0.6, eye.y, dir.y],
+                 [-ROOM.d / 2, ROOM.d / 2, eye.z, dir.z]];
+  for (const [lo, hi, o, d] of edges) {
+    if (Math.abs(d) < 1e-6) continue;
+    const t = Math.max((lo - o) / d, (hi - o) / d);
+    if (t > 0) best = Math.min(best, t);
+  }
+  return best === Infinity ? 20 : best;
+}
+
+function addAnamorph(spot, facing) {
+  const eye = new THREE.Vector3(spot.x, EYE, spot.z);
+  const fwd = new THREE.Vector3(facing.x, 0, facing.z).normalize();
+  const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
+  const up = new THREE.Vector3(0, 1, 0);
+
+  const group = new THREE.Group();
+  const outline = doorOutline(ANA_PIECES);
+  const made = [];
+  const _ray = new THREE.Vector3();
+  const _target = new THREE.Vector3();
+
+  for (let i = 0; i < ANA_PIECES; i++) {
+    const [ox, oy] = outline[i];
+
+    // a point on the door, if the door stood four metres away
+    _target.copy(eye).addScaledVector(fwd, 4)
+           .addScaledVector(right, ox).addScaledVector(up, oy - EYE);
+    _ray.subVectors(_target, eye);
+    const base = _ray.length();
+    _ray.normalize();
+
+    /* Somewhere along that ray. Anything on it covers the same spot of
+       your view, so how far along is free to be anything - which is the
+       whole trick. Spread them right out, but stop short of the wall. */
+    const reach = Math.min(17, roomRoom(eye, _ray) - 1.2);
+    const mix = ((i * 7) % 11) / 10;              // scattered, but always the same
+    const howFar = Math.max(3, 3 + mix * Math.max(0.5, reach - 3));
+    const scale = howFar / base;
+
+    const piece = new THREE.Mesh(anaGeo, mat(0xe8d14a));
+    piece.position.copy(eye).addScaledVector(_ray, howFar);
+    /* Small enough that two dozen of them read as an OUTLINE rather than
+       merging into three fat blobs. The first go used pieces a quarter
+       of the door wide and you could not tell what it was meant to be. */
+    piece.scale.setScalar(0.17 * scale);
+    piece.rotation.set(0, Math.atan2(fwd.x, fwd.z), 0);
+    group.add(piece);
+    made.push(piece);
+  }
+
+  scene.add(group);
+
+  /* The magic spot, painted on the floor. Building only - the whole
+     trick is that from anywhere else there is nothing to see. */
+  const foot = new THREE.Mesh(
+    new THREE.RingGeometry(0.45, 0.72, 20),
+    new THREE.MeshBasicMaterial({ color: 0x6bff9f, side: THREE.DoubleSide })
+  );
+  foot.rotation.x = -Math.PI / 2;
+  foot.position.set(spot.x, 0.03, spot.z);
+  scene.add(foot);
+
+  const T = { kind: "anamorph", x: spot.x, z: spot.z,
+              mesh: group, mark: foot, pieces: made,
+              eye: eye.clone(), facing: fwd.clone() };
+  TRICKS.push(T);
+  refreshTricks();
+  return T;
+}
+
 /* ---- what the gun is loaded with ---- */
 const TOOLS = [
   { id: "blue",     name: "Blue portal",  key: "1" },
   { id: "orange",   name: "Orange portal", key: "2" },
   { id: "fakehole", name: "Painted hole", key: "3" },
   { id: "realhole", name: "Real hole",    key: "4" },
-  { id: "rubout",   name: "Rub out",      key: "5" }
+  { id: "anamorph", name: "Hidden door",  key: "5" },
+  { id: "rubout",   name: "Rub out",      key: "6" }
 ];
 let tool = 0;
 
@@ -798,6 +918,17 @@ function useTool() {
     placePortal(kind === "blue" ? bluePortal : orangePortal, hit.point, n);
     refreshTricks();
     say(kind === "blue" ? "Blue." : "Orange.", 0.7);
+    return;
+  }
+
+  if (kind === "anamorph") {
+    /* It gets built for the spot you are STANDING on and the way you are
+       LOOKING, not for wherever you happen to be pointing. The whole
+       thing only works from one pair of eyes, so it may as well be
+       yours. */
+    _dir.set(-Math.sin(me.yaw), 0, -Math.cos(me.yaw));
+    addAnamorph({ x: me.pos.x, z: me.pos.z }, _dir);
+    say("Stand on the green ring and look this way.", 2.2);
     return;
   }
 
@@ -1036,7 +1167,7 @@ addEventListener("keydown", e => {
   if (e.repeat) return;
   keys[e.code] = true;
   if (e.code === "Tab") { e.preventDefault(); if (playing) setMode(!building); }
-  if (/^Digit[1-5]$/.test(e.code) && playing) pickTool(Number(e.code.slice(5)) - 1);
+  if (/^Digit[1-6]$/.test(e.code) && playing) pickTool(Number(e.code.slice(5)) - 1);
   if (e.code === "KeyF" && playing) useTool();
   if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].indexOf(e.code) >= 0) {
     e.preventDefault();
@@ -1293,6 +1424,46 @@ const ADMIN_COMMANDS = [
       const on = TRICKS.filter(T => T.mark && T.mark.visible).length;
       return on + " of " + TRICKS.length + " signs showing (" +
              (building ? "building" : "walking") + ")";
+    } },
+
+  { name: "door", args: "[x z yaw]",
+    help: "Build a hidden door, and stand on its spot",
+    run: words => {
+      let x = me.pos.x, z = me.pos.z, yaw = me.yaw;
+      if (words.length >= 3) {
+        x = Number(words[0]); z = Number(words[1]); yaw = Number(words[2]);
+        if (!isFinite(x) || !isFinite(z) || !isFinite(yaw)) return { bad: "Needs x z yaw" };
+      }
+      _dir.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+      addAnamorph({ x, z }, _dir);
+      me.pos.set(x, 0.2, z);
+      me.yaw = yaw; me.pitch = 0;
+      return "door for the spot " + x.toFixed(1) + "," + z.toFixed(1);
+    } },
+
+  { name: "lineup", args: "",
+    help: "How well do the hidden door's pieces line up from here?",
+    run: () => {
+      const T = TRICKS.filter(t => t.kind === "anamorph").pop();
+      if (!T) return { bad: "No hidden door in the room" };
+      /* Where each piece lands ON THE SCREEN, from wherever the camera
+         is right now. Lined up properly they all sit on the outline of a
+         door; from anywhere else they are scattered all over. This is
+         the honest way to check it - a screenshot only tells you it
+         looks about right. */
+      camera.updateMatrixWorld(true);
+      let minX = 9, maxX = -9, minY = 9, maxY = -9, infront = 0;
+      for (const piece of T.pieces) {
+        const v = piece.position.clone().project(camera);
+        if (v.z > 1 || v.z < -1) continue;
+        infront++;
+        minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x);
+        minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y);
+      }
+      if (!infront) return "none of it is in front of you";
+      return "all " + infront + " pieces fit in a box " +
+             (maxX - minX).toFixed(3) + " wide and " +
+             (maxY - minY).toFixed(3) + " tall on the screen";
     } },
 
   { name: "where", args: "",
