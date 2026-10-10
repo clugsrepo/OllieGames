@@ -80,6 +80,26 @@
   }
   #swap:active { transform: translateX(-50%) scale(0.95); }
 
+  /* the box of tricks along the bottom, while you're building */
+  #tools {
+    position: fixed; z-index: 26;
+    left: 50%; transform: translateX(-50%);
+    bottom: max(74px, calc(env(safe-area-inset-bottom) + 70px));
+    display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+    max-width: min(760px, 94vw);
+  }
+  .tool {
+    font-family: inherit; font-size: 0.8rem; font-weight: bold;
+    padding: 8px 11px; border-radius: 11px; cursor: pointer;
+    color: #d8d2ff; background: rgba(10,12,22,0.8);
+    border: 2px solid rgba(255,255,255,0.18);
+    white-space: nowrap;
+  }
+  .tool b { color: #ffd93d; margin-right: 3px; }
+  .tool.on { color: #141018; background: #ffd93d; border-color: #fff3b0; }
+  .tool.on b { color: #141018; }
+  .tool.wipe { color: #ffb4a2; border-color: rgba(255,180,162,0.4); }
+
   #touch { position: fixed; inset: 0; z-index: 20; pointer-events: none; }
   #stick-move {
     position: absolute;
@@ -162,6 +182,15 @@
 
 <a id="home" href="../../index.html">← Home</a>
 <button id="swap" hidden>WALK IN AND BE FOOLED</button>
+
+<div id="tools" hidden>
+  <button class="tool on" id="tool0"><b>1</b> 🔵 Blue portal</button>
+  <button class="tool" id="tool1"><b>2</b> 🟠 Orange portal</button>
+  <button class="tool" id="tool2"><b>3</b> ⚫ Painted hole</button>
+  <button class="tool" id="tool3"><b>4</b> 🕳 Real hole</button>
+  <button class="tool" id="tool4"><b>5</b> ✖ Rub out</button>
+  <button class="tool wipe" id="tool-clear">Clear the lot</button>
+</div>
 
 <div id="touch" hidden>
   <div id="stick-move"><div class="knob" id="knob"></div></div>
@@ -298,9 +327,11 @@ function block(cx, cy, cz, w, h, d, color, solid) {
 const ROOM = { w: 70, d: 70, h: 14 };
 const WALL_T = 1.5;
 
+let FLOOR_BOX = null;
+
 function buildRoom() {
   const { w, d, h } = ROOM;
-  block(0, -1, 0, w + WALL_T * 2, 1, d + WALL_T * 2, 0x414a6e);          // floor
+  FLOOR_BOX = block(0, -1, 0, w + WALL_T * 2, 1, d + WALL_T * 2, 0x414a6e).box;   // floor
   block(0, 0, -d / 2 - WALL_T / 2, w + WALL_T * 2, h, WALL_T, 0x343c61);  // back
   block(0, 0,  d / 2 + WALL_T / 2, w + WALL_T * 2, h, WALL_T, 0x343c61);  // front
   block(-w / 2 - WALL_T / 2, 0, 0, WALL_T, h, d + WALL_T * 2, 0x3a4269);  // left
@@ -626,9 +657,7 @@ function tryPortalHop(prevPos) {
   return false;
 }
 
-/* ---- the gun ----
-   Point at a wall or the floor and shoot. Left for blue, right for
-   orange, the way everybody already expects. */
+/* Pointing at things. Everything you place goes through this. */
 const shooter = new THREE.Raycaster();
 const _screenMid = new THREE.Vector2(0, 0);
 
@@ -645,6 +674,144 @@ function shootPortal(which) {
   if (n.y < -0.5) { say("Not on the ceiling.", 1); return; }
   placePortal(which, hit.point, n);
   say(which === bluePortal ? "Blue." : "Orange.", 0.7);
+}
+
+
+/* ---------------------------------------------------------------------
+   THE BOX OF TRICKS
+
+   Everything you put in the room goes in one list, and every kind of
+   trick is the same shape: something to look at, something that only
+   shows up while you are BUILDING, and a note of what it actually does.
+
+   The marker is the whole reason there are two ways of looking. A
+   painted hole and a real one are the same black circle - that is the
+   point of them - so while you are building, each one wears a little
+   sign saying which it is, and the moment you go walking the signs come
+   off. Build with the signs, be fooled without them.
+   --------------------------------------------------------------------- */
+const TRICKS = [];
+
+const holeGeo = new THREE.CircleGeometry(1, 28);
+const holeMat = new THREE.MeshBasicMaterial({ color: 0x05060a });
+const markGeo = new THREE.SphereGeometry(0.22, 8, 6);
+const markReal = new THREE.MeshBasicMaterial({ color: 0xff5d5d });
+const markFake = new THREE.MeshBasicMaterial({ color: 0xffd93d });
+
+const HOLE_R = 1.6;
+
+function addHole(point, real) {
+  /* Both kinds are the same black circle, laid a whisker above the floor
+     so it never fights with it for the same pixels. */
+  const disc = new THREE.Mesh(holeGeo, holeMat);
+  disc.rotation.x = -Math.PI / 2;
+  disc.scale.set(HOLE_R, HOLE_R, 1);
+  disc.position.set(point.x, 0.02, point.z);
+  scene.add(disc);
+
+  // the little sign that only shows while you are building
+  const mark = new THREE.Mesh(markGeo, real ? markReal : markFake);
+  mark.position.set(point.x, 1.1, point.z);
+  scene.add(mark);
+
+  const T = { kind: real ? "realhole" : "fakehole", real,
+              x: point.x, z: point.z, mesh: disc, mark };
+  TRICKS.push(T);
+  refreshTricks();
+  return T;
+}
+
+/* Is the player standing over a hole they ought to fall down? */
+function holeUnderfoot() {
+  for (const T of TRICKS) {
+    if (T.kind !== "realhole") continue;
+    if (Math.hypot(me.pos.x - T.x, me.pos.z - T.z) > HOLE_R - BODY_R * 0.4) continue;
+    return true;
+  }
+  return false;
+}
+
+function removeTrick(T) {
+  scene.remove(T.mesh);
+  if (T.mark) scene.remove(T.mark);
+  const i = TRICKS.indexOf(T);
+  if (i >= 0) TRICKS.splice(i, 1);
+  refreshTricks();
+}
+
+function clearTricks() {
+  while (TRICKS.length) removeTrick(TRICKS[0]);
+  for (const P of PORTALS) { P.placed = false; P.wall = null; P.group.visible = false; }
+  refreshPortalFaces();
+  refreshTricks();
+}
+
+/* The signs come off the moment you go walking. */
+function refreshTricks() {
+  for (const T of TRICKS) if (T.mark) T.mark.visible = building;
+  el("count").textContent = TRICKS.length + (bluePortal.placed ? 1 : 0)
+                                          + (orangePortal.placed ? 1 : 0);
+}
+
+/* Find the nearest trick to where you are pointing, so you can take it
+   away again. A sandbox you can only add to fills up with mistakes. */
+function trickAt(point) {
+  let best = null, bestD = 2.2;
+  for (const T of TRICKS) {
+    const d = Math.hypot(point.x - T.x, point.z - T.z);
+    if (d < bestD) { bestD = d; best = T; }
+  }
+  return best;
+}
+
+/* ---- what the gun is loaded with ---- */
+const TOOLS = [
+  { id: "blue",     name: "Blue portal",  key: "1" },
+  { id: "orange",   name: "Orange portal", key: "2" },
+  { id: "fakehole", name: "Painted hole", key: "3" },
+  { id: "realhole", name: "Real hole",    key: "4" },
+  { id: "rubout",   name: "Rub out",      key: "5" }
+];
+let tool = 0;
+
+function pickTool(n) {
+  tool = Math.max(0, Math.min(TOOLS.length - 1, n));
+  for (let i = 0; i < TOOLS.length; i++) {
+    const b = el("tool" + i);
+    if (b) b.classList.toggle("on", i === tool);
+  }
+  say(TOOLS[tool].name, 0.8);
+}
+
+/* Point at something and use whatever is loaded. */
+function useTool() {
+  if (!playing) return;
+  shooter.setFromCamera(_screenMid, camera);
+  const hits = shooter.intersectObjects(SHOOTABLE, false);
+  if (!hits.length) { say("Nothing there to put it on.", 0.9); return; }
+  const hit = hits[0];
+  const kind = TOOLS[tool].id;
+
+  if (kind === "blue" || kind === "orange") {
+    const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+    if (n.y < -0.5) { say("Not on the ceiling.", 1); return; }
+    placePortal(kind === "blue" ? bluePortal : orangePortal, hit.point, n);
+    refreshTricks();
+    say(kind === "blue" ? "Blue." : "Orange.", 0.7);
+    return;
+  }
+
+  if (kind === "rubout") {
+    const T = trickAt(hit.point);
+    if (T) { removeTrick(T); say("Gone.", 0.7); }
+    else say("Nothing there to rub out.", 0.9);
+    return;
+  }
+
+  // the holes only make sense lying on the floor
+  if (hit.point.y > 0.6) { say("Holes go on the floor.", 1); return; }
+  addHole(hit.point, kind === "realhole");
+  say(kind === "realhole" ? "A real one." : "Just paint.", 0.9);
 }
 
 /* ---------------------------------------------------------------------
@@ -779,13 +946,26 @@ function step(dt) {
 
     me.onGround = false;
     _prev.copy(me.pos);
-    const through = wallToIgnore();      // the wall a portal has opened up
+    /* A portal opens up whatever it is stuck to, and a REAL hole opens up
+       the floor. Both are the same idea: one box stops counting while
+       you are in the right place for it to. */
+    const through = wallToIgnore() || (holeUnderfoot() ? FLOOR_BOX : null);
     moveAxis(me, "y", me.vel.y * dt, through);
     moveAxis(me, "x", me.vel.x * dt, through);
     moveAxis(me, "z", me.vel.z * dt, through);
     tryPortalHop(_prev);
 
-    if (me.pos.y < -30) { me.pos.set(0, 1, 24); me.vel.set(0, 0, 0); say("Back you come.", 1); }
+    /* Down a real hole and back out again. Popping you up BESIDE it
+       rather than on top of it matters - put somebody back exactly where
+       they fell and they drop straight down it again, for ever. */
+    if (me.pos.y < -16) {
+      const T = TRICKS.find(t => t.kind === "realhole" &&
+        Math.hypot(me.pos.x - t.x, me.pos.z - t.z) < HOLE_R * 3);
+      if (T) me.pos.set(T.x + HOLE_R + BODY_R + 0.4, 0.4, T.z);
+      else me.pos.set(0, 0.4, 24);
+      me.vel.set(0, 0, 0);
+      say("Down you went!", 1.2);
+    }
   }
 
   if (sayFor > 0) { sayFor -= dt; if (sayFor <= 0) msgEl.classList.remove("show"); }
@@ -830,6 +1010,8 @@ function setMode(wantBuilding) {
     : "Down on the floor at eye height. This is the only place the tricks work.";
   el("btn-up").hidden = false;
   el("btn-down").hidden = !building;
+  el("tools").hidden = !building;
+  refreshTricks();
 
   if (building) {
     me.pos.y = Math.max(me.pos.y, 6);
@@ -854,6 +1036,8 @@ addEventListener("keydown", e => {
   if (e.repeat) return;
   keys[e.code] = true;
   if (e.code === "Tab") { e.preventDefault(); if (playing) setMode(!building); }
+  if (/^Digit[1-5]$/.test(e.code) && playing) pickTool(Number(e.code.slice(5)) - 1);
+  if (e.code === "KeyF" && playing) useTool();
   if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].indexOf(e.code) >= 0) {
     e.preventDefault();
   }
@@ -922,7 +1106,9 @@ addEventListener("touchcancel", dropLook);
 canvas.addEventListener("mousedown", e => {
   if (!playing) return;
   if (!HAS_TOUCH && !pointerLocked) return;      // that click was to grab the mouse
-  if (e.button === 0) shootPortal(bluePortal);
+  if (e.button === 0) useTool();
+  /* Right button always does the orange portal, whatever is loaded.
+     Everybody who has ever held a portal gun expects that. */
   if (e.button === 2) shootPortal(orangePortal);
 });
 canvas.addEventListener("contextmenu", e => e.preventDefault());
@@ -997,6 +1183,11 @@ function startGame() {
   setMode(true);
   if (!HAS_TOUCH) canvas.requestPointerLock();
 }
+for (let i = 0; i < TOOLS.length; i++) {
+  const b = el("tool" + i);
+  if (b) b.addEventListener("click", () => pickTool(i));
+}
+el("tool-clear").addEventListener("click", () => { clearTricks(); say("All gone.", 1); });
 el("btn-play").addEventListener("click", startGame);
 el("swap").addEventListener("click", () => { if (playing) setMode(!building); });
 
@@ -1073,6 +1264,36 @@ const ADMIN_COMMANDS = [
       (P.placed ? P.group.position.toArray().map(v => v.toFixed(1)).join(",") +
                   " facing " + P.normal.toArray().map(v => v.toFixed(1)).join(",")
                 : "not placed")).join(" · ") },
+
+  { name: "hole", args: "<real/fake> <x> <z>",
+    help: "Put a hole in the floor, painted or otherwise",
+    run: words => {
+      const kind = String(words[0] || "").toLowerCase();
+      if (kind !== "real" && kind !== "fake") return { bad: "Say real or fake" };
+      const x = Number(words[1]), z = Number(words[2]);
+      if (!isFinite(x) || !isFinite(z)) return { bad: "Needs an x and a z" };
+      addHole(new THREE.Vector3(x, 0, z), kind === "real");
+      return "A " + kind + " one at " + x + "," + z;
+    } },
+
+  { name: "tricks", args: "",
+    help: "List everything in the room",
+    state: () => String(TRICKS.length),
+    run: () => TRICKS.length
+      ? TRICKS.map(T => T.kind + " " + T.x.toFixed(1) + "," + T.z.toFixed(1)).join(" · ")
+      : "nothing in here yet" },
+
+  { name: "clear", args: "",
+    help: "Empty the room out",
+    run: () => { const n = TRICKS.length; clearTricks(); return "cleared " + n; } },
+
+  { name: "marks", args: "",
+    help: "Are the building signs showing?",
+    run: () => {
+      const on = TRICKS.filter(T => T.mark && T.mark.visible).length;
+      return on + " of " + TRICKS.length + " signs showing (" +
+             (building ? "building" : "walking") + ")";
+    } },
 
   { name: "where", args: "",
     help: "Say where you are and which way you're facing",
