@@ -21,6 +21,7 @@ Then:
 
 ```bash
 node tests/chunkpip.js     # Chunk & Pip on one keyboard: every floor
+node tests/trickroom.js    # Trick Room: all four illusions, measured
 node tests/deep.js         # Deep Blue  (not yet moved in here)
 ```
 
@@ -56,3 +57,13 @@ The interesting ones aren't "does it run", they're the promises:
   finished.
 - **Standing still costs nothing.** The free allowance is 100,000 messages
   a day, so two children thinking about a puzzle must send none at all.
+- **Every illusion in Trick Room works from one spot and nowhere else.**
+  An illusion that worked from everywhere would be a mistake, so each one
+  is asked a question with a number for an answer, from the magic spot and
+  then from three steps away, and both answers have to be right. Nothing
+  in there squints at a screenshot.
+- **A fiddled save file cannot build anything.** The notebook is a file on
+  a computer and files get fiddled with, so loading walks *our* list of
+  what a trick is and asks the saved notes about each one. A made-up trick,
+  a word where a number goes, a hole four hundred miles away: all thrown
+  away, and the one good trick in among them still comes back.

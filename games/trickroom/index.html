@@ -68,25 +68,39 @@
     border: 2px solid rgba(159,245,192,0.4);
   }
 
-  /* the big button that swaps between building and being fooled */
-  #swap {
+  /* The box of tricks and the swap button are STACKED, not two things
+     pinned to the bottom at heights picked to miss each other. They
+     were, and on a narrow screen the swap button's words went over two
+     lines, grew upwards, and sat on top of the tool buttons. One
+     column, and they cannot overlap however long the words get or how
+     many rows of tools there are. */
+  #bottom {
     position: fixed; z-index: 25;
     left: 50%; transform: translateX(-50%);
     bottom: max(18px, calc(env(safe-area-inset-bottom) + 14px));
+    width: min(760px, 94vw);
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    pointer-events: none;
+  }
+
+  /* the big button that swaps between building and being fooled */
+  #swap {
+    order: 2;
     font-family: inherit; font-size: 1rem; font-weight: bold;
     padding: 13px 22px; border-radius: 16px; cursor: pointer;
     color: #141018; background: #ffd93d; border: none;
     box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+    pointer-events: auto;
+    max-width: 100%;
   }
-  #swap:active { transform: translateX(-50%) scale(0.95); }
+  #swap:active { transform: scale(0.95); }
 
   /* the box of tricks along the bottom, while you're building */
   #tools {
-    position: fixed; z-index: 26;
-    left: 50%; transform: translateX(-50%);
-    bottom: max(74px, calc(env(safe-area-inset-bottom) + 70px));
+    order: 1;
     display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
-    max-width: min(760px, 94vw);
+    max-width: 100%;
+    pointer-events: auto;
   }
   .tool {
     font-family: inherit; font-size: 0.8rem; font-weight: bold;
@@ -108,7 +122,31 @@
   @media (max-width: 620px) {
     .tool span { display: none; }
     .tool { padding: 8px 9px; font-size: 0.9rem; }
+    #swap { font-size: 0.88rem; padding: 11px 14px; }
+    /* The hint in the corner says the same thing the front page just
+       said, and on a narrow screen it lands on top of the Home button
+       and the mode badge. Off it goes. */
+    #helppill { display: none; }
+    .pill { font-size: 0.82rem; padding: 7px 11px; }
+    #countpill { top: calc(max(12px, env(safe-area-inset-top)) + 40px); }
+    #home { font-size: 0.8rem; padding: 6px 11px; }
   }
+
+  /* ON A PHONE, EVERYTHING SWAPS ENDS.
+
+     The bottom of a phone screen belongs to the thumbs: the stick on
+     the left, up and down on the right. There is no room left in the
+     middle for nine tool buttons and a big yellow button as well, and
+     pinning them there anyway just puts them underneath your hands. So
+     when the touch controls come out, the box of tricks and the swap
+     button go to the TOP instead, under the badges, and the bottom is
+     left entirely to the thumbs. */
+  body.thumbs #bottom {
+    top: calc(max(12px, env(safe-area-inset-top)) + 100px);
+    bottom: auto;
+  }
+  /* and what the game says to you drops down the screen to clear them */
+  body.thumbs #message { top: 42%; }
 
   #touch { position: fixed; inset: 0; z-index: 20; pointer-events: none; }
   #stick-move {
@@ -191,8 +229,8 @@
 </div>
 
 <a id="home" href="../../index.html">← Home</a>
-<button id="swap" hidden>WALK IN AND BE FOOLED</button>
 
+<div id="bottom">
 <div id="tools" hidden>
   <button class="tool on" id="tool0"><b>1</b> 🔵 <span>Blue portal</span></button>
   <button class="tool" id="tool1"><b>2</b> 🟠 <span>Orange portal</span></button>
@@ -203,6 +241,8 @@
   <button class="tool" id="tool6"><b>7</b> ✖ <span>Rub out</span></button>
   <button class="tool make" id="tool-shed">🏠 <span>Magic shed</span></button>
   <button class="tool wipe" id="tool-clear">✖✖ <span>Clear the lot</span></button>
+</div>
+<button id="swap" hidden>WALK IN AND BE FOOLED</button>
 </div>
 
 <div id="touch" hidden>
@@ -234,6 +274,9 @@
     <p>An illusion only ever works from <b>one pair of eyes, at one
        height, in one spot</b>. That's why there are two ways of looking,
        and one button between them.</p>
+
+    <p>Whatever you build is <b>still here next time</b> — the room is
+       written down when you change it, and comes back when you do.</p>
 
     <p id="how-desktop"><b>W A S D</b> to move · <b>mouse</b> to look ·
        <b>Space</b> up, <b>Shift</b> down while building ·
@@ -535,6 +578,7 @@ function placePortal(P, point, normal) {
   P.placed = true;
   P.group.visible = true;
   refreshPortalFaces();
+  refreshTricks();          // which counts them, and writes the room down
 }
 
 /* Am I standing in the mouth of a portal? If so, the thing it is stuck
@@ -779,6 +823,7 @@ function refreshTricks() {
   const n = TRICKS.length + (bluePortal.placed ? 1 : 0) + (orangePortal.placed ? 1 : 0);
   el("count").textContent = n;
   el("countword").textContent = n === 1 ? "trick" : "tricks";
+  saveRoom();
 }
 
 /* Find the nearest trick to where you are pointing, so you can take it
@@ -947,7 +992,7 @@ function addAnamorph(spot, facing) {
    not letting your eye know that. Which is why every photo of somebody
    holding up the Leaning Tower of Pisa has their hand in mid-air.
 
-   So: both boxes float at eye height, dead level, and the illusion is
+   So: both boxes float at eye height, exactly level, and the illusion is
    perfect instead of nearly.
    --------------------------------------------------------------------- */
 const PAIR_BASE = 5;         // the pretend plane the pair is lined up on
@@ -1139,6 +1184,119 @@ function spanHere() {
     across: roomFor(p, "x", -1) + roomFor(p, "x", 1),
     deep: roomFor(p, "z", -1) + roomFor(p, "z", 1)
   };
+}
+
+/* ---------------------------------------------------------------------
+   KEEPING WHAT YOU MADE
+
+   A sandbox you cannot save is a toy you tidy away every night. The
+   room goes in localStorage, which is a little notebook the browser
+   keeps for this page on this computer, and it comes back next time.
+   One notebook per name, so two people in this house do not build on
+   top of each other.
+
+   THE RULE FOR READING IT BACK, which is the only interesting part:
+   walk OUR list of what a trick is, and ask the saved notes about each
+   one. Never take their word for what to build. Anything in there that
+   is not on our list - a made-up kind of trick, a word where a number
+   goes, a hole four hundred miles away - is simply never asked about,
+   so nothing happens. The notebook is a file on a computer and files
+   get fiddled with; this way the worst a fiddled one can do is come
+   back emptier than it went in.
+   --------------------------------------------------------------------- */
+const SAVE_KEY = "ollie-trickroom-" +
+  (window.OlliePlayer ? OlliePlayer.name().toLowerCase() : "");
+const SAVE_MAX = 200;
+let loadingRoom = false;
+
+/* OUR list. A kind of trick that is not in here cannot be saved and
+   cannot be loaded, whatever the notebook says. It is a list and not a
+   lookup on purpose: ask a plain object about "constructor" and it
+   hands you something, which is exactly the sort of surprise this is
+   meant not to have. */
+const KEEPERS = [
+  { kind: "fakehole", put: t => addHole(_v2.set(t.x, 0, t.z), false) },
+  { kind: "realhole", put: t => addHole(_v2.set(t.x, 0, t.z), true) },
+  { kind: "anamorph", aimed: true,
+    put: t => addAnamorph(t, _dir.set(-Math.sin(t.yaw), 0, -Math.cos(t.yaw))) },
+  { kind: "pair", aimed: true,
+    put: t => addPair(t, _dir.set(-Math.sin(t.yaw), 0, -Math.cos(t.yaw))) },
+  { kind: "shed", only: true, put: () => addShed() }
+];
+const keeperFor = kind =>
+  (typeof kind === "string" ? KEEPERS.find(k => k.kind === kind) : null) || null;
+
+const tidy = n => Math.round(n * 1000) / 1000;
+
+function saveRoom() {
+  if (loadingRoom) return;
+  const tricks = [];
+  for (const T of TRICKS) {
+    const k = keeperFor(T.kind);
+    if (!k) continue;
+    const note = { kind: T.kind, x: tidy(T.x), z: tidy(T.z) };
+    if (k.aimed) note.yaw = tidy(Math.atan2(-T.facing.x, -T.facing.z));
+    tricks.push(note);
+  }
+  /* Where the portal was STUCK, not where it ended up - putting one up
+     nudges it a finger's width off the wall so it does not fight the
+     bricks for the same pixels, and saving the nudged position would
+     nudge it again every time you came back. */
+  const portals = PORTALS.map(P => P.placed
+    ? [tidy(P.group.position.x - P.normal.x * 0.06),
+       tidy(P.group.position.y - P.normal.y * 0.06),
+       tidy(P.group.position.z - P.normal.z * 0.06),
+       tidy(P.normal.x), tidy(P.normal.y), tidy(P.normal.z)]
+    : null);
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 1, tricks, portals }));
+  } catch (e) {}
+}
+
+function inTheRoom(x, y, z) {
+  return isFinite(x) && isFinite(y) && isFinite(z) &&
+         Math.abs(x) <= ROOM.w && Math.abs(z) <= ROOM.d &&
+         y >= -2 && y <= ROOM.h + 2;
+}
+
+function loadRoom() {
+  let raw = null;
+  try { raw = localStorage.getItem(SAVE_KEY); } catch (e) { return; }
+  if (!raw) return;
+
+  let saved = null;
+  try { saved = JSON.parse(raw); } catch (e) { return; }
+  if (!saved || typeof saved !== "object") return;
+
+  loadingRoom = true;
+  const notes = Array.isArray(saved.tricks) ? saved.tricks : [];
+  for (let i = 0; i < notes.length && i < SAVE_MAX; i++) {
+    const note = notes[i];
+    if (!note || typeof note !== "object") continue;
+
+    const k = keeperFor(note.kind);               // our list, their word
+    if (!k) continue;                             // never heard of it, move on
+    if (k.only && TRICKS.some(T => T.kind === k.kind)) continue;
+
+    const x = Number(note.x), z = Number(note.z);
+    if (!inTheRoom(x, 0, z)) continue;
+    const yaw = Number(note.yaw);
+    k.put({ x, z, yaw: isFinite(yaw) ? yaw : 0 });
+  }
+
+  const kept = Array.isArray(saved.portals) ? saved.portals : [];
+  for (let i = 0; i < PORTALS.length; i++) {
+    const p = kept[i];
+    if (!Array.isArray(p) || p.length !== 6) continue;
+    const n = p.map(Number);
+    if (!inTheRoom(n[0], n[1], n[2])) continue;
+    const len = Math.hypot(n[3], n[4], n[5]);
+    if (!isFinite(len) || Math.abs(len - 1) > 0.02) continue;
+    placePortal(PORTALS[i], _v2.set(n[0], n[1], n[2]), _v3.set(n[3], n[4], n[5]));
+  }
+
+  loadingRoom = false;
+  refreshTricks();
 }
 
 /* ---- what the gun is loaded with ---- */
@@ -1560,6 +1718,7 @@ if (HAS_TOUCH) {
   el("touch").hidden = false;
   el("how-touch").hidden = false;
   el("how-desktop").hidden = true;
+  document.body.classList.add("thumbs");   // see the note in the styles
 }
 
 /* ---------------------------------------------------------------------
@@ -1573,6 +1732,7 @@ function fitScreen() {
 addEventListener("resize", fitScreen);
 fitScreen();
 buildRoom();
+loadRoom();            // whatever was in here last time
 
 function startGame() {
   el("start").hidden = true;
@@ -1803,6 +1963,29 @@ const ADMIN_COMMANDS = [
       const g = spanHere();
       return "the space you are in is " + g.across.toFixed(1) +
              " across and " + g.deep.toFixed(1) + " deep";
+    } },
+
+  { name: "saved", args: "",
+    help: "What is written down in the notebook?",
+    run: () => {
+      let raw = null;
+      try { raw = localStorage.getItem(SAVE_KEY); } catch (e) { return "cannot read it"; }
+      if (!raw) return "nothing written down yet";
+      let saved = null;
+      try { saved = JSON.parse(raw); } catch (e) { return "the notebook is nonsense"; }
+      const notes = Array.isArray(saved && saved.tricks) ? saved.tricks : [];
+      const up = (Array.isArray(saved && saved.portals) ? saved.portals : [])
+                 .filter(p => p).length;
+      return notes.length + " written down (" +
+             (notes.map(n => n && n.kind).join(" ") || "-") + ") and " +
+             up + " portals, " + raw.length + " letters";
+    } },
+
+  { name: "forget", args: "",
+    help: "Throw the notebook away",
+    run: () => {
+      try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+      return "notebook thrown away - the room is still here until you reload";
     } },
 
   { name: "where", args: "",
