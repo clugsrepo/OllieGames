@@ -145,20 +145,63 @@ const hold = async (p, keys, ms) => {
   const thrown = await say(p, 'where');
   check('but thrown, he sails right over it (' + thrown + ')', /Pip [1-9]/.test(thrown));
 
+  // ---- the lift (floor 8) ----
+  await admin(p, 'floor 8'); await wait(900);
+  await admin(p, 'put pip -3 -4'); await wait(1400);
+  const liftDown = await say(p, 'where');
+  const high = t => { const m = t.match(/Pip [-\d.]+,[-\d.]+ h([-\d.]+)/); return m ? Number(m[1]) : -1; };
+  check('the lift is DOWN until somebody leans on the plate (h' + high(liftDown) + ')',
+    high(liftDown) < 1);
+
+  await admin(p, 'put chunk -12 9');          // Chunk leans on the heavy plate
+  await wait(2600);
+  const liftUp = await say(p, 'where');
+  check('and it carries Pip up when he does (h' + high(liftDown) + ' -> h' + high(liftUp) + ')',
+    high(liftUp) > high(liftDown) + 2);
+
+  await hold(p, ['ArrowUp'], 1300); await wait(700);
+  check('from up there Pip steps across and pulls the lever (' + await plates(p) + ')',
+    (await plates(p)) === '2/2');
+
+  await admin(p, 'put pip -3 -4'); await wait(900);
+  await admin(p, 'put chunk 4 -2');           // Chunk steps off again
+  await wait(3000);
+  check('and the moment Chunk steps off, it comes back down (h' +
+    high(await say(p, 'where')) + ')', high(await say(p, 'where')) < 1.5);
+
+  // ---- the dark (floor 10) ----
+  await admin(p, 'floor 10'); await wait(900);
+  await p.screenshot({ path: '/tmp/claude-0/-home-user-OllieGames/30e3b9ca-dcff-5425-9868-5f2b3cb63fbb/scratchpad/cp-dark.png' });
+  const srcNow = require('fs').readFileSync('/home/user/OllieGames/games/chunkpip/index.html', 'utf8');
+  check('the lamp is one of exactly three lights, all made at the start',
+    (srcNow.match(/new THREE\.(Ambient|Directional|Point)Light/g) || []).length === 3);
+  check('and no light is ever added or taken away while playing',
+    !/scene\.(add|remove)\([a-z]*[Ll]ight/.test(srcNow.split('function startGame')[1] || ''));
+
   // ================= THE PROMISE =================
   console.log('\n--- and now the promise: no floor can be done alone ---');
+  /* Both ways round. The suite used to only park Pip and let Chunk try,
+     which is exactly the wrong half for the floors where Pip is the
+     mobile one - a floor Pip could finish on his own would have sailed
+     straight through. */
+  const ALONE = [
+    { who: 'Chunk', park: 'pip',   keys: [['KeyD'],['KeyD','KeyW'],['KeyD','KeyS'],['KeyW'],
+                                          ['KeyS'],['KeyD','Space'],['KeyA'],['KeyE']] },
+    { who: 'Pip',   park: 'chunk', keys: [['ArrowRight'],['ArrowRight','ArrowUp'],
+                                          ['ArrowRight','ArrowDown'],['ArrowUp'],['ArrowDown'],
+                                          ['ArrowRight','ShiftRight'],['ArrowLeft']] }
+  ];
   for (let f = 1; f <= total; f++) {
-    await admin(p, 'floor ' + f); await wait(700);
-    const name = await p.$eval('#floorname', e => e.textContent);
-    // park Pip in a corner and let Chunk try absolutely everything
-    await admin(p, 'put pip -15 -11'); await wait(200);
-    for (const keys of [['KeyD'], ['KeyD','KeyW'], ['KeyD','KeyS'], ['KeyW'], ['KeyS'],
-                        ['KeyD','Space'], ['KeyA']]) {
-      await hold(p, keys, 700);
+    const name = await p.$eval('#floorname', e => e.textContent).catch(() => '');
+    for (const go of ALONE) {
+      await admin(p, 'floor ' + f); await wait(650);
+      const title = await p.$eval('#floorname', e => e.textContent);
+      await admin(p, 'put ' + go.park + ' -16 -12'); await wait(200);
+      for (const keys of go.keys) await hold(p, keys, 620);
+      await wait(350);
+      check('floor ' + f + ' "' + title + '" cannot be finished by ' + go.who + ' alone',
+        await floorOf(p) === f);
     }
-    await wait(400);
-    check('floor ' + f + ' "' + name + '" cannot be finished by Chunk alone',
-      await floorOf(p) === f);
   }
 
   // ================= IT FINISHES =================

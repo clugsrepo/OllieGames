@@ -388,6 +388,20 @@ const sun = new THREE.DirectionalLight(0xfff3d0, 0.85);
 sun.position.set(22, 40, 16);
 scene.add(sun);
 
+/* Pip's lamp. Made RIGHT HERE with the others, turned down to nothing,
+   and never added or taken away again - the same rule as the other two,
+   and the reason for it is that adding a light part-way through makes
+   three.js rebuild every material in the scene and the game stops still
+   for a moment. Turning one up from zero costs nothing at all, so a
+   lamp that only exists on one floor is really a lamp that exists all
+   the time and is switched off. */
+const lamp = new THREE.PointLight(0xffe9b0, 0, 20, 0.9);
+lamp.position.set(0, 2, 0);
+scene.add(lamp);
+
+const DAY = { ambient: 0.62, sun: 0.85 };
+const ambient = scene.children.find(c => c.isAmbientLight);
+
 function mat(color) { return new THREE.MeshLambertMaterial({ color }); }
 
 /* One shared box shape, scaled to whatever size is needed. Making a
@@ -551,6 +565,39 @@ function moveCrate(c, dx, dz, dy) {
   c.box.minY = c.y;                  c.box.maxY = c.y + CRATE_SIZE;
   c.box.minZ = c.z - CRATE_SIZE / 2; c.box.maxZ = c.z + CRATE_SIZE / 2;
   c.mesh.position.set(c.x, c.y + CRATE_SIZE / 2, c.z);
+}
+
+/* ---- a lift: a bridge that travels up and down instead of in and out ----
+
+   Same idea as the bridge above - a box whose height is animated and
+   which only counts as something solid once it has nearly arrived. The
+   nice part is that riding one needed no code at all: `unstick` already
+   shoves anybody out of a box UPWARDS and never downwards, so a rising
+   platform carries whoever is stood on it. That rule was written to stop
+   Chunk being pushed through the floor, and it has just paid for itself
+   a second time. */
+const LIFTS = [];
+
+function addLift(x, z, w, d, lowY, highY, opts) {
+  const o = opts || {};
+  const made = block(x, lowY, z, w, 0.7, d, 0x7f6fb0);
+  LIFTS.push({ opens: o.opens || [], flip: !!o.flip,
+               low: lowY, high: highY, at: 0,
+               mesh: made.mesh, box: made.box, w, d, x, z });
+}
+
+function stepLifts(dt) {
+  for (const L of LIFTS) {
+    let want = L.opens.every(id => {
+      const p = PLATES.find(q => q.id === id);
+      return !!(p && p.down);
+    });
+    if (L.flip) want = !want;             // this one goes down when that one goes up
+    L.at += ((want ? 1 : 0) - L.at) * Math.min(1, dt * 2.6);
+    const y = L.low + (L.high - L.low) * L.at;
+    L.mesh.position.y = y + 0.35;
+    L.box.minY = y; L.box.maxY = y + 0.7;
+  }
 }
 
 /* Would the crate be inside a wall, or another crate, if it were here? */
@@ -968,6 +1015,179 @@ const LEVELS = [
       addPlate("a", -12, 9, CHUNK_WEIGHT);
       addPlate("b", -12, -9, PIP_WEIGHT);
     }
+  },
+  {
+    name: "The Long Way Round",
+    hint: "Pip can't jump that either. But there's a little doorway in " +
+          "the side wall, and it has to go somewhere.",
+    w: 38, d: 26,
+    pit: { at: 2, w: 7 },
+    chunk: { x: -14, z: 2 },
+    pip:   { x: -14, z: -2 },
+    exit:  { x: 16, z: 2 },
+    build() {
+      /* Everything they have learned so far and not one new thing in it.
+         The pit is the same seven across that neither of them can jump.
+         The way over is the bridge, and the lever that drops it is on the
+         far side - but this time Pip doesn't get thrown there, he walks,
+         through a Pip-sized hole in the wall at the back and along a
+         passage Chunk is far too big for.
+
+         Two old ideas touching each other for the first time, which is
+         usually when a game starts feeling like a game rather than a
+         list of tricks. */
+      addBridge(2, 2, 8, 7, ["far"]);
+
+      /* The back passage. Its front wall has one Pip-sized hole in it,
+         over on Chunk's side, and the far end is simply open - so Pip
+         goes in at the west, walks the length of it, and comes out on
+         the east side of a pit he could never have jumped.
+
+         It needs its own floor, because the pit is cut through the whole
+         room and would otherwise be cut through the corridor as well. */
+      block(2, -0.6, -10.5, 7.4, 0.6, 3.9, 0x3b3450);
+      wallWithHole(-5.5, -8.6, 27, 1.2, -7.5, 2.6, 1.4, 0x574b7d);
+
+      addLever("far", 13, -10.5, 0);
+    }
+  },
+  {
+    name: "Going Up",
+    hint: "That lever is miles up in the air. Stand on the orange plate, " +
+          "Chunk — and watch what the platform does.",
+    w: 34, d: 24,
+    chunk: { x: -13, z: 1 },
+    pip:   { x: -13, z: -6 },
+    exit:  { x: 14, z: 6 },
+    build() {
+      /* A lift, and a lovely trap in the shape of it: Chunk cannot ride
+         his own lift. The moment he steps off the plate to get on, the
+         platform comes back down. He can only ever send somebody ELSE
+         up, which is the whole point of having a friend. */
+      wallWithHole(7, 0, 1.2, 24, 0, 4.6, WALL_H, 0x4a4168);
+      addDoor(7, 0, 1.2, 4.6, ["high"], "all");
+      addPlate("heavy", -12, 9, CHUNK_WEIGHT);
+      addLift(-3, -4, 5, 5, 0, 3.4, { opens: ["heavy"] });
+      /* The ledge sits right up against the lift's far edge, so stepping
+         off the top is a step and not a leap of faith. */
+      block(-3, 0, -9, 5, 3.4, 5, 0x574b7d);
+      addLever("high", -3, -9, 3.4);
+    }
+  },
+  {
+    name: "You Go That Way",
+    hint: "This one splits you up. You each open the other one's way — " +
+          "and you meet at the door.",
+    w: 38, d: 28,
+    chunk: { x: -15, z: 0 },
+    pip:   { x: -15, z: -10 },
+    exit:  { x: 16, z: 0 },
+    build() {
+      /* The first floor where they are properly apart, and it works
+         without either of them saying a word to the other - which
+         matters, because two of them in two different houses CAN'T say a
+         word to each other. The shape of the building does the talking:
+         there is exactly one way each, and each way ends at the thing
+         that opens the other one. */
+      block(-2, 0, -5.4, 34, WALL_H, 1.2, 0x4a4168);         // the long divider
+
+      // Pip's side: a low door in, a lever at the end of it
+      wallWithHole(-11, -5.4, 1.2, 8, 0, 2.6, 1.4, 0x574b7d);
+      addLever("forchunk", 12, -10, 0);
+
+      // Chunk's side: a heavy plate he can reach and Pip never could
+      addPlate("forpip", 8, 6, CHUNK_WEIGHT);
+
+      // and each one's way on is held by the other one's doing
+      wallWithHole(4, -10, 1.2, 10, 0, 4, WALL_H, 0x4a4168);
+      addDoor(4, -10, 1.2, 4, ["forpip"], "all");            // lets PIP out
+      wallWithHole(4, 6, 1.2, 14, 0, 4.6, WALL_H, 0x4a4168);
+      addDoor(4, 6, 1.2, 4.6, ["forchunk"], "all");          // lets CHUNK on
+    }
+  },
+  {
+    name: "In the Dark",
+    hint: "The lights have gone. Pip's got the lamp — so Chunk had " +
+          "better stay close, because that's all either of you can see by.",
+    w: 32, d: 24,
+    dark: true,
+    chunk: { x: -12, z: 5 },
+    pip:   { x: -12, z: 1 },
+    exit:  { x: 13, z: 0 },
+    build() {
+      /* Dark, and the only light in the place is on Pip.
+
+         Being straight about what this floor is: the darkness is the
+         MOOD, not the lock. One camera shows both of them the whole room
+         whatever happens, so "you can only see near Pip" isn't something
+         the game can really enforce - what it does is make everywhere
+         except Pip's little pool of light murky and unfriendly, so you
+         want to travel together.
+
+         What makes it impossible alone is the same honest thing as every
+         other floor: that plate is far too heavy for Pip, and the door
+         needs both of them. The lamp just makes the walk nicer.
+
+         The version I didn't build was "Pip can see, so Pip TELLS Chunk
+         where to go" - lovely sitting next to somebody, and completely
+         unplayable from another house, because there is deliberately no
+         way to say anything to each other. */
+      wallWithHole(6, 0, 1.2, 24, 0, 4.6, WALL_H, 0x4a4168);
+      addDoor(6, 0, 1.2, 4.6, ["deep"], "all");
+      addPlate("deep", 0, -8, CHUNK_WEIGHT);
+      block(-5, 0, 7, 8, 2.2, 1.6, 0x574b7d);        // things to bump into
+      block(2, 0, -2, 1.6, 2.2, 7, 0x574b7d);
+    }
+  },
+  {
+    name: "Everything At Once",
+    hint: "All of it. Crate, lift, a throw, and a plate each. Take your " +
+          "time and work out who does what.",
+    w: 40, d: 28,
+    chunk: { x: -17, z: 8 },
+    pip:   { x: -17, z: -8 },
+    exit:  { x: 17, z: 0 },
+    build() {
+      /* The exam. Nothing new in it, and that is the point - by now the
+         two of them know five tricks and this floor just asks for four
+         of them in a row. */
+      addPlate("one", -13, 11, CHUNK_WEIGHT);
+      addLift(-6, 9, 5, 5, 0, 3.2, { opens: ["one"] });
+      block(-6, 0, 12.75, 5, 3.2, 2.5, 0x574b7d);
+      addLever("two", -6, 12.75, 3.2);
+
+      wallWithHole(0, 0, 1.2, 28, 2, 4.6, WALL_H, 0x4a4168);
+      addDoor(0, 2, 1.2, 4.6, ["two"], "all");
+
+      addCrate(5, -6);
+      block(11, 0, -10, 9, 3.0, 5, 0x574b7d);        // a ledge past the door
+      addLever("three", 11, -9, 3.0);
+
+      wallWithHole(13, 0, 1.2, 28, 8, 4.6, WALL_H, 0x4a4168);
+      addDoor(13, 8, 1.2, 4.6, ["three"], "all");
+    }
+  },
+  {
+    name: "The Roof",
+    hint: "Last one. Up the lift, over the gap, and out — together, " +
+          "the way you've done every single floor of this.",
+    w: 38, d: 24,
+    pit: { at: 6, w: 7 },
+    chunk: { x: -15, z: 0 },
+    pip:   { x: -15, z: -5 },
+    exit:  { x: 16, z: 0 },
+    build() {
+      /* The way out. Short on purpose - a last floor should be a lap of
+         honour, not the hardest thing in the game. One of each: Chunk
+         holds the plate, Pip rides up and pulls the lever, the bridge
+         comes out, and the pair of them walk off the top of the tower
+         together. */
+      addPlate("up", -12, 8, CHUNK_WEIGHT);
+      addLift(-5, 0, 5, 6, 0, 3.0, { opens: ["up"] });
+      block(-5, 0, 5.5, 5, 3.0, 5, 0x574b7d);
+      addLever("out", -5, 5.5, 3.0);
+      addBridge(6, 0, 8, 7, ["out"]);
+    }
   }
 ];
 
@@ -1000,6 +1220,7 @@ function clearFloor() {
   DOORS.length = 0;
   CRATES.length = 0;
   BRIDGES.length = 0;
+  LIFTS.length = 0;
   chunk.held = null;              // never carry Pip into the next floor
 }
 
@@ -1303,6 +1524,17 @@ function loadLevel(n) {
   pip.pos.set(L.pip.x, 0.4, L.pip.z);
   for (const P of PLAYERS) { P.vel.set(0, 0, 0); P.yaw = 0; }
 
+  /* Dark floors turn the room lights DOWN and Pip's lamp UP. Nothing is
+     added or taken away - see where the lamp is made. */
+  const dark = !!L.dark;
+  /* Dark enough that you want to be near the lamp, nowhere near dark
+     enough that you can't tell where the walls are. The first go at this
+     was almost pitch black, which isn't "stick together", it's "give up". */
+  if (ambient) ambient.intensity = dark ? 0.2 : DAY.ambient;
+  sun.intensity = dark ? 0.15 : DAY.sun;
+  lamp.intensity = dark ? 7 : 0;
+  scene.fog.density = dark ? 0.025 : 0.016;
+
   el("floornum").textContent = level + 1;
   el("floortotal").textContent = LEVELS.length;
   el("floorname").textContent = L.name;
@@ -1499,6 +1731,7 @@ function step(dt) {
 
   // crates are the host's business; everybody else is told where they went
   if (!net.on || net.host) stepCrates(dt);
+  stepLifts(dt);
 
   // plates notice weight, and doors do as they're told
   for (const p of PLATES) {
@@ -1592,6 +1825,8 @@ function aimCamera(dt) {
 }
 
 function draw(dt) {
+  // the lamp rides on Pip, a little above his head
+  lamp.position.set(pip.pos.x, pip.pos.y + 1.6, pip.pos.z);
   aimCamera(dt);
   renderer.render(scene, camera);
 }
@@ -1877,6 +2112,11 @@ const ADMIN_COMMANDS = [
                (CRATES.length
                  ? " · crates " + CRATES.map(c =>
                      c.x.toFixed(1) + "," + c.y.toFixed(1) + "," + c.z.toFixed(1)).join(" ")
+                 : "") +
+               (LIFTS.length
+                 ? " · lifts " + LIFTS.map(L =>
+                     L.x.toFixed(1) + "," + L.z.toFixed(1) +
+                     " y" + L.box.minY.toFixed(1) + "-" + L.box.maxY.toFixed(1)).join(" ")
                  : "") }
 ];
 
