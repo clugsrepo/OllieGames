@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Trick Room</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: "Trebuchet MS", Verdana, sans-serif;
+    background: #0e1018;
+    color: #fff;
+    touch-action: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  canvas { display: block; }
+  [hidden] { display: none !important; }
+
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+  .pill {
+    position: absolute; top: max(12px, env(safe-area-inset-top));
+    font-size: 0.95rem; font-weight: bold;
+    padding: 9px 14px; border-radius: 14px;
+    background: rgba(10,12,22,0.68);
+    border: 2px solid rgba(255,255,255,0.16);
+    white-space: nowrap;
+  }
+  #modepill { left: max(12px, env(safe-area-inset-left)); }
+  #modename { color: #ffd93d; }
+  #countpill {
+    left: max(12px, env(safe-area-inset-left));
+    top: calc(max(12px, env(safe-area-inset-top)) + 46px);
+  }
+  #helppill {
+    right: max(12px, env(safe-area-inset-right));
+    font-weight: normal; font-size: 0.82rem;
+    max-width: min(300px, 44vw); white-space: normal; line-height: 1.45;
+    color: #c9c2ff;
+  }
+
+  /* the little cross in the middle, so you know where you're pointing */
+  #dot {
+    position: absolute; left: 50%; top: 50%;
+    width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.85);
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.45);
+  }
+
+  #message {
+    position: absolute; left: 50%; top: 24%;
+    transform: translateX(-50%);
+    font-size: clamp(1.1rem, 3.4vw, 1.6rem); font-weight: bold;
+    text-align: center; text-shadow: 0 3px 14px rgba(0,0,0,0.85);
+    opacity: 0; transition: opacity 0.25s; white-space: pre-line;
+  }
+  #message.show { opacity: 1; }
+
+  #home {
+    position: fixed; z-index: 30;
+    top: max(12px, env(safe-area-inset-top)); left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.9rem; font-weight: bold; text-decoration: none;
+    padding: 8px 14px; border-radius: 12px;
+    color: #9ff5c0; background: rgba(10,12,22,0.75);
+    border: 2px solid rgba(159,245,192,0.4);
+  }
+
+  /* the big button that swaps between building and being fooled */
+  #swap {
+    position: fixed; z-index: 25;
+    left: 50%; transform: translateX(-50%);
+    bottom: max(18px, calc(env(safe-area-inset-bottom) + 14px));
+    font-family: inherit; font-size: 1rem; font-weight: bold;
+    padding: 13px 22px; border-radius: 16px; cursor: pointer;
+    color: #141018; background: #ffd93d; border: none;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+  }
+  #swap:active { transform: translateX(-50%) scale(0.95); }
+
+  #touch { position: fixed; inset: 0; z-index: 20; pointer-events: none; }
+  #stick-move {
+    position: absolute;
+    left: max(18px, env(safe-area-inset-left));
+    bottom: max(24px, calc(env(safe-area-inset-bottom) + 18px));
+    width: 128px; height: 128px; border-radius: 50%;
+    background: rgba(255,255,255,0.09);
+    border: 2px solid rgba(255,255,255,0.22);
+    pointer-events: auto;
+  }
+  #knob {
+    position: absolute; left: 50%; top: 50%;
+    width: 56px; height: 56px; margin: -28px 0 0 -28px;
+    border-radius: 50%;
+    background: rgba(255,217,61,0.5);
+    border: 2px solid rgba(255,217,61,0.85);
+  }
+  .trim {
+    position: absolute; right: max(18px, env(safe-area-inset-right));
+    width: 72px; height: 72px; font-size: 1.4rem;
+    border-radius: 50%; cursor: pointer;
+    color: #fff; background: rgba(255,255,255,0.12);
+    border: 2px solid rgba(255,255,255,0.3);
+    pointer-events: auto;
+  }
+  #btn-up { bottom: max(104px, calc(env(safe-area-inset-bottom) + 98px)); }
+  #btn-down { bottom: max(24px, calc(env(safe-area-inset-bottom) + 18px)); }
+  .trim:active { transform: scale(0.93); }
+
+  .panel {
+    position: fixed; inset: 0; z-index: 40;
+    display: flex; align-items: center; justify-content: center;
+    padding: 18px; background: rgba(6,7,14,0.85); overflow-y: auto;
+  }
+  .box {
+    max-width: 620px; width: 100%;
+    background: #1b1f33;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-radius: 22px; padding: 26px 24px; text-align: center;
+  }
+  .box h1 { font-size: clamp(1.5rem, 5.5vw, 2.2rem); margin-bottom: 12px; }
+  .box p { color: #c9c2ff; line-height: 1.55; margin-bottom: 13px; font-size: 0.97rem; }
+  .box b { color: #fff; }
+  .btn {
+    font-family: inherit; font-size: 1.05rem; font-weight: bold;
+    padding: 12px 24px; margin: 5px 4px;
+    border-radius: 14px; cursor: pointer;
+    color: #141018; background: #ffd93d; border: none;
+    text-decoration: none; display: inline-block;
+  }
+  .btn.alt { color: #fff; background: rgba(255,255,255,0.14);
+             border: 2px solid rgba(255,255,255,0.3); }
+  .two {
+    display: flex; gap: 14px; justify-content: center;
+    flex-wrap: wrap; margin: 16px 0;
+  }
+  .mode {
+    flex: 1 1 220px; max-width: 260px; text-align: left;
+    border-radius: 16px; padding: 14px 13px;
+    background: rgba(0,0,0,0.26);
+    border: 2px solid rgba(255,255,255,0.16);
+  }
+  .mode h3 { font-size: 1.05rem; margin-bottom: 6px; }
+  .mode p { font-size: 0.86rem; margin-bottom: 5px; }
+  #m-build { border-color: rgba(107,207,255,0.5); }
+  #m-build h3 { color: #6bcfff; }
+  #m-walk { border-color: rgba(255,170,76,0.5); }
+  #m-walk h3 { color: #ffaa4c; }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div class="pill" id="modepill">👁 <span id="modename">BUILDING</span></div>
+  <div class="pill" id="countpill">🌀 <b id="count">0</b> tricks</div>
+  <div class="pill" id="helppill"></div>
+  <div id="dot"></div>
+  <div id="message"></div>
+</div>
+
+<a id="home" href="../../index.html">← Home</a>
+<button id="swap" hidden>WALK IN AND BE FOOLED</button>
+
+<div id="touch" hidden>
+  <div id="stick-move"><div class="knob" id="knob"></div></div>
+  <button class="trim" id="btn-up">⬆</button>
+  <button class="trim" id="btn-down">⬇</button>
+</div>
+
+<div class="panel" id="start">
+  <div class="box">
+    <h1>🌀 TRICK ROOM</h1>
+    <p>A big empty room and a box of tricks. Build something that fools
+       people — then walk into it and get fooled by your own room.</p>
+
+    <div class="two">
+      <div class="mode" id="m-build">
+        <h3>👁 Building</h3>
+        <p>You float about and see <b>the truth</b>. Fakes are outlined,
+           portals are plain frames, and the magic spots are marked on
+           the floor.</p>
+      </div>
+      <div class="mode" id="m-walk">
+        <h3>🚶 Walking</h3>
+        <p>You're down on the floor at eye height, and everything looks
+           <b>real</b>. This is the only place the tricks actually work.</p>
+      </div>
+    </div>
+
+    <p>An illusion only ever works from <b>one pair of eyes, at one
+       height, in one spot</b>. That's why there are two ways of looking,
+       and one button between them.</p>
+
+    <p id="how-desktop"><b>W A S D</b> to move · <b>mouse</b> to look ·
+       <b>Space</b> up, <b>Shift</b> down while building ·
+       <b>Tab</b> swaps between building and walking</p>
+    <p id="how-touch" hidden>Left stick to move · drag anywhere to look ·
+       <b>⬆ ⬇</b> to rise and fall while building · the button at the
+       bottom swaps over</p>
+
+    <p><button class="btn" id="btn-play">START!</button></p>
+  </div>
+</div>
+
+<script src="../../shared/player.js"></script>
+<script src="three.min.js"></script>
+<script src="../../shared/admin-panel.js"></script>
+<script>
+/* =====================================================================
+   TRICK ROOM
+
+   A sandbox of optical illusions. You build a room full of things that
+   are not what they look like, and then you walk into it.
+
+   Everything in here rests on one fact about illusions: THEY ONLY WORK
+   FROM ONE PAIR OF EYES, AT ONE HEIGHT, IN ONE SPOT. Look at a forced
+   perspective from three steps to the left and it's just two boxes a
+   long way apart. Look at an anamorphic door from anywhere but the
+   magic spot and it's confetti.
+
+   So the game has two ways of looking at the same room:
+
+     BUILDING - you float, and you see the truth. Fakes are outlined,
+                the magic spots are painted on the floor.
+     WALKING  - you're on the floor at eye height, and everything looks
+                real. This is the only place the tricks work.
+
+   One button between them. Building blind would be miserable; walking
+   round with every secret labelled would spoil the lot.
+   ===================================================================== */
+
+/* ---------------------------------------------------------------------
+   THE SHAPE OF THE WORLD
+
+   Everything solid is a box with a lowest and highest corner - walls,
+   floor, the lot. One shape means one piece of bumping-into code
+   instead of six, and that code below is lifted straight from Chunk &
+   Pip, where it took a couple of goes to get right.
+   --------------------------------------------------------------------- */
+const SOLIDS = [];
+
+function solidBox(cx, cy, cz, w, h, d) {
+  const box = {
+    minX: cx - w / 2, maxX: cx + w / 2,
+    minY: cy,         maxY: cy + h,
+    minZ: cz - d / 2, maxZ: cz + d / 2,
+    off: false
+  };
+  SOLIDS.push(box);
+  return box;
+}
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0e1018);
+scene.fog = new THREE.FogExp2(0x0e1018, 0.008);
+
+const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 400);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+document.body.appendChild(renderer.domElement);
+const canvas = renderer.domElement;
+
+/* Both lights made here at the start and never added or taken away
+   again. Adding one while the game is running makes three.js rebuild
+   every material in the scene and everything stops still for a moment. */
+scene.add(new THREE.AmbientLight(0xaab4e0, 0.55));
+const sun = new THREE.DirectionalLight(0xfff0d8, 0.9);
+sun.position.set(30, 50, 20);
+scene.add(sun);
+
+function mat(color) { return new THREE.MeshLambertMaterial({ color }); }
+const BOX = new THREE.BoxGeometry(1, 1, 1);
+
+function block(cx, cy, cz, w, h, d, color, solid) {
+  const mesh = new THREE.Mesh(BOX, mat(color));
+  mesh.scale.set(w, h, d);
+  mesh.position.set(cx, cy + h / 2, cz);
+  scene.add(mesh);
+  return solid === false ? { mesh } : { mesh, box: solidBox(cx, cy, cz, w, h, d) };
+}
+
+/* ---------------------------------------------------------------------
+   THE ROOM
+
+   Big, plain and square on purpose. Everything interesting in here is
+   going to be something YOU put in it, and a room with a lot of its own
+   character would only get in the way of the tricks.
+   --------------------------------------------------------------------- */
+const ROOM = { w: 70, d: 70, h: 14 };
+const WALL_T = 1.5;
+
+function buildRoom() {
+  const { w, d, h } = ROOM;
+  block(0, -1, 0, w + WALL_T * 2, 1, d + WALL_T * 2, 0x2b3048);          // floor
+  block(0, 0, -d / 2 - WALL_T / 2, w + WALL_T * 2, h, WALL_T, 0x232942);  // back
+  block(0, 0,  d / 2 + WALL_T / 2, w + WALL_T * 2, h, WALL_T, 0x232942);  // front
+  block(-w / 2 - WALL_T / 2, 0, 0, WALL_T, h, d + WALL_T * 2, 0x272d47);  // left
+  block( w / 2 + WALL_T / 2, 0, 0, WALL_T, h, d + WALL_T * 2, 0x272d47);  // right
+  block(0, h, 0, w + WALL_T * 2, WALL_T, d + WALL_T * 2, 0x1b2036);       // ceiling
+
+  /* A grid painted on the floor. It is not decoration: a flat even grid
+     is what gives your eye something to measure distance BY, which is
+     exactly what every trick in here is going to lie about. Take it
+     away and forced perspective stops being surprising, because there
+     was never anything to be wrong about. */
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0x3c4568 });
+  const lineGeo = new THREE.PlaneGeometry(1, 1);
+  const stripe = (x, z, sx, sz) => {
+    const line = new THREE.Mesh(lineGeo, lineMat);
+    line.rotation.x = -Math.PI / 2;
+    line.scale.set(sx, sz, 1);
+    line.position.set(x, 0.012, z);
+    scene.add(line);
+  };
+  for (let i = -w / 2; i <= w / 2; i += 5) stripe(i, 0, 0.12, d);   // running away
+  for (let i = -d / 2; i <= d / 2; i += 5) stripe(0, i, w, 0.12);   // running across
+
+  /* A few plain pillars, purely so there is something in the room whose
+     real size you already know. An illusion needs honest things stood
+     next to it or there is nothing to compare it against. */
+  for (const [x, z] of [[-18, -18], [18, -18], [-18, 18], [18, 18]]) {
+    block(x, 0, z, 2, 5, 2, 0x4a5570);
+  }
+}
+
+/* ---------------------------------------------------------------------
+   THE PERSON
+
+   One body, two ways of driving it. Walking has gravity and bumps into
+   things; building floats and goes through everything, because being
+   able to get your eye exactly where you want it is the whole job when
+   you are lining a trick up.
+   --------------------------------------------------------------------- */
+const EYE = 1.62;          // how high up a person's eyes are
+const BODY_R = 0.4;
+const BODY_H = 1.75;
+const GRAVITY = 26;
+const JUMP_UP = 9;
+const WALK_SPEED = 7.5;
+const FLY_SPEED = 16;
+
+const me = {
+  pos: new THREE.Vector3(0, 0, 24),
+  vel: new THREE.Vector3(),
+  yaw: Math.PI, pitch: -0.05,
+  onGround: false
+};
+
+let building = true;       // which way of looking we're using
+let playing = false;
+
+/* ---------------------------------------------------------------------
+   BUMPING INTO THINGS
+
+   One axis at a time, and after each little move anything we have ended
+   up inside pushes us straight back along THAT axis only.
+
+   Doing it one axis at a time, and remembering where we were BEFORE the
+   move, is the whole reason this is reliable. Move all three at once and
+   shove yourself out whichever way is shortest, and walking under a low
+   doorway squeezes you down through the floor, because downwards was
+   the short way out.
+   --------------------------------------------------------------------- */
+function insideBox(P, b) {
+  return P.pos.x + BODY_R > b.minX && P.pos.x - BODY_R < b.maxX
+      && P.pos.y + BODY_H > b.minY && P.pos.y          < b.maxY
+      && P.pos.z + BODY_R > b.minZ && P.pos.z - BODY_R < b.maxZ;
+}
+
+function moveAxis(P, axis, amount) {
+  if (amount === 0) return;
+  const before = P.pos[axis];
+  P.pos[axis] += amount;
+  for (const b of SOLIDS) {
+    if (b.off || !insideBox(P, b)) continue;
+    if (axis === "y") {
+      if (amount > 0) {
+        if (before + BODY_H <= b.minY + 0.01) { P.pos.y = b.minY - BODY_H; P.vel.y = 0; }
+      } else if (before >= b.maxY - 0.01) {
+        P.pos.y = b.maxY; P.vel.y = 0; P.onGround = true;
+      }
+    } else if (axis === "x") {
+      if (amount > 0) {
+        if (before + BODY_R <= b.minX + 0.01) { P.pos.x = b.minX - BODY_R; P.vel.x = 0; }
+      } else if (before - BODY_R >= b.maxX - 0.01) {
+        P.pos.x = b.maxX + BODY_R; P.vel.x = 0;
+      }
+    } else {
+      if (amount > 0) {
+        if (before + BODY_R <= b.minZ + 0.01) { P.pos.z = b.minZ - BODY_R; P.vel.z = 0; }
+      } else if (before - BODY_R >= b.maxZ - 0.01) {
+        P.pos.z = b.maxZ + BODY_R; P.vel.z = 0;
+      }
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------
+   ONE STEP OF THE WORLD
+   --------------------------------------------------------------------- */
+const _aim = new THREE.Vector3();
+
+function step(dt) {
+  if (!playing) return;
+
+  const input = readMove();
+  const fwdX = Math.sin(me.yaw), fwdZ = Math.cos(me.yaw);
+
+  if (building) {
+    /* Floating. No gravity, no walls, straight to wherever you point -
+       including up and down, and including through things. Lining up a
+       trick means getting your eye in an exact spot, and a floor would
+       only ever be in the way of that. */
+    _aim.set(fwdX * -input.z + fwdZ * input.x, 0, fwdZ * -input.z - fwdX * input.x);
+    if (_aim.lengthSq() > 1) _aim.normalize();
+    const rise = (keys.Space || touchUp ? 1 : 0) - (keys.ShiftLeft || keys.ShiftRight || touchDown ? 1 : 0);
+    me.pos.x += _aim.x * FLY_SPEED * dt;
+    me.pos.z += _aim.z * FLY_SPEED * dt;
+    me.pos.y += rise * FLY_SPEED * dt;
+    me.pos.y = Math.max(-6, Math.min(ROOM.h + 24, me.pos.y));
+    me.vel.set(0, 0, 0);
+  } else {
+    _aim.set(fwdX * -input.z + fwdZ * input.x, 0, fwdZ * -input.z - fwdX * input.x);
+    if (_aim.lengthSq() > 1) _aim.normalize();
+
+    const push = WALK_SPEED * 36 * dt;
+    me.vel.x += _aim.x * push;
+    me.vel.z += _aim.z * push;
+
+    /* Slowing down by TIME, not by frames, so a fast computer and a slow
+       one walk at the same speed. */
+    const drag = Math.exp(-(me.onGround ? 12 : 1.2) * dt);
+    me.vel.x *= drag;
+    me.vel.z *= drag;
+    const flat = Math.hypot(me.vel.x, me.vel.z);
+    if (me.onGround && flat > WALK_SPEED) {
+      me.vel.x = me.vel.x / flat * WALK_SPEED;
+      me.vel.z = me.vel.z / flat * WALK_SPEED;
+    }
+
+    me.vel.y -= GRAVITY * dt;
+    if ((keys.Space || touchUp) && me.onGround) { me.vel.y = JUMP_UP; me.onGround = false; }
+
+    me.onGround = false;
+    moveAxis(me, "y", me.vel.y * dt);
+    moveAxis(me, "x", me.vel.x * dt);
+    moveAxis(me, "z", me.vel.z * dt);
+
+    if (me.pos.y < -30) { me.pos.set(0, 1, 24); me.vel.set(0, 0, 0); say("Back you come.", 1); }
+  }
+
+  if (sayFor > 0) { sayFor -= dt; if (sayFor <= 0) msgEl.classList.remove("show"); }
+}
+
+/* ---------------------------------------------------------------------
+   PUTTING IT ON THE SCREEN
+   --------------------------------------------------------------------- */
+function draw() {
+  camera.position.set(me.pos.x, me.pos.y + (building ? 0 : EYE), me.pos.z);
+  camera.rotation.set(0, 0, 0);
+  camera.rotateY(me.yaw);
+  camera.rotateX(me.pitch);
+  renderer.render(scene, camera);
+}
+
+/* ---------------------------------------------------------------------
+   THE TWO WAYS OF LOOKING
+   --------------------------------------------------------------------- */
+const el = id => document.getElementById(id);
+const msgEl = el("message");
+let sayFor = 0;
+
+function say(text, seconds) {
+  msgEl.textContent = text;
+  msgEl.classList.add("show");
+  sayFor = seconds === undefined ? 1.6 : seconds;
+}
+
+function setMode(wantBuilding) {
+  building = wantBuilding;
+  el("modename").textContent = building ? "BUILDING" : "WALKING";
+  /* On a computer the mouse is captured so you can look round freely,
+     which means this button cannot be clicked until you press Escape -
+     so it says which key does the same job. On a phone it IS the way. */
+  el("swap").textContent = (building ? "WALK IN AND BE FOOLED" : "BACK TO BUILDING")
+    + (HAS_TOUCH ? "" : "   (Tab)");
+  el("helppill").textContent = building
+    ? "You can see the truth up here, and float through anything. Get your eye exactly where you want it."
+    : "Down on the floor at eye height. This is the only place the tricks work.";
+  el("btn-up").hidden = false;
+  el("btn-down").hidden = !building;
+
+  if (building) {
+    me.pos.y = Math.max(me.pos.y, 6);
+    me.vel.set(0, 0, 0);
+  } else {
+    /* Dropping in to walk: put us on the floor, looking level. A trick
+       lined up for somebody's eyes is lined up for eyes at eye height,
+       so arriving three metres up would show you a room that doesn't
+       work and isn't meant to. */
+    me.pos.y = 0.2;
+    me.pitch = Math.max(-0.35, Math.min(0.35, me.pitch));
+    me.vel.set(0, 0, 0);
+  }
+  say(building ? "Building. You can see how it really is." : "Walking. Now you see it.", 1.6);
+}
+
+/* ---------------------------------------------------------------------
+   CONTROLS
+   --------------------------------------------------------------------- */
+const keys = {};
+addEventListener("keydown", e => {
+  if (e.repeat) return;
+  keys[e.code] = true;
+  if (e.code === "Tab") { e.preventDefault(); if (playing) setMode(!building); }
+  if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].indexOf(e.code) >= 0) {
+    e.preventDefault();
+  }
+});
+addEventListener("keyup", e => { keys[e.code] = false; });
+addEventListener("blur", () => { for (const k in keys) keys[k] = false; });
+
+const touchMove = { x: 0, z: 0 };
+let touchUp = false, touchDown = false;
+
+function readMove() {
+  let x = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+  let z = (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0);
+  if (!x) x = (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0);
+  if (!z) z = (keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0);
+  if (touchMove.x || touchMove.z) { x = touchMove.x; z = touchMove.z; }
+  return { x, z };
+}
+
+/* ---- looking round ---- */
+const LOOK = 0.0022;
+const PITCH_LIMIT = Math.PI / 2 - 0.05;
+let pointerLocked = false;
+
+document.addEventListener("pointerlockchange", () => {
+  pointerLocked = document.pointerLockElement === canvas;
+});
+canvas.addEventListener("click", () => {
+  if (playing && !HAS_TOUCH && !pointerLocked) canvas.requestPointerLock();
+});
+addEventListener("mousemove", e => {
+  if (!pointerLocked) return;
+  me.yaw -= e.movementX * LOOK;
+  me.pitch -= e.movementY * LOOK;
+  me.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, me.pitch));
+});
+
+/* On a phone: drag anywhere that isn't the stick or a button to look. */
+let lookId = null, lookX = 0, lookY = 0;
+addEventListener("touchstart", e => {
+  for (const t of e.changedTouches) {
+    if (t.target.closest && t.target.closest("#stick-move, .trim, #swap, #home, .panel, #oa-btn, #oa-panel, #oa-bar")) continue;
+    if (lookId !== null) continue;
+    lookId = t.identifier; lookX = t.clientX; lookY = t.clientY;
+  }
+}, { passive: true });
+addEventListener("touchmove", e => {
+  for (const t of e.changedTouches) {
+    if (t.identifier !== lookId) continue;
+    me.yaw -= (t.clientX - lookX) * 0.005;
+    me.pitch -= (t.clientY - lookY) * 0.005;
+    me.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, me.pitch));
+    lookX = t.clientX; lookY = t.clientY;
+  }
+}, { passive: true });
+function dropLook(e) {
+  for (const t of e.changedTouches) if (t.identifier === lookId) lookId = null;
+}
+addEventListener("touchend", dropLook);
+addEventListener("touchcancel", dropLook);
+
+/* ---- the stick ---- */
+const stick = el("stick-move"), knob = el("knob");
+let stickId = null;
+function stickAt(touch) {
+  const r = stick.getBoundingClientRect();
+  let dx = (touch.clientX - (r.left + r.width / 2)) / (r.width / 2);
+  let dy = (touch.clientY - (r.top + r.height / 2)) / (r.height / 2);
+  const len = Math.hypot(dx, dy);
+  if (len > 1) { dx /= len; dy /= len; }
+  touchMove.x = Math.abs(dx) < 0.18 ? 0 : dx;
+  touchMove.z = Math.abs(dy) < 0.18 ? 0 : dy;
+  knob.style.transform = "translate(" + dx * 32 + "px," + dy * 32 + "px)";
+}
+stick.addEventListener("touchstart", e => {
+  e.preventDefault(); stickId = e.changedTouches[0].identifier; stickAt(e.changedTouches[0]);
+}, { passive: false });
+stick.addEventListener("touchmove", e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) if (t.identifier === stickId) stickAt(t);
+}, { passive: false });
+function dropStick(e) {
+  for (const t of e.changedTouches) {
+    if (t.identifier !== stickId) continue;
+    stickId = null; touchMove.x = touchMove.z = 0; knob.style.transform = "";
+  }
+}
+stick.addEventListener("touchend", dropStick);
+stick.addEventListener("touchcancel", dropStick);
+
+function trimButton(id, set) {
+  const b = el(id);
+  const on = e => { e.preventDefault(); set(true); };
+  const off = e => { e.preventDefault(); set(false); };
+  b.addEventListener("touchstart", on, { passive: false });
+  b.addEventListener("touchend", off);
+  b.addEventListener("touchcancel", off);
+  b.addEventListener("mousedown", on);
+  addEventListener("mouseup", off);
+}
+trimButton("btn-up", on => { touchUp = on; });
+trimButton("btn-down", on => { touchDown = on; });
+
+const HAS_TOUCH = matchMedia("(pointer: coarse)").matches;
+if (HAS_TOUCH) {
+  el("touch").hidden = false;
+  el("how-touch").hidden = false;
+  el("how-desktop").hidden = true;
+}
+
+/* ---------------------------------------------------------------------
+   GO!
+   --------------------------------------------------------------------- */
+function fitScreen() {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+}
+addEventListener("resize", fitScreen);
+fitScreen();
+buildRoom();
+
+function startGame() {
+  el("start").hidden = true;
+  el("swap").hidden = false;
+  playing = true;
+  me.pos.set(0, 8, 24);
+  me.yaw = Math.PI; me.pitch = -0.25;
+  setMode(true);
+  if (!HAS_TOUCH) canvas.requestPointerLock();
+}
+el("btn-play").addEventListener("click", startGame);
+el("swap").addEventListener("click", () => { if (playing) setMode(!building); });
+
+let last = performance.now();
+function frame(now) {
+  /* A safety catch on the clock: if the browser gets busy and a frame
+     takes half a second, pretend it took a twentieth. Otherwise one
+     stutter moves you so far in a single go that you go through a wall. */
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+  step(dt);
+  draw();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ---------------------------------------------------------------------
+   ADMIN
+   --------------------------------------------------------------------- */
+const ADMIN_COMMANDS = [
+  { name: "mode", args: "<build/walk>",
+    help: "Swap between building and walking",
+    state: () => building ? "build" : "walk",
+    run: words => {
+      const w = String(words[0] || "").toLowerCase();
+      if (w !== "build" && w !== "walk") return { bad: "Say build or walk" };
+      if (!playing) startGame();
+      setMode(w === "build");
+      return "Now " + (building ? "building" : "walking");
+    } },
+
+  { name: "put", args: "<x> <y> <z>",
+    help: "Stand yourself somewhere exactly",
+    run: words => {
+      const x = Number(words[0]), y = Number(words[1]), z = Number(words[2]);
+      if (!isFinite(x) || !isFinite(y) || !isFinite(z)) return { bad: "Needs an x, y and z" };
+      me.pos.set(x, y, z);
+      me.vel.set(0, 0, 0);
+      return "At " + x + ", " + y + ", " + z;
+    } },
+
+  { name: "look", args: "<yaw> <pitch>",
+    help: "Point your eyes exactly where you say",
+    run: words => {
+      const y = Number(words[0]), p = Number(words[1]);
+      if (!isFinite(y) || !isFinite(p)) return { bad: "Needs a yaw and a pitch, in radians" };
+      me.yaw = y;
+      me.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, p));
+      return "Looking " + y.toFixed(2) + ", " + p.toFixed(2);
+    } },
+
+  { name: "where", args: "",
+    help: "Say where you are and which way you're facing",
+    run: () => "At " + me.pos.x.toFixed(1) + "," + me.pos.y.toFixed(1) + "," + me.pos.z.toFixed(1) +
+               " · looking " + me.yaw.toFixed(2) + "," + me.pitch.toFixed(2) +
+               " · " + (building ? "building" : "walking") }
+];
+
+if (window.OllieAdmin) OllieAdmin.start({ commands: ADMIN_COMMANDS });
+</script>
+
+</body>
+</html>
