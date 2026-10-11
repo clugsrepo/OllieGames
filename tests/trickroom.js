@@ -368,6 +368,38 @@ async function walkTill(keys, there, maxMs) {
   await say(';mode walk');
   const madeShed = await say(';shed');
   check('one press builds the shed and the hall (' + madeShed + ')', /shed 4\.0/.test(madeShed));
+  /* Where everything is, asked rather than written in by hand. The hall
+     has moved once already and six checks in here carried its z around
+     with them; now there is one answer and they all read it.
+
+     Read by NAME, not by counting numbers along the line - counting is
+     how you get a test that breaks the next time somebody adds a figure
+     to the middle of a sentence. */
+  const spot = (text, label) => {
+    const m = new RegExp(label + ' (-?[\\d.]+),(-?[\\d.]+)').exec(text);
+    return m ? { x: Number(m[1]), z: Number(m[2]) } : null;
+  };
+  const door = spot(madeShed, 'doorway at');
+  const hallMid = spot(madeShed, 'hall middle at');
+  const comeOut = spot(madeShed, 'you come out at');
+  check('and it says where everything is', !!door && !!hallMid && !!comeOut);
+  const hallZ = hallMid.z, comeOutZ = comeOut.z, doorZ = door.z;
+
+  /* The whole point of the move: from inside the room you cannot see
+     the thing you are about to be inside. Fire a ray from where you
+     stand straight at the hall and it has to hit the room's own back
+     wall long before it gets there. */
+  await say(';put 0 0.2 20');
+  const blocked = await page.evaluate(zAt => {
+    const ray = new THREE.Raycaster(
+      new THREE.Vector3(0, 1.6, 20), new THREE.Vector3(0, 0, -1), 0.1, 400);
+    const hits = ray.intersectObjects(SHOOTABLE, false);
+    return hits.length ? hits[0].distance : -1;
+  }, hallZ);
+  check('and from in the room you cannot see the hall at all - the back ' +
+        'wall is in the way ' + blocked.toFixed(1) + 'm off, it is ' +
+        Math.abs(hallZ - 20).toFixed(0) + 'm off',
+        blocked > 0 && blocked < Math.abs(hallZ - 20) - 20);
 
   /* Inside the little shed, measured. Getting in needs building mode,
      where you float through walls - which is the only way in, because
@@ -383,10 +415,11 @@ async function walkTill(keys, there, maxMs) {
   await say(';mode walk');
   await say(';put 0 0.2 19');
   await say(';look 0 0');
-  const inside = await walkTill(['KeyW'], p => p.z < -25, 6000);
-  check('walk in the shed door and you are right across the room (z ' +
-        inside.z + ')', inside.z < -25);
-  await say(';put 0 0.2 -22');       // out from between the pillars to measure
+  const inside = await walkTill(['KeyW'], p => p.z < comeOutZ + 6, 6000);
+  check('walk in the shed door and you are somewhere else entirely (z ' +
+        inside.z + ', the shed door is at ' + doorZ + ')',
+        inside.z < comeOutZ + 6);
+  await say(';put 0 0.2 ' + hallZ);  // out from between the pillars to measure
   await wait(200);
   const hall = num(await say(';span'));
   check('and the room you came out in is ' + hall[0] + ' across, not ' + inShed[0],
@@ -399,7 +432,7 @@ async function walkTill(keys, there, maxMs) {
      trap rather than a trick. You come out of a portal facing away from
      it, exactly like coming through a door, so getting out means
      turning round and walking back at the wall you appeared from. */
-  await say(';put 0 0.2 -30');
+  await say(';put 0 0.2 ' + (comeOutZ + 2));
   await say(';look 0 0');
   const outAgain = await walkTill(['KeyW'], p => p.z > 10, 6000);
   check('and you can walk back out to the shed again (z ' + outAgain.z + ')',
@@ -446,9 +479,12 @@ async function walkTill(keys, there, maxMs) {
   await say(';mode walk');
   await say(';put 0 0.2 19');
   await say(';look 0 0');
-  const wentIn = await walkTill(['KeyW'], p => p.z < -25, 6000);
+  /* Where the hall is was asked once, at the top. Asking ;shed again
+     here gets you a flat refusal - there is already a shed, which is
+     exactly what this check is about. */
+  const wentIn = await walkTill(['KeyW'], p => p.z < comeOutZ + 6, 6000);
   check('and the shed that came back still takes you to the hall (z ' +
-        wentIn.z + ')', wentIn.z < -25);
+        wentIn.z + ')', wentIn.z < comeOutZ + 6);
 
   console.log('\n--- a fiddled notebook cannot build anything ---');
   /* Somebody will open the notebook and type in it - it is a file on a

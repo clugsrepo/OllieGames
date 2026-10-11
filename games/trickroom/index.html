@@ -1107,8 +1107,21 @@ function addPair(spot, facing) {
 const SHED = { x: 0, z: 14, w: 4, d: 4, h: 3.9, t: 0.3, door: 2.4, top: 3.6 };
 /* Long the way you walk in, not wide. You come out of the portal at
    one end of it, and a hall you look ACROSS tells you much less than a
-   hall you look DOWN. */
-const HALL = { x: 0, z: -22, w: 26, d: 22, h: 10, t: 0.6 };
+   hall you look DOWN.
+
+   AND MILES AWAY. It used to stand in the same room, across the floor
+   from the shed, where you could see the enormous thing you were about
+   to be inside before you had gone anywhere near the little one. The
+   joke only works if you don't see it coming, so now it is eighty-five
+   metres out past the back wall, where the room's own walls hide it
+   completely. Nothing else changes: the window in the shed door is a
+   camera standing over there, and it doesn't care how far away "there"
+   is.
+
+   You can still go and look, by floating out through the wall while
+   building. That is the right answer rather than a hole in it -
+   building has always shown you how the room really is. */
+const HALL = { x: 0, z: -120, w: 26, d: 22, h: 10, t: 0.6 };
 
 function addShed() {
   const group = new THREE.Group();
@@ -1339,6 +1352,16 @@ function inTheRoom(x, y, z) {
          y >= -2 && y <= ROOM.h + 2;
 }
 
+/* Tricks all live in the room. A PORTAL does not have to: the far end
+   of the shed's doorway is out past the back wall with the hall, so
+   checking a saved portal against the room would quietly throw the
+   shed's other end away every time you came back to it. Still bounded,
+   just bounded by the world instead. */
+function inTheWorld(x, y, z) {
+  return isFinite(x) && isFinite(y) && isFinite(z) &&
+         Math.abs(x) <= 80 && Math.abs(z) <= 180 && y >= -4 && y <= 40;
+}
+
 function loadRoom() {
   let raw = null;
   try { raw = localStorage.getItem(SAVE_KEY); } catch (e) { return; }
@@ -1359,7 +1382,7 @@ function loadRoom() {
     const p = kept[i];
     if (!Array.isArray(p) || p.length !== 6) continue;
     const n = p.map(Number);
-    if (!inTheRoom(n[0], n[1], n[2])) continue;
+    if (!inTheWorld(n[0], n[1], n[2])) continue;
     const len = Math.hypot(n[3], n[4], n[5]);
     if (!isFinite(len) || Math.abs(len - 1) > 0.02) continue;
     placePortal(PORTALS[i], _v2.set(n[0], n[1], n[2]), _v3.set(n[3], n[4], n[5]));
@@ -2311,9 +2334,16 @@ const ADMIN_COMMANDS = [
     run: () => {
       if (TRICKS.some(t => t.kind === "shed")) return { bad: "There is one already" };
       spawnTrick({ kind: "shed", x: SHED.x, z: SHED.z });
+      /* Where the hall actually IS, said out loud. Six checks in the
+         test suite used to carry its z written into them by hand, and
+         moving it meant hunting all six down. Now they ask. */
       return "shed " + SHED.w.toFixed(1) + " x " + SHED.d.toFixed(1) +
              " outside, hall " + HALL.w.toFixed(1) + " x " + HALL.d.toFixed(1) +
-             " inside, doorway at 0," + (SHED.z + SHED.d / 2).toFixed(1);
+             " inside, doorway at " + SHED.x.toFixed(1) + "," +
+             (SHED.z + SHED.d / 2).toFixed(1) +
+             ", hall middle at " + HALL.x.toFixed(1) + "," + HALL.z.toFixed(1) +
+             ", you come out at " + HALL.x.toFixed(1) + "," +
+             (HALL.z - HALL.d / 2 + 2).toFixed(1);
     } },
 
   { name: "span", args: "",
