@@ -177,6 +177,58 @@ async function walkTill(keys, there, maxMs) {
   await say(';view first');
   await say(';clear');
 
+  // ---------------------------------------------------- hiding
+  console.log('\n--- being part of the wall ---');
+  await say(';clear');
+  await say(';mode walk');
+  await say(';put 0 0.2 0');            // middle of the room, nothing near
+  await wait(200);
+  const nowhere = await admin(';hide on');
+  check('out in the open there is nothing to hide against', nowhere === false);
+
+  /* Back to the left-hand wall, which is at x -35. */
+  await say(';put -34.3 0.2 0');
+  await say(';look 1.5708 0');
+  const pressed = await say(';hide on');
+  check('with your back to a wall you start melting into it (' + pressed + ')',
+        /settling/.test(pressed));
+  await wait(900);
+  const melted = await say(';hide');       // asking, not pressing again
+  check('and half a second later you have gone (' + melted + ')', /gone/.test(melted));
+
+  const blended = await say(';blended');
+  check('every last bit of you is the wall colour, not a near miss (' +
+        blended + ')', /^0 of \d+ bits/.test(blended));
+
+  /* The colour is the WALL'S OWN material, so it cannot be a shade out
+     however the lights change. */
+  const sameStuff = await page.evaluate(() =>
+    !!hideWall && myBody.skins.every(m => m.material === hideWall.look));
+  check('   ... because it is the wall\'s own paint, not a copy of it', sameStuff);
+
+  console.log('\n--- and moving gives you away ---');
+  await hold(['KeyW'], 300);
+  await wait(200);
+  const spotted = await say(';hide');
+  check('one step and you are out in the open again (' + spotted + ')',
+        /Out in the open/.test(spotted));
+  const ownAgain = await page.evaluate(() =>
+    myBody.skins.every((m, i) => m.material === myBody.colours[i]));
+  check('   ... and you have your own colours back', ownAgain);
+
+  await say(';put -34.3 0.2 0');
+  await say(';hide on');
+  await wait(800);
+  await say(';mode build');
+  await wait(200);
+  const floated = await page.evaluate(() => ({
+    gone: hidden, wall: !!hideWall,
+    own: myBody.skins.every((m, i) => m.material === myBody.colours[i])
+  }));
+  check('you cannot hide while floating about building',
+        !floated.gone && !floated.wall && floated.own);
+  await say(';mode walk');
+
   // ---------------------------------------------------- portals
   console.log('\n--- portals are really windows, and you go through them ---');
   await say(';clear');
@@ -535,7 +587,7 @@ async function walkTill(keys, there, maxMs) {
      and there is nowhere for that to hide. */
   const layoutTrouble = pg => pg.evaluate(() => {
     const ids = ['tools', 'swap', 'modepill', 'countpill', 'helppill', 'home',
-                 'stick-move', 'btn-up', 'btn-down', 'btn-view'];
+                 'stick-move', 'btn-up', 'btn-down', 'btn-view', 'btn-hide'];
     const out = [], boxes = [];
     for (const id of ids) {
       const e = document.getElementById(id);

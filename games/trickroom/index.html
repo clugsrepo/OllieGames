@@ -177,6 +177,8 @@
   #btn-down { bottom: max(24px, calc(env(safe-area-inset-bottom) + 18px)); }
   /* Walking, the down button goes away and this takes its place. */
   #btn-view { bottom: max(24px, calc(env(safe-area-inset-bottom) + 18px)); }
+  #btn-hide { bottom: max(184px, calc(env(safe-area-inset-bottom) + 178px)); }
+  .trim.on { background: rgba(255,217,61,0.45); border-color: #ffd93d; }
   .trim:active { transform: scale(0.93); }
 
   .panel {
@@ -252,6 +254,7 @@
   <button class="trim" id="btn-up">⬆</button>
   <button class="trim" id="btn-down">⬇</button>
   <button class="trim" id="btn-view" hidden>👁</button>
+  <button class="trim" id="btn-hide" hidden>🧱</button>
 </div>
 
 <div class="panel" id="start">
@@ -335,12 +338,17 @@ const SOLIDS = [];
    something you can shoot a portal at and walk straight through. */
 const SHOOTABLE = [];
 
-function solidBox(cx, cy, cz, w, h, d) {
+function solidBox(cx, cy, cz, w, h, d, look) {
   const box = {
     minX: cx - w / 2, maxX: cx + w / 2,
     minY: cy,         maxY: cy + h,
     minZ: cz - d / 2, maxZ: cz + d / 2,
-    off: false
+    off: false,
+    /* What this thing LOOKS like - the actual material the wall is
+       painted with, not a copy of its colour. Somebody hiding against it
+       wears this exact material, so they are lit by the same lights in
+       the same way and cannot be a slightly wrong shade. */
+    look: look || null
   };
   SOLIDS.push(box);
   return box;
@@ -382,7 +390,9 @@ function block(cx, cy, cz, w, h, d, color, solid) {
   mesh.position.set(cx, cy + h / 2, cz);
   scene.add(mesh);
   SHOOTABLE.push(mesh);
-  return solid === false ? { mesh } : { mesh, box: solidBox(cx, cy, cz, w, h, d) };
+  return solid === false
+    ? { mesh }
+    : { mesh, box: solidBox(cx, cy, cz, w, h, d, mesh.material) };
 }
 
 /* ---------------------------------------------------------------------
@@ -1137,7 +1147,7 @@ function addShed() {
     group.add(mesh);
     SHOOTABLE.push(mesh);
     meshes.push(mesh);
-    boxes.push(solidBox(cx, cy, cz, w, h, d));
+    boxes.push(solidBox(cx, cy, cz, w, h, d, mesh.material));
   };
 
   // ---- the little shed ----
@@ -1637,6 +1647,29 @@ function standPerson(who, pos, yaw) {
   who.group.rotation.y = yaw + Math.PI;
 }
 
+/* ---- BEING PART OF THE WALL ----
+
+   Put your back to a wall, hold still, and press C. You take the wall's
+   own material - not a colour that looks like it, the very same
+   material - so the same lights fall on you in the same way and you
+   cannot come out a slightly wrong shade of blue.
+
+   What gives you away is SHAPE, not colour. A wall is flat and a person
+   is not, so the light falls differently across a rounded head than
+   across the bricks behind it, and from a couple of paces off anybody
+   looking straight at you will see a person-shaped smudge. From across
+   the room they will walk right past. That is the whole trick, and it
+   is the honest version of it: there is no distance at which you are
+   genuinely invisible, only a distance at which nobody notices.
+
+   You also have to stand still. Move and it drops at once - which is
+   true of hiding generally, and makes it a game rather than a button. */
+function dressPerson(who, wall) {
+  for (let i = 0; i < who.skins.length; i++) {
+    who.skins[i].material = wall || who.colours[i];
+  }
+}
+
 /* Swing the arms and legs. The faster they go, the longer the stride. */
 function walkPerson(who, speed, dt) {
   who.walkPhase += speed * dt * 2.6;
@@ -1663,6 +1696,77 @@ const myBody = makePerson(mySeat);
    with your back to a wall would put it inside the bricks and show you
    the inside of the world.
    --------------------------------------------------------------------- */
+/* ---- the wall you are flat against ---- */
+const HIDE_REACH = 0.9;        // how close to a wall you have to be
+const HIDE_SETTLE = 0.45;      // how long it takes to melt into it
+const HIDE_STILL = 0.4;        // move faster than this and you're seen
+
+let hideWall = null;           // the box we are pressed against
+let hideFor = 0;               // how long we have been settling
+let hidden = false;            // and whether we have actually gone
+
+/* The nearest wall face you could put your back to. Four directions,
+   because everything solid in here is a box lined up with the room. */
+function nearestWall(p) {
+  let best = null;
+  const look = (axis, sign) => {
+    const A = axis === "x" ? "X" : "Z", O = axis === "x" ? "Z" : "X";
+    const other = axis === "x" ? "z" : "x";
+    for (const b of SOLIDS) {
+      if (b.off || !b.look) continue;
+      if (p.y < b.minY || p.y > b.maxY) continue;
+      if (p[other] < b["min" + O] || p[other] > b["max" + O]) continue;
+      const d = sign > 0 ? b["min" + A] - p[axis] : p[axis] - b["max" + A];
+      if (d >= 0 && (!best || d < best.gap)) best = { gap: d, box: b };
+    }
+  };
+  look("x", 1); look("x", -1); look("z", 1); look("z", -1);
+  return best;
+}
+
+function stopHiding(why) {
+  if (!hideWall && !hideFor) return;
+  const wasGone = hidden;
+  hideWall = null; hideFor = 0; hidden = false;
+  dressPerson(myBody, null);
+  el("btn-hide").classList.remove("on");
+  if (wasGone && why) say(why, 1.2);
+}
+
+function tryHiding() {
+  if (hideWall) { stopHiding("There you are again."); return; }
+  if (building) { say("Only down on the floor.", 1.2); return; }
+  const wall = nearestWall({ x: me.pos.x, y: me.pos.y + 1, z: me.pos.z });
+  if (!wall || wall.gap > HIDE_REACH) {
+    say("Get your back against something first.", 1.6);
+    return;
+  }
+  hideWall = wall.box;
+  hideFor = 0;
+  el("btn-hide").classList.add("on");
+  say("Hold still...", 1);
+}
+
+/* Called every step while walking. Settling takes half a second of
+   standing still; moving at any point drops it. */
+function stepHiding(dt, moving) {
+  if (!hideWall) return;
+  if (moving || building) { stopHiding("They saw you move."); return; }
+
+  const wall = nearestWall({ x: me.pos.x, y: me.pos.y + 1, z: me.pos.z });
+  if (!wall || wall.box !== hideWall || wall.gap > HIDE_REACH + 0.3) {
+    stopHiding("You came away from the wall.");
+    return;
+  }
+
+  hideFor += dt;
+  if (!hidden && hideFor >= HIDE_SETTLE) {
+    hidden = true;
+    dressPerson(myBody, hideWall.look);
+    say("Gone. Don't move.", 1.6);
+  }
+}
+
 const THIRD_BACK = 3.6;
 let thirdPerson = false;
 let saidAboutEyes = false;
@@ -1799,6 +1903,20 @@ function step(dt) {
     _aim.set(fx * -input.z + rx * input.x, 0, fz * -input.z + rz * input.x);
     if (_aim.lengthSq() > 1) _aim.normalize();
 
+    /* Pressed flat against a wall, you do not move at all - not even a
+       shuffle. Without this you slowly swim backwards into the bricks
+       and out through the other side of the room, still wearing the
+       wall's colours. Looking round is still allowed; it is only your
+       feet that are committed. */
+    stepHiding(dt, _aim.lengthSq() > 0.01 || keys.Space || touchUp);
+    if (hideWall) {
+      me.vel.set(0, 0, 0);
+      if (sayFor > 0) { sayFor -= dt; if (sayFor <= 0) msgEl.classList.remove("show"); }
+      standPerson(myBody, me.pos, me.yaw);
+      walkPerson(myBody, 0, dt);
+      return;
+    }
+
     const push = WALK_SPEED * 36 * dt;
     me.vel.x += _aim.x * push;
     me.vel.z += _aim.z * push;
@@ -1892,6 +2010,7 @@ function say(text, seconds) {
 }
 
 function setMode(wantBuilding) {
+  if (wantBuilding) stopHiding(null);     // you cannot hide while floating
   building = wantBuilding;
   el("modename").textContent = building ? "BUILDING" : "WALKING";
   /* On a computer the mouse is captured so you can look round freely,
@@ -1905,6 +2024,7 @@ function setMode(wantBuilding) {
   el("btn-up").hidden = false;
   el("btn-down").hidden = !building;
   el("btn-view").hidden = building;
+  el("btn-hide").hidden = building;
   el("tools").hidden = !building;
   refreshTricks();
 
@@ -1934,6 +2054,7 @@ addEventListener("keydown", e => {
   if (/^Digit[1-7]$/.test(e.code) && playing) pickTool(Number(e.code.slice(5)) - 1);
   if (e.code === "KeyF" && playing) useTool();
   if (e.code === "KeyV" && playing && !building) setView(!thirdPerson);
+  if (e.code === "KeyC" && playing) tryHiding();
   if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].indexOf(e.code) >= 0) {
     e.preventDefault();
   }
@@ -2092,6 +2213,7 @@ el("tool-shed").addEventListener("click", () => {
 });
 el("tool-clear").addEventListener("click", () => { clearTricks(); say("All gone.", 1); });
 el("btn-view").addEventListener("click", () => { if (playing && !building) setView(!thirdPerson); });
+el("btn-hide").addEventListener("click", () => { if (playing) tryHiding(); });
 el("btn-play").addEventListener("click", startGame);
 el("swap").addEventListener("click", () => { if (playing) setMode(!building); });
 
@@ -2392,6 +2514,38 @@ const ADMIN_COMMANDS = [
       }
       return "Looking " + (thirdPerson ? "at yourself" : "through your own eyes") +
              ", camera " + backBy.toFixed(1) + "m back";
+    } },
+
+  { name: "hide", args: "[on/off]",
+    help: "Press yourself against the wall behind you",
+    state: () => hidden ? "gone" : hideWall ? "settling" : "no",
+    /* With nothing after it, it only SAYS. Asking a question should
+       never change the answer, and the first version of this toggled -
+       so a test that hid, waited, and then asked whether it had worked
+       un-hid him in the act of asking, and reported that it hadn't. */
+    run: words => {
+      const w = String(words[0] || "").toLowerCase();
+      if (w === "off") stopHiding(null);
+      else if (w === "on") {
+        if (hideWall) return "Already hiding";
+        tryHiding();
+        if (!hideWall) return { bad: "Nothing to hide against here" };
+      } else if (w) return { bad: "Say on or off, or nothing at all" };
+
+      if (!hideWall) return "Out in the open";
+      const near = nearestWall({ x: me.pos.x, y: me.pos.y + 1, z: me.pos.z });
+      return "Against a wall " + (near ? near.gap.toFixed(2) : "?") + "m behind, " +
+             (hidden ? "and gone" : "settling");
+    } },
+
+  { name: "blended", args: "",
+    help: "Am I the same colour as the wall I am against?",
+    run: () => {
+      if (!hidden) return "not hidden";
+      const wall = "#" + hideWall.look.color.getHexString();
+      const wrong = myBody.skins.filter(m => m.material !== hideWall.look).length;
+      return wrong + " of " + myBody.skins.length +
+             " bits of me are still my own colour, the wall is " + wall;
     } },
 
   { name: "where", args: "",
