@@ -758,6 +758,46 @@ function shootPortal(which) {
    --------------------------------------------------------------------- */
 const TRICKS = [];
 
+/* ---- whose trick is it, and what is it called? ----
+
+   Every trick carries two extra numbers: WHO made it and WHAT IT IS
+   CALLED. Nothing in the game uses them yet. They are here first,
+   on their own, because once friends can come into your room both
+   become load-bearing - a trick has to know who gets the point when it
+   catches somebody, and two computers have to be able to talk about the
+   same trick without either of them being in charge of handing out
+   names.
+
+   The name is the seat number of whoever made it, times a million, plus
+   six random digits. The seat number means two people can never collide;
+   the random part means a player who leaves and is replaced in the same
+   seat cannot collide with the tricks they left behind, which a simple
+   counter starting at nought would do on their very first go. */
+let mySeat = 0;               // which seat am I in? 0 until told otherwise
+
+let stamp = { by: 0, id: 0 };
+function nextStamp(by, id) {
+  stamp = {
+    by: by === undefined ? mySeat : by,
+    id: id === undefined
+      ? mySeat * 1000000 + Math.floor(Math.random() * 1000000)
+      : id
+  };
+  return stamp;
+}
+
+/* The one place a finished trick joins the room. Every add-something
+   function ends here, so this is the single spot that names it, counts
+   it, and writes it down - and later, the single spot that tells
+   everybody else about it. */
+function keepTrick(T) {
+  T.by = stamp.by;
+  T.id = stamp.id;
+  TRICKS.push(T);
+  refreshTricks();
+  return T;
+}
+
 const holeGeo = new THREE.CircleGeometry(1, 28);
 const holeMat = new THREE.MeshBasicMaterial({ color: 0x05060a });
 const markGeo = new THREE.SphereGeometry(0.22, 8, 6);
@@ -780,11 +820,8 @@ function addHole(point, real) {
   mark.position.set(point.x, 1.1, point.z);
   scene.add(mark);
 
-  const T = { kind: real ? "realhole" : "fakehole", real,
-              x: point.x, z: point.z, mesh: disc, mark };
-  TRICKS.push(T);
-  refreshTricks();
-  return T;
+  return keepTrick({ kind: real ? "realhole" : "fakehole", real,
+                     x: point.x, z: point.z, mesh: disc, mark });
 }
 
 /* Is the player standing over a hole they ought to fall down? */
@@ -811,9 +848,11 @@ function removeTrick(T) {
 }
 
 function clearTricks() {
+  hushed++;                       // not a word until the room is empty
   while (TRICKS.length) removeTrick(TRICKS[0]);
   for (const P of PORTALS) { P.placed = false; P.wall = null; P.group.visible = false; }
   refreshPortalFaces();
+  hushed--;
   refreshTricks();
 }
 
@@ -954,12 +993,9 @@ function addAnamorph(spot, facing) {
   scene.add(group);
 
   const foot = spotRing(spot.x, spot.z);
-  const T = { kind: "anamorph", x: spot.x, z: spot.z,
-              mesh: group, mark: foot, pieces: made,
-              eye: eye.clone(), facing: fwd.clone() };
-  TRICKS.push(T);
-  refreshTricks();
-  return T;
+  return keepTrick({ kind: "anamorph", x: spot.x, z: spot.z,
+                     mesh: group, mark: foot, pieces: made,
+                     eye: eye.clone(), facing: fwd.clone() });
 }
 
 /* ---------------------------------------------------------------------
@@ -1035,12 +1071,9 @@ function addPair(spot, facing) {
 
   scene.add(group);
   const foot = spotRing(spot.x, spot.z);
-  const T = { kind: "pair", x: spot.x, z: spot.z,
-              mesh: group, mark: foot, pieces: made,
-              eye: eye.clone(), facing: fwd.clone() };
-  TRICKS.push(T);
-  refreshTricks();
-  return T;
+  return keepTrick({ kind: "pair", x: spot.x, z: spot.z,
+                     mesh: group, mark: foot, pieces: made,
+                     eye: eye.clone(), facing: fwd.clone() });
 }
 
 
@@ -1155,9 +1188,7 @@ function addShed() {
       refreshPortalFaces();
     }
   };
-  TRICKS.push(T);
-  refreshTricks();
-  return T;
+  return keepTrick(T);
 }
 
 /* How much room is there where I am standing? Four rays, and the
@@ -1213,7 +1244,13 @@ let loadingRoom = false;
    cannot be loaded, whatever the notebook says. It is a list and not a
    lookup on purpose: ask a plain object about "constructor" and it
    hands you something, which is exactly the sort of surprise this is
-   meant not to have. */
+   meant not to have.
+
+   DO NOT REORDER THIS LIST. Once friends can join, a trick travels
+   between computers as its POSITION in here - "number 2" rather than
+   the word "anamorph", because only numbers are allowed to cross. Shuffle
+   these and every message in flight quietly starts meaning something
+   else. Add new kinds on the end. */
 const KEEPERS = [
   { kind: "fakehole", put: t => addHole(_v2.set(t.x, 0, t.z), false) },
   { kind: "realhole", put: t => addHole(_v2.set(t.x, 0, t.z), true) },
@@ -1228,8 +1265,42 @@ const keeperFor = kind =>
 
 const tidy = n => Math.round(n * 1000) / 1000;
 
+/* ---- THE ONE DOOR EVERY TRICK COMES THROUGH ----
+
+   The gun, the notebook, the admin panel - and, before long, a friend's
+   computer. All four ask for a trick the same way, and all four get the
+   same checking: is this a kind we have actually heard of; is there
+   already one of the sort there can only be one of; is it somewhere
+   inside the room; have we got this exact one already.
+
+   The point of one door is that the suspicion we wrote for the notebook
+   - walk OUR list, ask about THEIR word, never take their word for what
+   to build - is the same suspicion a message off the internet needs. One
+   door, one set of checks, one thing to get right. */
+function spawnTrick(note, by, id) {
+  if (!note || typeof note !== "object") return null;
+
+  const k = keeperFor(note.kind);                 // our list, their word
+  if (!k) return null;                            // never heard of it
+  if (k.only && TRICKS.some(T => T.kind === k.kind)) return null;
+  if (id !== undefined && TRICKS.some(T => T.id === id)) return null;   // got it
+
+  const x = Number(note.x), z = Number(note.z);
+  if (!inTheRoom(x, 0, z)) return null;
+  const yaw = Number(note.yaw);
+
+  nextStamp(by, id);
+  return k.put({ x, z, yaw: isFinite(yaw) ? yaw : 0 }) || null;
+}
+
+/* While this is above nought, nothing gets written down. Emptying a room
+   of two hundred tricks used to write the notebook out two hundred
+   times, once per trick removed, each one a little shorter than the
+   last. */
+let hushed = 0;
+
 function saveRoom() {
-  if (loadingRoom) return;
+  if (loadingRoom || hushed) return;
   const tricks = [];
   for (const T of TRICKS) {
     const k = keeperFor(T.kind);
@@ -1271,17 +1342,7 @@ function loadRoom() {
   loadingRoom = true;
   const notes = Array.isArray(saved.tricks) ? saved.tricks : [];
   for (let i = 0; i < notes.length && i < SAVE_MAX; i++) {
-    const note = notes[i];
-    if (!note || typeof note !== "object") continue;
-
-    const k = keeperFor(note.kind);               // our list, their word
-    if (!k) continue;                             // never heard of it, move on
-    if (k.only && TRICKS.some(T => T.kind === k.kind)) continue;
-
-    const x = Number(note.x), z = Number(note.z);
-    if (!inTheRoom(x, 0, z)) continue;
-    const yaw = Number(note.yaw);
-    k.put({ x, z, yaw: isFinite(yaw) ? yaw : 0 });
+    spawnTrick(notes[i]);        // every check lives behind that one door
   }
 
   const kept = Array.isArray(saved.portals) ? saved.portals : [];
@@ -1338,21 +1399,14 @@ function useTool() {
     return;
   }
 
-  if (kind === "anamorph") {
-    /* It gets built for the spot you are STANDING on and the way you are
-       LOOKING, not for wherever you happen to be pointing. The whole
+  if (kind === "anamorph" || kind === "pair") {
+    /* These get built for the spot you are STANDING on and the way you
+       are LOOKING, not for wherever you happen to be pointing. The whole
        thing only works from one pair of eyes, so it may as well be
        yours. */
-    _dir.set(-Math.sin(me.yaw), 0, -Math.cos(me.yaw));
-    addAnamorph({ x: me.pos.x, z: me.pos.z }, _dir);
-    say("Stand on the green ring and look this way.", 2.2);
-    return;
-  }
-
-  if (kind === "pair") {
-    _dir.set(-Math.sin(me.yaw), 0, -Math.cos(me.yaw));
-    addPair({ x: me.pos.x, z: me.pos.z }, _dir);
-    say("Twins. Now go and look at them from the side.", 2.2);
+    spawnTrick({ kind, x: me.pos.x, z: me.pos.z, yaw: me.yaw });
+    say(kind === "anamorph" ? "Stand on the green ring and look this way."
+                            : "Twins. Now go and look at them from the side.", 2.2);
     return;
   }
 
@@ -1365,7 +1419,7 @@ function useTool() {
 
   // the holes only make sense lying on the floor
   if (hit.point.y > 0.6) { say("Holes go on the floor.", 1); return; }
-  addHole(hit.point, kind === "realhole");
+  spawnTrick({ kind, x: hit.point.x, z: hit.point.z });
   say(kind === "realhole" ? "A real one." : "Just paint.", 0.9);
 }
 
@@ -1749,7 +1803,7 @@ for (let i = 0; i < TOOLS.length; i++) {
 }
 el("tool-shed").addEventListener("click", () => {
   if (TRICKS.some(t => t.kind === "shed")) { say("There is one already.", 1.2); return; }
-  addShed();
+  spawnTrick({ kind: "shed", x: SHED.x, z: SHED.z });
   say("A shed, and a hall right across the room.\nWalk in the shed door.", 2.6);
 });
 el("tool-clear").addEventListener("click", () => { clearTricks(); say("All gone.", 1); });
@@ -1757,12 +1811,18 @@ el("btn-play").addEventListener("click", startGame);
 el("swap").addEventListener("click", () => { if (playing) setMode(!building); });
 
 let last = performance.now();
+/* Seconds since the game started. Nothing needs it yet; once friends
+   turn up, their bodies are drawn a fifth of a second in the past and
+   glided between the last two places they said they were, and that
+   needs a clock that only ever goes forwards. */
+let clock = 0;
 function frame(now) {
   /* A safety catch on the clock: if the browser gets busy and a frame
      takes half a second, pretend it took a twentieth. Otherwise one
      stutter moves you so far in a single go that you go through a wall. */
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
+  clock += dt;
   step(dt);
   draw();
   requestAnimationFrame(frame);
@@ -1837,15 +1897,21 @@ const ADMIN_COMMANDS = [
       if (kind !== "real" && kind !== "fake") return { bad: "Say real or fake" };
       const x = Number(words[1]), z = Number(words[2]);
       if (!isFinite(x) || !isFinite(z)) return { bad: "Needs an x and a z" };
-      addHole(new THREE.Vector3(x, 0, z), kind === "real");
+      spawnTrick({ kind: kind === "real" ? "realhole" : "fakehole", x, z });
       return "A " + kind + " one at " + x + "," + z;
     } },
 
   { name: "tricks", args: "",
     help: "List everything in the room",
     state: () => String(TRICKS.length),
+    /* Whose it is only gets said when it ISN'T yours - on your own, every
+       trick in the room is yours and saying so forty times is noise. The
+       name a trick goes by is deliberately not shown: it is six random
+       digits meant for two computers to agree on, it means nothing to a
+       person, and it is different every time the room is loaded. */
     run: () => TRICKS.length
-      ? TRICKS.map(T => T.kind + " " + T.x.toFixed(1) + "," + T.z.toFixed(1)).join(" · ")
+      ? TRICKS.map(T => T.kind + " " + T.x.toFixed(1) + "," + T.z.toFixed(1) +
+                        (T.by === mySeat ? "" : " (seat " + T.by + ")")).join(" · ")
       : "nothing in here yet" },
 
   { name: "clear", args: "",
@@ -1868,8 +1934,7 @@ const ADMIN_COMMANDS = [
         x = Number(words[0]); z = Number(words[1]); yaw = Number(words[2]);
         if (!isFinite(x) || !isFinite(z) || !isFinite(yaw)) return { bad: "Needs x z yaw" };
       }
-      _dir.set(-Math.sin(yaw), 0, -Math.cos(yaw));
-      addAnamorph({ x, z }, _dir);
+      spawnTrick({ kind: "anamorph", x, z, yaw });
       me.pos.set(x, 0.2, z);
       me.yaw = yaw; me.pitch = 0;
       return "door for the spot " + x.toFixed(1) + "," + z.toFixed(1);
@@ -1908,8 +1973,8 @@ const ADMIN_COMMANDS = [
         x = Number(words[0]); z = Number(words[1]); yaw = Number(words[2]);
         if (!isFinite(x) || !isFinite(z) || !isFinite(yaw)) return { bad: "Needs x z yaw" };
       }
-      _dir.set(-Math.sin(yaw), 0, -Math.cos(yaw));
-      const T = addPair({ x, z }, _dir);
+      const T = spawnTrick({ kind: "pair", x, z, yaw });
+      if (!T) return { bad: "Could not build it there" };
       me.pos.set(x, 0.2, z);
       me.yaw = yaw; me.pitch = 0;
       return "twins " + T.pieces.map(c => c.scale.x.toFixed(2) + "m at " +
@@ -1951,7 +2016,7 @@ const ADMIN_COMMANDS = [
     help: "Build the shed that is bigger inside than outside",
     run: () => {
       if (TRICKS.some(t => t.kind === "shed")) return { bad: "There is one already" };
-      addShed();
+      spawnTrick({ kind: "shed", x: SHED.x, z: SHED.z });
       return "shed " + SHED.w.toFixed(1) + " x " + SHED.d.toFixed(1) +
              " outside, hall " + HALL.w.toFixed(1) + " x " + HALL.d.toFixed(1) +
              " inside, doorway at 0," + (SHED.z + SHED.d / 2).toFixed(1);
