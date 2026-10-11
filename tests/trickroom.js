@@ -109,6 +109,74 @@ async function walkTill(keys, there, maxMs) {
   const p2 = await at();
   check('and looking left then walking takes you left (x ' + p2.x + ')', p2.x < -1);
 
+  // ---------------------------------------------------- a body
+  console.log('\n--- there is somebody there now ---');
+  await say(';mode walk');
+  await say(';put 0 0.2 10');
+  await say(';look 0 0');
+  await say(';view first');
+  await wait(200);
+  const unseen = await page.evaluate(() => myBody.group.visible);
+  check('through your own eyes you cannot see your own body', unseen === false);
+
+  await say(';view third');
+  await wait(300);
+  const third = await say(';view');        // asked AFTER a frame has drawn
+  check('press V and there you are (' + third + ')', /at yourself/.test(third));
+  check('   ... and the camera really has moved back (' +
+        num(third)[0] + 'm)', num(third)[0] > 3);
+  check('   ... and now you can see yourself',
+        (await page.evaluate(() => myBody.group.visible)) === true);
+
+  /* Backed up against a wall the camera has to stop short, or it ends up
+     inside the bricks showing you the inside of the world. */
+  await say(';put 0 0.2 33');          // front wall is at z 35
+  await say(';look 0 0');              // facing the room, back to the wall
+  await wait(350);
+  const squashed = num(await say(';view'))[0];
+  check('with your back to a wall the camera stops short of it (' +
+        squashed + 'm, not 3.6)', squashed < 2.6);
+
+  await say(';view first');
+  await wait(150);
+
+  console.log('\n--- but the tricks still belong to your own eyes ---');
+  await say(';clear');
+  await say(';door 0 22 0');
+  await wait(200);
+  const ownEyes = await say(';lineup');
+  check('from your own eyes the pieces sit right on the door (' +
+        num(ownEyes)[3] + ' off)', /your own eyes/.test(ownEyes) && num(ownEyes)[3] < 0.01);
+  await say(';view third');
+  await wait(350);
+  const fromBehind = await say(';lineup');
+  /* Straight backwards is the KINDEST way to move away from this trick:
+     every piece stays roughly on the ray it was put on, just further
+     off. So the door only drifts a little - and the box it fits in
+     actually gets SMALLER, which is how the first version of this check
+     managed to call a broken door a fixed one. */
+  check('from behind your head the door has drifted off its outline (' +
+        num(fromBehind)[3] + ' off, was ' + num(ownEyes)[3] + ')',
+        /behind you/.test(fromBehind) && num(fromBehind)[3] > 0.02);
+  await say(';view first');
+
+  /* The twin boxes are a different story, and this is the one that
+     earns third person its warning. They are built out of DISTANCES -
+     one box near and small, one far and huge, arranged to look the same
+     - and backing the camera up changes every distance in the sum. */
+  await say(';clear');
+  await say(';pair 0 22 0');
+  await wait(250);
+  const twinsEye = num(await say(';twins'))[4];
+  await say(';view third');
+  await wait(350);
+  const twinsBack = num(await say(';twins'))[4];
+  check('and the twin boxes stop matching altogether from back there (' +
+        twinsBack + ' times as big, was ' + twinsEye + ')',
+        Math.abs(twinsEye - 1) < 0.06 && Math.abs(twinsBack - 1) > 0.15);
+  await say(';view first');
+  await say(';clear');
+
   // ---------------------------------------------------- portals
   console.log('\n--- portals are really windows, and you go through them ---');
   await say(';clear');
@@ -241,16 +309,19 @@ async function walkTill(keys, there, maxMs) {
   check('from the magic spot all 24 pieces land in a door-shaped box (' +
         onSpot[1] + ' x ' + onSpot[2] + ')',
         onSpot[0] === 24 && onSpot[1] < 0.5 && onSpot[2] > onSpot[1]);
+  check('   ... sitting right on the door they make (' + onSpot[3] + ' off)',
+        onSpot[3] < 0.01);
 
   await say(';put 3 0.2 22');
   const threeRight = num(await say(';lineup'));
   check('three steps right and it falls to bits (' + threeRight[1] + ' wide, was ' +
-        onSpot[1] + ')', threeRight[1] > onSpot[1] * 2);
+        onSpot[1] + '; ' + threeRight[3] + ' off the door)',
+        threeRight[1] > onSpot[1] * 2 && threeRight[3] > 0.1);
 
   await say(';put -6 0.2 22');
   const sixLeft = num(await say(';lineup'));
-  check('six steps left and it is confetti (' + sixLeft[1] + ' wide)',
-        sixLeft[1] > onSpot[1] * 3);
+  check('six steps left and it is confetti (' + sixLeft[1] + ' wide, ' +
+        sixLeft[3] + ' off)', sixLeft[1] > onSpot[1] * 3 && sixLeft[3] > 0.2);
 
   // ---------------------------------------------------- the twins
   console.log('\n--- two boxes the same size, one of them enormous ---');
@@ -428,7 +499,7 @@ async function walkTill(keys, there, maxMs) {
      and there is nowhere for that to hide. */
   const layoutTrouble = pg => pg.evaluate(() => {
     const ids = ['tools', 'swap', 'modepill', 'countpill', 'helppill', 'home',
-                 'stick-move', 'btn-up', 'btn-down'];
+                 'stick-move', 'btn-up', 'btn-down', 'btn-view'];
     const out = [], boxes = [];
     for (const id of ids) {
       const e = document.getElementById(id);

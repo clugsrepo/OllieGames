@@ -175,6 +175,8 @@
   }
   #btn-up { bottom: max(104px, calc(env(safe-area-inset-bottom) + 98px)); }
   #btn-down { bottom: max(24px, calc(env(safe-area-inset-bottom) + 18px)); }
+  /* Walking, the down button goes away and this takes its place. */
+  #btn-view { bottom: max(24px, calc(env(safe-area-inset-bottom) + 18px)); }
   .trim:active { transform: scale(0.93); }
 
   .panel {
@@ -249,6 +251,7 @@
   <div id="stick-move"><div class="knob" id="knob"></div></div>
   <button class="trim" id="btn-up">⬆</button>
   <button class="trim" id="btn-down">⬇</button>
+  <button class="trim" id="btn-view" hidden>👁</button>
 </div>
 
 <div class="panel" id="start">
@@ -665,6 +668,12 @@ function drawPortals() {
     const wasP = P.group.visible, wasO = other.group.visible;
     P.group.visible = false;
     other.group.visible = false;
+    /* A portal is a hole, and a hole shows what is really there - so you
+       can stand in front of one and see the back of your own head, even
+       in first person where your body is otherwise invisible to you.
+       Floating about building, you are a pair of eyes and nothing else,
+       so there is nothing to show. */
+    myBody.group.visible = !building;
     renderer.setRenderTarget(P.target);
     renderer.clear();
     renderer.render(scene, portalCam);
@@ -1453,6 +1462,235 @@ let building = true;       // which way of looking we're using
 let playing = false;
 
 /* ---------------------------------------------------------------------
+   A PERSON TO LOOK AT
+
+   Until now there was nobody in this game. You were a pair of eyes and
+   nothing else - which is fine while you are alone and looking out, and
+   no use at all the moment you want to watch yourself hide in a wall, or
+   see a friend across the room.
+
+   The person is lifted from Star Arena, which already has one with arms
+   and legs that swing (games/arena/index.html, buildCharacter). It is
+   trimmed down here - no hats, no faces, no wings - and it reads the
+   same saved look out of the same place, so the character Ollie made in
+   Star Arena is the one that turns up in here.
+
+   It is copied rather than shared. A shared/character.js that both games
+   used would be better, but that means editing Star Arena, which has no
+   tests of its own yet. Worth doing - after Arena has a test to prove it
+   still works, not before.
+
+   WHAT COLOUR IS WHO. Names can never travel between computers in this
+   game: the room server only passes numbers, on purpose, so that no
+   words can ever go from one child to another. That makes the shirt the
+   only way to tell people apart, so the shirt is always the seat
+   colour - yours too. The rest of you is still your own.
+   --------------------------------------------------------------------- */
+const SEAT_COLOURS = [0x6bcbff, 0xff6b6b, 0x4ade80, 0xffd93d];
+
+/* Only colours actually in these lists are accepted out of the saved
+   look. It is a file on a computer and files get fiddled with - the same
+   rule the notebook uses, for the same reason. */
+const LOOK_PALETTES = {
+  skin:     [0xffd1a3, 0xf0c8a0, 0xd9a066, 0xa9713e, 0x7a4b24, 0xb8c4d4],
+  hair:     [0x3a2a1c, 0x1a1a1a, 0xc9a227, 0xa03c1e, 0xffffff, 0x6bcbff],
+  trousers: [0x2f3350, 0x3b5bdb, 0x1e2033, 0x6b4a2f, 0x4a4e55, 0x7a2f4a]
+};
+const PLAIN_LOOK = { skin: 0xf0c8a0, hair: 0x3a2a1c, trousers: 0x2f3350 };
+
+function savedLook() {
+  const out = Object.assign({}, PLAIN_LOOK);
+  let raw = null;
+  try { raw = JSON.parse(localStorage.getItem("ollie-star-arena-look")); }
+  catch (e) { return out; }
+  if (!raw || typeof raw !== "object") return out;
+  for (const part of Object.keys(LOOK_PALETTES)) {
+    const value = Number(raw[part]);
+    if (LOOK_PALETTES[part].indexOf(value) >= 0) out[part] = value;
+  }
+  return out;
+}
+
+/* An arm or a leg, hung inside an empty group that sits AT the joint, so
+   turning the group swings the limb from the shoulder or the hip rather
+   than spinning it about its middle. */
+function makeLimb(length, width, colour, endColour, endSize) {
+  const pivot = new THREE.Group();
+  const limb = new THREE.Mesh(BOX, mat(colour));
+  limb.scale.set(width, length, width);
+  limb.position.y = -length / 2;
+  pivot.add(limb);
+  const end = new THREE.Mesh(BOX, mat(endColour));
+  end.scale.set(endSize, endSize * 0.7, endSize * 1.3);
+  end.position.set(0, -length - endSize * 0.25, endSize * 0.15);
+  pivot.add(end);
+  return pivot;
+}
+
+function makePerson(seat) {
+  const look = savedLook();
+  const shirt = SEAT_COLOURS[seat % SEAT_COLOURS.length];
+  const skin = look.skin, trousers = look.trousers, shoes = 0x1e2033;
+
+  const group = new THREE.Group();
+  const parts = {};
+  const skins = [];        // everything that has to turn wall-coloured later
+
+  const add = (mesh) => { group.add(mesh); skins.push(mesh); return mesh; };
+
+  const torso = new THREE.Mesh(BOX, mat(shirt));
+  torso.scale.set(0.58, 0.72, 0.34);
+  torso.position.y = 1.16;
+  add(torso);
+
+  const hips = new THREE.Mesh(BOX, mat(trousers));
+  hips.scale.set(0.54, 0.22, 0.32);
+  hips.position.y = 0.72;
+  add(hips);
+
+  const neck = new THREE.Mesh(BOX, mat(skin));
+  neck.scale.set(0.2, 0.12, 0.2);
+  neck.position.y = 1.57;
+  add(neck);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 10), mat(skin));
+  head.scale.set(1, 1.1, 0.94);
+  head.position.y = 1.83;
+  add(head);
+
+  const hair = new THREE.Mesh(
+    new THREE.SphereGeometry(0.26, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62),
+    mat(look.hair));
+  hair.scale.set(1, 1.05, 0.96);
+  hair.position.y = 1.85;
+  add(hair);
+
+  // eyes, so you can tell which way somebody is looking
+  for (const side of [-0.09, 0.09]) {
+    const white = new THREE.Mesh(BOX, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    white.scale.set(0.08, 0.08, 0.04);
+    white.position.set(side, 1.86, 0.21);
+    add(white);
+    const pupil = new THREE.Mesh(BOX, new THREE.MeshBasicMaterial({ color: 0x1a1a2e }));
+    pupil.scale.set(0.04, 0.05, 0.04);
+    pupil.position.set(side, 1.86, 0.235);
+    add(pupil);
+  }
+
+  parts.armL = makeLimb(0.56, 0.15, shirt, skin, 0.13);
+  parts.armL.position.set(-0.36, 1.44, 0);
+  parts.armR = makeLimb(0.56, 0.15, shirt, skin, 0.13);
+  parts.armR.position.set(0.36, 1.44, 0);
+  parts.legL = makeLimb(0.6, 0.19, trousers, shoes, 0.17);
+  parts.legL.position.set(-0.15, 0.66, 0);
+  parts.legR = makeLimb(0.6, 0.19, trousers, shoes, 0.17);
+  parts.legR.position.set(0.15, 0.66, 0);
+  for (const key of ["armL", "armR", "legL", "legR"]) {
+    group.add(parts[key]);
+    parts[key].traverse(bit => { if (bit.isMesh) skins.push(bit); });
+  }
+
+  /* Arena's person is built around eyes at 1.86; ours go at EYE. One
+     scale rather than twenty edited numbers, and it stays obvious where
+     the shape came from. */
+  group.scale.setScalar(EYE / 1.86);
+  group.visible = false;
+  scene.add(group);
+
+  return { group, parts, skins, seat, walkPhase: 0,
+           colours: skins.map(m => m.material) };
+}
+
+/* Stand somebody somewhere, facing the way they are going.
+
+   The HALF TURN is not a fudge. Arena's person is built looking down
+   PLUS z - that is where the eyes and the toes point - while a camera
+   with no rotation looks down MINUS z, which is the direction this whole
+   game calls "forwards". Without the half turn you walk about back to
+   front, and the giveaway is subtle enough to miss: you see the back of
+   a head that is looking straight at you. */
+function standPerson(who, pos, yaw) {
+  who.group.position.copy(pos);
+  who.group.rotation.y = yaw + Math.PI;
+}
+
+/* Swing the arms and legs. The faster they go, the longer the stride. */
+function walkPerson(who, speed, dt) {
+  who.walkPhase += speed * dt * 2.6;
+  const swing = Math.sin(who.walkPhase) * Math.min(0.85, speed * 0.26);
+  who.parts.legL.rotation.x = swing;
+  who.parts.legR.rotation.x = -swing;
+  who.parts.armL.rotation.x = -swing * 0.75;
+  who.parts.armR.rotation.x = swing * 0.75;
+}
+
+const myBody = makePerson(mySeat);
+
+/* ---------------------------------------------------------------------
+   THE TWO PAIRS OF EYES
+
+   First person is your own eyes, and it is where every trick in this
+   room works, because every trick in this room was lined up for
+   somebody's eyes. Third person floats the camera back behind your
+   head so you can watch yourself - which is the only way to see
+   yourself hide in a wall, and much the nicest way to look at your own
+   character.
+
+   The camera stops short of anything solid on the way back, or standing
+   with your back to a wall would put it inside the bricks and show you
+   the inside of the world.
+   --------------------------------------------------------------------- */
+const THIRD_BACK = 3.6;
+let thirdPerson = false;
+let saidAboutEyes = false;
+let backBy = 0;            // how far the camera actually got, this frame
+
+const _back = new THREE.Vector3();
+const _probe = new THREE.Vector3();
+
+function inSomethingSolid(p, pad) {
+  for (const b of SOLIDS) {
+    if (b.off) continue;
+    if (p.x > b.minX - pad && p.x < b.maxX + pad &&
+        p.y > b.minY - pad && p.y < b.maxY + pad &&
+        p.z > b.minZ - pad && p.z < b.maxZ + pad) return true;
+  }
+  return false;
+}
+
+/* How far back can the camera go before it is inside something? Walked
+   in twelve steps rather than solved properly: it only has to be close
+   enough that the camera never ends up on the wrong side of a wall, and
+   twelve steps over three and a half metres is every thirty
+   centimetres. */
+function howFarBack(from, dir, most) {
+  for (let i = 1; i <= 12; i++) {
+    const t = most * i / 12;
+    _probe.copy(from).addScaledVector(dir, t);
+    if (inSomethingSolid(_probe, 0.3)) return most * (i - 1) / 12;
+  }
+  return most;
+}
+
+function setView(wantThird) {
+  thirdPerson = wantThird;
+  el("btn-view").textContent = thirdPerson ? "🙂" : "👁";
+  if (thirdPerson && !saidAboutEyes) {
+    saidAboutEyes = true;
+    /* Careful what this claims. Backing straight out of your own head is
+       the KINDEST way to move away from a trick - everything stays
+       roughly on the ray it was put on, just further off - so the hidden
+       door barely minds. The twin boxes mind enormously, because they
+       are built out of DISTANCES and all the distances just changed.
+       Saying "the tricks stop working" would be a fib; saying whose eyes
+       they belong to is simply true. */
+    say("That's you.\nThe tricks are lined up for your own eyes, mind -\npress V again to be fooled properly.", 3.4);
+  } else {
+    say(thirdPerson ? "Looking at yourself." : "Back behind your own eyes.", 1.1);
+  }
+}
+
+/* ---------------------------------------------------------------------
    BUMPING INTO THINGS
 
    One axis at a time, and after each little move anything we have ended
@@ -1580,6 +1818,13 @@ function step(dt) {
     }
   }
 
+  /* Where you are stood, and which way round. Your body is here even in
+     first person - you just cannot see it from inside your own head.
+     Swung by how long the frame actually took, not by a made-up sixtieth
+     of a second, so the legs go at the same speed on every computer. */
+  standPerson(myBody, me.pos, me.yaw);
+  walkPerson(myBody, Math.hypot(me.vel.x, me.vel.z), dt);
+
   if (sayFor > 0) { sayFor -= dt; if (sayFor <= 0) msgEl.classList.remove("show"); }
 }
 
@@ -1591,8 +1836,22 @@ function draw() {
   camera.rotation.set(0, 0, 0);
   camera.rotateY(me.yaw);
   camera.rotateX(me.pitch);
+
+  if (thirdPerson && !building) {
+    /* Straight backwards out of your own eyes, pitch and all - look up
+       and the camera swings down, which is what you expect of a camera
+       following you about. */
+    const flat = Math.cos(me.pitch);
+    _back.set(Math.sin(me.yaw) * flat, -Math.sin(me.pitch), Math.cos(me.yaw) * flat);
+    backBy = howFarBack(camera.position, _back, THIRD_BACK);
+    camera.position.addScaledVector(_back, backBy);
+  } else {
+    backBy = 0;
+  }
   camera.updateMatrixWorld(true);     // the portal cameras are worked out from this
-  drawPortals();
+
+  drawPortals();                      // which shows your body to those cameras
+  myBody.group.visible = !building && thirdPerson;
   renderer.render(scene, camera);
 }
 
@@ -1622,6 +1881,7 @@ function setMode(wantBuilding) {
     : "Down on the floor at eye height. This is the only place the tricks work.";
   el("btn-up").hidden = false;
   el("btn-down").hidden = !building;
+  el("btn-view").hidden = building;
   el("tools").hidden = !building;
   refreshTricks();
 
@@ -1650,6 +1910,7 @@ addEventListener("keydown", e => {
   if (e.code === "Tab") { e.preventDefault(); if (playing) setMode(!building); }
   if (/^Digit[1-7]$/.test(e.code) && playing) pickTool(Number(e.code.slice(5)) - 1);
   if (e.code === "KeyF" && playing) useTool();
+  if (e.code === "KeyV" && playing && !building) setView(!thirdPerson);
   if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].indexOf(e.code) >= 0) {
     e.preventDefault();
   }
@@ -1807,6 +2068,7 @@ el("tool-shed").addEventListener("click", () => {
   say("A shed, and a hall right across the room.\nWalk in the shed door.", 2.6);
 });
 el("tool-clear").addEventListener("click", () => { clearTricks(); say("All gone.", 1); });
+el("btn-view").addEventListener("click", () => { if (playing && !building) setView(!thirdPerson); });
 el("btn-play").addEventListener("click", startGame);
 el("swap").addEventListener("click", () => { if (playing) setMode(!building); });
 
@@ -1951,18 +2213,49 @@ const ADMIN_COMMANDS = [
          the honest way to check it - a screenshot only tells you it
          looks about right. */
       camera.updateMatrixWorld(true);
-      let minX = 9, maxX = -9, minY = 9, maxY = -9, infront = 0;
-      for (const piece of T.pieces) {
-        const v = piece.position.clone().project(camera);
+
+      /* Where each piece OUGHT to be - the door it is pretending to make,
+         hung four metres in front of the magic spot. From the spot, each
+         piece and its own outline point are on the same ray, so they land
+         on exactly the same speck of screen and the gap is nought. From
+         anywhere else they come apart, and how far apart is the honest
+         measure of whether this is still a door.
+
+         Measuring the width of the box they fit in is NOT that measure,
+         which took a failing test to notice: step straight BACKWARDS and
+         the box gets smaller, because everything is further away, while
+         the shape inside it quietly falls to bits. */
+      const fwd = T.facing;
+      const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
+      const up = new THREE.Vector3(0, 1, 0);
+      const want = doorOutline(T.pieces.length);
+      const ideal = new THREE.Vector3();
+
+      let minX = 9, maxX = -9, minY = 9, maxY = -9, infront = 0, off = 0;
+      for (let i = 0; i < T.pieces.length; i++) {
+        const v = T.pieces[i].position.clone().project(camera);
         if (v.z > 1 || v.z < -1) continue;
         infront++;
         minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x);
         minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y);
+
+        ideal.copy(T.eye).addScaledVector(fwd, 4)
+             .addScaledVector(right, want[i][0])
+             .addScaledVector(up, want[i][1] - EYE)
+             .project(camera);
+        off += Math.hypot(v.x - ideal.x, v.y - ideal.y);
       }
       if (!infront) return "none of it is in front of you";
+      /* WHICH eyes, said out loud. This is built for your own, and from
+         a camera three metres behind your head it will not line up -
+         correctly, but a test that forgot which view it was in would
+         read that as the trick being broken. */
       return "all " + infront + " pieces fit in a box " +
              (maxX - minX).toFixed(3) + " wide and " +
-             (maxY - minY).toFixed(3) + " tall on the screen";
+             (maxY - minY).toFixed(3) + " tall on the screen, from " +
+             (thirdPerson && !building ? "behind you" : "your own eyes") +
+             ", sitting " + (off / infront).toFixed(3) +
+             " off the door they should make";
     } },
 
   { name: "pair", args: "[x z yaw]",
@@ -2009,7 +2302,8 @@ const ADMIN_COMMANDS = [
       return "near " + seen[0].wide.toFixed(3) + " wide at " + seen[0].where.toFixed(3) +
              " · far " + seen[1].wide.toFixed(3) + " wide at " + seen[1].where.toFixed(3) +
              " · same size to " + ratio.toFixed(2) + "x · " +
-             Math.abs(seen[0].where - seen[1].where).toFixed(3) + " apart";
+             Math.abs(seen[0].where - seen[1].where).toFixed(3) + " apart, from " +
+             (thirdPerson && !building ? "behind you" : "your own eyes");
     } },
 
   { name: "shed", args: "",
@@ -2051,6 +2345,23 @@ const ADMIN_COMMANDS = [
     run: () => {
       try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
       return "notebook thrown away - the room is still here until you reload";
+    } },
+
+  { name: "view", args: "[first/third]",
+    help: "Look through your own eyes, or at yourself",
+    state: () => thirdPerson ? "third" : "first",
+    run: words => {
+      const w = String(words[0] || "").toLowerCase();
+      /* With nothing after it, it just says how things are. That matters:
+         how far the camera got is worked out while DRAWING, so asking on
+         the very frame you switched would always answer nought. */
+      if (w) {
+        if (w !== "first" && w !== "third") return { bad: "Say first or third" };
+        if (building) return { bad: "Only while walking" };
+        setView(w === "third");
+      }
+      return "Looking " + (thirdPerson ? "at yourself" : "through your own eyes") +
+             ", camera " + backBy.toFixed(1) + "m back";
     } },
 
   { name: "where", args: "",
