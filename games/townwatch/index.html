@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Town Watch</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: "Trebuchet MS", Verdana, sans-serif;
+    background: #0b0f1d;
+    color: #fff;
+    touch-action: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  canvas { display: block; }
+  [hidden] { display: none !important; }
+
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+  .pill {
+    position: absolute; top: max(12px, env(safe-area-inset-top));
+    font-size: 0.95rem; font-weight: bold;
+    padding: 9px 14px; border-radius: 14px;
+    background: rgba(8,11,22,0.7);
+    border: 2px solid rgba(255,255,255,0.16);
+    white-space: nowrap;
+  }
+  #nightpill { left: max(12px, env(safe-area-inset-left)); }
+  #nightname { color: #ffd93d; }
+  #stuffpill {
+    left: max(12px, env(safe-area-inset-left));
+    top: calc(max(12px, env(safe-area-inset-top)) + 46px);
+  }
+  #wood { color: #d7a86a; }
+  #coins { color: #ffd93d; }
+  #helppill {
+    right: max(12px, env(safe-area-inset-right));
+    font-weight: normal; font-size: 0.82rem;
+    max-width: min(300px, 44vw); white-space: normal; line-height: 1.45;
+    color: #bcd0ff;
+  }
+
+  /* the little cross in the middle, so you know where you're pointing */
+  #dot {
+    position: absolute; left: 50%; top: 50%;
+    width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.85);
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.45);
+  }
+
+  #message {
+    position: absolute; left: 50%; top: 23%;
+    transform: translateX(-50%);
+    font-size: clamp(1.1rem, 3.4vw, 1.6rem); font-weight: bold;
+    text-align: center; text-shadow: 0 3px 14px rgba(0,0,0,0.85);
+    opacity: 0; transition: opacity 0.25s; white-space: pre-line;
+  }
+  #message.show { opacity: 1; }
+
+  #home {
+    position: fixed; z-index: 30;
+    top: max(12px, env(safe-area-inset-top)); left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.9rem; font-weight: bold; text-decoration: none;
+    padding: 8px 14px; border-radius: 12px;
+    color: #9ff5c0; background: rgba(8,11,22,0.78);
+    border: 2px solid rgba(159,245,192,0.4);
+  }
+
+  /* The bottom of the screen is ONE column, never two things pinned at
+     heights picked to miss each other. Trick Room learned that the hard
+     way: a button whose words went over two lines grew upwards and sat
+     on top of the row above it. */
+  #bottom {
+    position: fixed; z-index: 25;
+    left: 50%; transform: translateX(-50%);
+    bottom: max(18px, calc(env(safe-area-inset-bottom) + 14px));
+    width: min(760px, 94vw);
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    pointer-events: none;
+  }
+  #ready {
+    font-family: inherit; font-size: 1rem; font-weight: bold;
+    padding: 13px 22px; border-radius: 16px; cursor: pointer;
+    color: #141018; background: #ffd93d; border: none;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+    pointer-events: auto; max-width: 100%;
+  }
+  #ready:active { transform: scale(0.95); }
+
+  #touch { position: fixed; inset: 0; z-index: 20; pointer-events: none; }
+  #stick-move {
+    position: absolute;
+    left: max(18px, env(safe-area-inset-left));
+    bottom: max(24px, calc(env(safe-area-inset-bottom) + 18px));
+    width: 128px; height: 128px; border-radius: 50%;
+    background: rgba(255,255,255,0.09);
+    border: 2px solid rgba(255,255,255,0.22);
+    pointer-events: auto;
+  }
+  #knob {
+    position: absolute; left: 50%; top: 50%;
+    width: 56px; height: 56px; margin: -28px 0 0 -28px;
+    border-radius: 50%;
+    background: rgba(255,217,61,0.5);
+    border: 2px solid rgba(255,217,61,0.85);
+  }
+  .trim {
+    position: absolute; right: max(18px, env(safe-area-inset-right));
+    width: 72px; height: 72px; font-size: 1.4rem;
+    border-radius: 50%; cursor: pointer;
+    color: #fff; background: rgba(255,255,255,0.12);
+    border: 2px solid rgba(255,255,255,0.3);
+    pointer-events: auto;
+  }
+  #btn-up { bottom: max(24px, calc(env(safe-area-inset-bottom) + 18px)); }
+  .trim:active { transform: scale(0.93); }
+
+  @media (max-width: 620px) {
+    #helppill { display: none; }
+    /* Home moves out of the middle and into the corner the hint just
+       vacated - in the middle it sits on top of the night badge. */
+    #home { left: auto; right: max(12px, env(safe-area-inset-right)); transform: none; }
+    .pill { font-size: 0.82rem; padding: 7px 11px; }
+    #stuffpill { top: calc(max(12px, env(safe-area-inset-top)) + 40px); }
+    #home { font-size: 0.8rem; padding: 6px 11px; }
+    #ready { font-size: 0.88rem; padding: 11px 14px; }
+  }
+  /* On a phone the bottom belongs to the thumbs, so everything else
+     goes to the top. */
+  body.thumbs #bottom {
+    top: calc(max(12px, env(safe-area-inset-top)) + 100px);
+    bottom: auto;
+  }
+  body.thumbs #message { top: 42%; }
+
+  .panel {
+    position: fixed; inset: 0; z-index: 40;
+    display: flex; align-items: center; justify-content: center;
+    padding: 18px; background: rgba(5,7,16,0.88); overflow-y: auto;
+  }
+  .box {
+    max-width: 680px; width: 100%;
+    background: #141a2e;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-radius: 22px; padding: 26px 24px; text-align: center;
+  }
+  .box h1 { font-size: clamp(1.5rem, 5.5vw, 2.2rem); margin-bottom: 12px; }
+  .box p { color: #bcd0ff; line-height: 1.55; margin-bottom: 13px; font-size: 0.97rem; }
+  .box b { color: #fff; }
+  .btn {
+    font-family: inherit; font-size: 1.05rem; font-weight: bold;
+    padding: 12px 24px; margin: 5px 4px;
+    border-radius: 14px; cursor: pointer;
+    color: #141018; background: #ffd93d; border: none;
+    text-decoration: none; display: inline-block;
+  }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div class="pill" id="nightpill">🌙 <span id="nightname">GETTING READY</span></div>
+  <div class="pill" id="stuffpill">🪵 <b id="wood">0</b> · 🪙 <b id="coins">0</b></div>
+  <div class="pill" id="helppill"></div>
+  <div id="dot"></div>
+  <div id="message"></div>
+</div>
+
+<a id="home" href="../../index.html">← Home</a>
+
+<div id="bottom">
+  <button id="ready" hidden>READY FOR THEM</button>
+</div>
+
+<div id="touch" hidden>
+  <div id="stick-move"><div class="knob" id="knob"></div></div>
+  <button class="trim" id="btn-up">⬆</button>
+</div>
+
+<div class="panel" id="start">
+  <div class="box">
+    <h1>🏘 TOWN WATCH</h1>
+    <p>Five people live in this town. When it gets dark, things come up
+       the four roads looking for them, and you are the only one awake.</p>
+    <p>You can't be everywhere at once — so you build. Walls to slow them
+       down, turrets to see them off, and both only where you think
+       they're coming.</p>
+    <p id="how-desktop"><b>W A S D</b> to walk · <b>mouse</b> to look ·
+       <b>Space</b> to climb the bell tower</p>
+    <p id="how-touch" hidden>Left stick to walk · drag anywhere to look ·
+       <b>⬆</b> to climb the bell tower</p>
+    <p><button class="btn" id="btn-play">GO AND HAVE A LOOK</button></p>
+  </div>
+</div>
+
+<script src="../../shared/player.js"></script>
+<script src="three.min.js"></script>
+<script src="../../shared/admin-panel.js"></script>
+<script>
+/* =====================================================================
+   TOWN WATCH
+
+   A town, five people in it, and things that come up the road after
+   dark. You build walls and turrets to keep them off.
+
+   IT IS PLAYED FROM YOUR OWN EYES, which is an unusual choice for this
+   sort of game and was a deliberate one. Games like this are normally
+   looked down on from above, because you need to see the whole
+   battlefield to decide where to build. Three things make first person
+   work here instead of fighting it, and all three are load-bearing:
+
+     - THEY BASH, THEY DO NOT WIND THROUGH. Nothing paths around your
+       walls looking for a gap. A zombie walks at the nearest person and
+       hits whatever is in the way. So a wall buys TIME inside a
+       turret's range rather than reshaping a route, and every decision
+       you make is local - about the thing in front of your face. That
+       is the single reason you can play this without seeing the whole
+       map.
+
+     - THE RING IS ALREADY BUILT. You never fence forty-eight metres of
+       perimeter. The town has a stone wall with four gates in it, and
+       all your building happens standing in a gateway, which is exactly
+       where you can see what you are doing.
+
+     - YOU CAN CLIMB THE BELL TOWER. Want to see the whole town? Go up
+       the ladder and look. No second camera, no map mode - just a tall
+       thing in the middle of the world, which is more fun anyway.
+   ===================================================================== */
+
+/* ---------------------------------------------------------------------
+   THE SHAPE OF THE WORLD
+
+   Everything solid is a box with a lowest and highest corner. One shape
+   means one piece of bumping-into code instead of six, and that code is
+   lifted from Trick Room, where it took a few goes to get right.
+   --------------------------------------------------------------------- */
+const SOLIDS = [];
+const SHOOTABLE = [];      // the flat things you can point at
+
+function solidBox(cx, cy, cz, w, h, d, look) {
+  const box = {
+    minX: cx - w / 2, maxX: cx + w / 2,
+    minY: cy,         maxY: cy + h,
+    minZ: cz - d / 2, maxZ: cz + d / 2,
+    off: false,
+    look: look || null
+  };
+  SOLIDS.push(box);
+  return box;
+}
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b1024);
+scene.fog = new THREE.FogExp2(0x0b1024, 0.0075);
+
+const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 500);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+document.body.appendChild(renderer.domElement);
+const canvas = renderer.domElement;
+
+/* Three lights, all made here at the start and never added or taken
+   away. Adding one while the game is running makes three.js rebuild
+   every material in the scene and everything stops still for a moment. */
+scene.add(new THREE.AmbientLight(0x8898c8, 0.75));
+const moon = new THREE.DirectionalLight(0xbfd0ff, 0.85);
+moon.position.set(30, 60, 20);
+scene.add(moon);
+/* A softer one the other way, so the faces turned away from the moon
+   are not pitch black. */
+const fill = new THREE.DirectionalLight(0x8a7fd0, 0.4);
+fill.position.set(-30, 25, -40);
+scene.add(fill);
+
+function mat(color) { return new THREE.MeshLambertMaterial({ color }); }
+const BOX = new THREE.BoxGeometry(1, 1, 1);
+
+function block(cx, cy, cz, w, h, d, color, solid) {
+  const mesh = new THREE.Mesh(BOX, mat(color));
+  mesh.scale.set(w, h, d);
+  mesh.position.set(cx, cy + h / 2, cz);
+  scene.add(mesh);
+  SHOOTABLE.push(mesh);
+  return solid === false
+    ? { mesh }
+    : { mesh, box: solidBox(cx, cy, cz, w, h, d, mesh.material) };
+}
+
+/* ---------------------------------------------------------------------
+   THE TOWN
+
+   A square of stone wall forty-eight metres across, with a gate in the
+   middle of each side. Everything is laid out on a FOUR METRE GRID:
+   every cell centre is a multiple of four, so the ring runs from -24 to
+   +24 and each side is thirteen cells with its corners shared.
+
+   Four metres rather than two on purpose. A four metre wall on a two
+   metre grid has to decide whether it sits in a cell or on the join
+   between two, and then "is this gate shut?" stops being a question you
+   can count. On a four metre grid, shut means every gate cell is full -
+   something a child can see at a glance and a test can simply add up.
+   --------------------------------------------------------------------- */
+const CELL = 4;
+const TOWN = 24;                       // the ring sits at x,z = +/- 24
+const GATE_CELLS = [-4, 0, 4];         // the middle three of each side
+
+const snap = v => Math.round(v / CELL) * CELL;
+const cellKey = (x, z) => snap(x) + "," + snap(z);
+
+/* The four ways in. Each gets a colour, so a gate can be named by
+   pointing at it rather than by remembering a compass. */
+const GATES = [
+  { id: "north", at: [0, -TOWN], along: "x", colour: 0xff5d5d, label: "🔴" },
+  { id: "east",  at: [TOWN, 0],  along: "z", colour: 0x4ea8ff, label: "🔵" },
+  { id: "south", at: [0, TOWN],  along: "x", colour: 0x6bff9f, label: "🟢" },
+  { id: "west",  at: [-TOWN, 0], along: "z", colour: 0xffd93d, label: "🟡" }
+];
+
+/* Is this cell one of the twelve you are allowed to build a gate shut
+   with? Everything else on the ring is already stone. */
+function gateCellAt(x, z) {
+  const sx = snap(x), sz = snap(z);
+  for (const g of GATES) {
+    if (g.along === "x") {
+      if (sz === g.at[1] && GATE_CELLS.indexOf(sx) >= 0) return g;
+    } else {
+      if (sx === g.at[0] && GATE_CELLS.indexOf(sz) >= 0) return g;
+    }
+  }
+  return null;
+}
+
+let GROUND_BOX = null;
+
+function buildTown() {
+  // ---- the ground, well past the walls so the roads have somewhere to go
+  GROUND_BOX = block(0, -1, 0, 240, 1, 240, 0x2d3a28).box;
+
+  /* A grid of paler lines on the ground inside the town, on the same
+     four metres everything else uses. It is not decoration: it is how
+     you judge where a wall will land before you put it there. */
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0x46583f });
+  const lineGeo = new THREE.PlaneGeometry(1, 1);
+  const stripe = (x, z, sx, sz) => {
+    const line = new THREE.Mesh(lineGeo, lineMat);
+    line.rotation.x = -Math.PI / 2;
+    line.scale.set(sx, sz, 1);
+    line.position.set(x, 0.015, z);
+    scene.add(line);
+  };
+  for (let i = -TOWN; i <= TOWN; i += CELL) {
+    stripe(i, 0, 0.08, TOWN * 2);
+    stripe(0, i, TOWN * 2, 0.08);
+  }
+
+  // ---- the stone ring, with a gap at each gate
+  const STONE_H = 3, STONE_T = 1;
+  for (let i = -TOWN; i <= TOWN; i += CELL) {
+    for (const g of GATES) {
+      const x = g.along === "x" ? i : g.at[0];
+      const z = g.along === "x" ? g.at[1] : i;
+      if (gateCellAt(x, z)) continue;            // that's the doorway
+      block(x, 0, z, g.along === "x" ? CELL : STONE_T, STONE_H,
+            g.along === "x" ? STONE_T : CELL, 0x6b7382);
+    }
+  }
+
+  // ---- a coloured arch over each gate, and a road running out of it
+  for (const g of GATES) {
+    const [gx, gz] = g.at;
+    const wide = g.along === "x";
+    const span = GATE_CELLS.length * CELL;       // twelve metres
+
+    // two posts and a lintel, in the gate's own colour
+    for (const side of [-1, 1]) {
+      const px = wide ? gx + side * (span / 2 + 0.5) : gx;
+      const pz = wide ? gz : gz + side * (span / 2 + 0.5);
+      block(px, 0, pz, 1, 5.5, 1, g.colour);
+    }
+    const arch = new THREE.Mesh(BOX, mat(g.colour));
+    arch.scale.set(wide ? span + 2 : 1, 0.8, wide ? 1 : span + 2);
+    arch.position.set(gx, 5.9, gz);
+    scene.add(arch);
+    g.arch = arch;
+
+    /* The road. It runs from the gate out to where they turn up, so you
+       can see at a glance which way is a way in. */
+    const road = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat(0x4a4134));
+    road.rotation.x = -Math.PI / 2;
+    const out = 40;
+    road.scale.set(wide ? span : out, wide ? out : span, 1);
+    road.position.set(wide ? gx : gx + Math.sign(gx) * (out / 2),
+                      0.02,
+                      wide ? gz + Math.sign(gz) * (out / 2) : gz);
+    scene.add(road);
+  }
+
+  // ---- the bell tower in the middle, with a ladder up it
+  buildTower();
+
+  // ---- five huts, one per person, round the square
+  for (let i = 0; i < FOLK_NAMES.length; i++) {
+    const a = (i / FOLK_NAMES.length) * Math.PI * 2 + 0.6;
+    const hx = snap(Math.cos(a) * 13), hz = snap(Math.sin(a) * 13);
+    block(hx, 0, hz, 5, 3.2, 5, 0x6d5435);                    // walls
+    block(hx, 3.2, hz, 6, 0.5, 6, 0x8a3f33);                  // roof
+    HUTS.push({ x: hx, z: hz });
+  }
+}
+
+const HUTS = [];
+
+/* ---- the bell tower ----
+   The answer to "how do I see my whole town" in a game played from your
+   own eyes. Not a map, not a second camera: a tall thing you climb.
+   --------------------------------------------------------------------- */
+/* The platform is seven metres square. The first one was under four
+   deep, and you walked straight across it and off the far side in half
+   a second - a diving board rather than a lookout. */
+const TOWER = { x: 0, z: 0, foot: 3, top: 9 };
+let LADDER = null;
+
+function buildTower() {
+  for (const [dx, dz] of [[-2.6, -2.6], [2.6, -2.6], [-2.6, 2.6], [2.6, 2.6]]) {
+    block(TOWER.x + dx, 0, TOWER.z + dz, 0.6, TOWER.top, 0.6, 0x7a6248);
+  }
+  /* The platform you stand on - in three pieces, with a HOLE left in it
+     where the ladder comes up. Built as one solid slab it is a lid: you
+     climb to within a head's height of it and stop, because the thing
+     you are climbing to is in the way of your head. */
+  block(TOWER.x, TOWER.top, TOWER.z - 1.1, 7, 0.4, 4.8, 0x8a6f50);
+  block(TOWER.x - 2.2, TOWER.top, TOWER.z + 2.4, 2.6, 0.4, 2.2, 0x8a6f50);
+  block(TOWER.x + 2.2, TOWER.top, TOWER.z + 2.4, 2.6, 0.4, 2.2, 0x8a6f50);
+  // a roof over it, and the bell
+  block(TOWER.x, TOWER.top + 4.2, TOWER.z, 7.6, 0.5, 7.6, 0x8a3f33);
+  /* The bell hangs well ABOVE head height. Hung at a comfortable
+     looking-at height it is exactly where your eyes are when you stand
+     on the platform, and you spend the whole night inside a bell. */
+  const bell = new THREE.Mesh(new THREE.SphereGeometry(0.55, 12, 10), mat(0xd7b55a));
+  bell.scale.set(1, 1.15, 1);
+  bell.position.set(TOWER.x, TOWER.top + 3.3, TOWER.z);
+  scene.add(bell);
+
+  /* The ladder is a place rather than a thing: stand in this box and
+     up is up. Rungs so you can see it from across the square. */
+  for (let y = 0.5; y < TOWER.top; y += 0.5) {
+    const rung = new THREE.Mesh(BOX, mat(0xcaa877));
+    rung.scale.set(1.2, 0.08, 0.08);
+    rung.position.set(TOWER.x, y, TOWER.z + 2.4);
+    scene.add(rung);
+  }
+  LADDER = { minX: TOWER.x - 0.9, maxX: TOWER.x + 0.9,
+             minZ: TOWER.z + 1.3, maxZ: TOWER.z + 3.4 };
+}
+
+/* The ladder is a PLACE rather than a thing: stand in this box and up
+   is up. It reaches a good way above the platform on purpose - end it
+   at the platform and holding the button one moment too long carries
+   you out of the top of it, gravity comes back, and you drop all the
+   way down the hole you just climbed through. */
+const LADDER_TOP = TOWER.top + 1.0;     // as high as climbing takes you
+function onLadder(p) {
+  return LADDER && p.x > LADDER.minX && p.x < LADDER.maxX &&
+         p.z > LADDER.minZ && p.z < LADDER.maxZ && p.y < TOWER.top + 2.4;
+}
+
+/* ---------------------------------------------------------------------
+   THE PEOPLE
+
+   Five of them, each outside their own hut. They are the whole point:
+   they pay your wages at the end of every night, and a zombie that gets
+   past you knocks one out so they pay nothing.
+
+   The body is lifted from Trick Room, which lifted it from Star Arena -
+   arms and legs that swing from their joints - and it reads the same
+   saved look, so the character Ollie made in Star Arena is the one
+   standing watch over this town.
+   --------------------------------------------------------------------- */
+const FOLK_NAMES = ["Baker", "Farmer", "Smith", "Miller", "Fisher"];
+const SHIRTS = [0x6bcbff, 0xff6b6b, 0x4ade80, 0xffd93d, 0xff8fd9, 0xa06bff];
+
+const LOOK_PALETTES = {
+  skin:     [0xffd1a3, 0xf0c8a0, 0xd9a066, 0xa9713e, 0x7a4b24, 0xb8c4d4],
+  hair:     [0x3a2a1c, 0x1a1a1a, 0xc9a227, 0xa03c1e, 0xffffff, 0x6bcbff],
+  trousers: [0x2f3350, 0x3b5bdb, 0x1e2033, 0x6b4a2f, 0x4a4e55, 0x7a2f4a]
+};
+const PLAIN_LOOK = { skin: 0xf0c8a0, hair: 0x3a2a1c, trousers: 0x2f3350 };
+
+/* Only colours actually in those lists are accepted. It is a file on a
+   computer and files get fiddled with - the same rule the saved game
+   uses, for the same reason. */
+function savedLook() {
+  const out = Object.assign({}, PLAIN_LOOK);
+  let raw = null;
+  try { raw = JSON.parse(localStorage.getItem("ollie-star-arena-look")); }
+  catch (e) { return out; }
+  if (!raw || typeof raw !== "object") return out;
+  for (const part of Object.keys(LOOK_PALETTES)) {
+    const value = Number(raw[part]);
+    if (LOOK_PALETTES[part].indexOf(value) >= 0) out[part] = value;
+  }
+  return out;
+}
+
+/* An arm or a leg, hung inside an empty group that sits AT the joint, so
+   turning the group swings the limb from the shoulder rather than
+   spinning it about its middle. */
+function makeLimb(length, width, colour, endColour, endSize) {
+  const pivot = new THREE.Group();
+  const limb = new THREE.Mesh(BOX, mat(colour));
+  limb.scale.set(width, length, width);
+  limb.position.y = -length / 2;
+  pivot.add(limb);
+  const end = new THREE.Mesh(BOX, mat(endColour));
+  end.scale.set(endSize, endSize * 0.7, endSize * 1.3);
+  end.position.set(0, -length - endSize * 0.25, endSize * 0.15);
+  pivot.add(end);
+  return pivot;
+}
+
+const EYE = 1.62;
+
+function makePerson(shirt, look) {
+  look = look || savedLook();
+  const skin = look.skin, trousers = look.trousers, shoes = 0x1e2033;
+
+  const group = new THREE.Group();
+  const parts = {};
+  const skins = [];
+  const add = mesh => { group.add(mesh); skins.push(mesh); return mesh; };
+
+  const torso = new THREE.Mesh(BOX, mat(shirt));
+  torso.scale.set(0.58, 0.72, 0.34);
+  torso.position.y = 1.16;
+  add(torso);
+
+  const hips = new THREE.Mesh(BOX, mat(trousers));
+  hips.scale.set(0.54, 0.22, 0.32);
+  hips.position.y = 0.72;
+  add(hips);
+
+  const neck = new THREE.Mesh(BOX, mat(skin));
+  neck.scale.set(0.2, 0.12, 0.2);
+  neck.position.y = 1.57;
+  add(neck);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 10), mat(skin));
+  head.scale.set(1, 1.1, 0.94);
+  head.position.y = 1.83;
+  add(head);
+
+  const hair = new THREE.Mesh(
+    new THREE.SphereGeometry(0.26, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62),
+    mat(look.hair));
+  hair.scale.set(1, 1.05, 0.96);
+  hair.position.y = 1.85;
+  add(hair);
+
+  for (const side of [-0.09, 0.09]) {
+    const white = new THREE.Mesh(BOX, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    white.scale.set(0.08, 0.08, 0.04);
+    white.position.set(side, 1.86, 0.21);
+    add(white);
+    const pupil = new THREE.Mesh(BOX, new THREE.MeshBasicMaterial({ color: 0x1a1a2e }));
+    pupil.scale.set(0.04, 0.05, 0.04);
+    pupil.position.set(side, 1.86, 0.235);
+    add(pupil);
+  }
+
+  parts.armL = makeLimb(0.56, 0.15, shirt, skin, 0.13);
+  parts.armL.position.set(-0.36, 1.44, 0);
+  parts.armR = makeLimb(0.56, 0.15, shirt, skin, 0.13);
+  parts.armR.position.set(0.36, 1.44, 0);
+  parts.legL = makeLimb(0.6, 0.19, trousers, shoes, 0.17);
+  parts.legL.position.set(-0.15, 0.66, 0);
+  parts.legR = makeLimb(0.6, 0.19, trousers, shoes, 0.17);
+  parts.legR.position.set(0.15, 0.66, 0);
+  for (const key of ["armL", "armR", "legL", "legR"]) {
+    group.add(parts[key]);
+    parts[key].traverse(bit => { if (bit.isMesh) skins.push(bit); });
+  }
+
+  /* Arena's person is built around eyes at 1.86; ours go at EYE. One
+     scale rather than twenty edited numbers, and it stays obvious where
+     the shape came from. */
+  group.scale.setScalar(EYE / 1.86);
+  scene.add(group);
+  return { group, parts, skins, walkPhase: 0 };
+}
+
+/* Stand somebody somewhere, facing the way they are going.
+
+   The HALF TURN is not a fudge. The body is built looking down PLUS z -
+   that is where the eyes and toes point - while a camera with no
+   rotation looks down MINUS z, which is the direction this whole game
+   calls forwards. Without it everybody walks about back to front, and
+   the giveaway is quiet enough to miss: the back of a head that is
+   looking straight at you. */
+function standPerson(who, x, y, z, yaw) {
+  who.group.position.set(x, y, z);
+  who.group.rotation.y = yaw + Math.PI;
+}
+
+function walkPerson(who, speed, dt) {
+  who.walkPhase += speed * dt * 2.6;
+  const swing = Math.sin(who.walkPhase) * Math.min(0.85, speed * 0.26);
+  who.parts.legL.rotation.x = swing;
+  who.parts.legR.rotation.x = -swing;
+  who.parts.armL.rotation.x = -swing * 0.75;
+  who.parts.armR.rotation.x = swing * 0.75;
+}
+
+/* ---- the five who live here ---- */
+const FOLK = [];
+
+function placeFolk() {
+  for (let i = 0; i < FOLK_NAMES.length; i++) {
+    const hut = HUTS[i];
+    const body = makePerson(SHIRTS[i], savedLook());
+    /* Each stands a little way out from their own front door, facing
+       the middle of the square. */
+    const a = Math.atan2(-hut.z, -hut.x);
+    const px = hut.x + Math.cos(a) * 3.6, pz = hut.z + Math.sin(a) * 3.6;
+    const who = {
+      name: FOLK_NAMES[i], body,
+      home: { x: px, z: pz },
+      x: px, z: pz, yaw: a + Math.PI / 2,
+      up: true,                 // on their feet, and earning
+      wander: Math.random() * 4,
+      aimX: px, aimZ: pz
+    };
+    standPerson(body, px, 0, pz, who.yaw);
+    FOLK.push(who);
+  }
+}
+
+/* They potter about near their own hut. Nothing clever - it just stops
+   five people standing to attention all night, and makes the leg swing
+   earn its keep. */
+function stepFolk(dt) {
+  for (const who of FOLK) {
+    if (!who.up) { walkPerson(who.body, 0, dt); continue; }
+
+    who.wander -= dt;
+    if (who.wander <= 0) {
+      who.wander = 3 + Math.random() * 5;
+      const a = Math.random() * Math.PI * 2, r = Math.random() * 3;
+      who.aimX = who.home.x + Math.cos(a) * r;
+      who.aimZ = who.home.z + Math.sin(a) * r;
+    }
+
+    const dx = who.aimX - who.x, dz = who.aimZ - who.z;
+    const far = Math.hypot(dx, dz);
+    let speed = 0;
+    if (far > 0.15) {
+      speed = Math.min(1.1, far * 2);
+      who.x += (dx / far) * speed * dt;
+      who.z += (dz / far) * speed * dt;
+      who.yaw = Math.atan2(dx, dz) + Math.PI;
+    }
+    standPerson(who.body, who.x, 0, who.z, who.yaw);
+    walkPerson(who.body, speed, dt);
+  }
+}
+
+/* ---------------------------------------------------------------------
+   YOU
+   --------------------------------------------------------------------- */
+const BODY_R = 0.4;
+const BODY_H = 1.75;
+const GRAVITY = 26;
+const JUMP_UP = 8.5;
+const WALK_SPEED = 7;
+const CLIMB_SPEED = 4.5;
+
+const me = {
+  pos: new THREE.Vector3(0, 0, 14),
+  vel: new THREE.Vector3(),
+  /* Facing nought is facing down MINUS z, which from down here is
+     straight at the bell tower in the middle of the square. */
+  yaw: 0, pitch: -0.04,
+  onGround: false
+};
+let playing = false;
+let wood = 0, coins = 0;
+
+/* ---------------------------------------------------------------------
+   BUMPING INTO THINGS
+
+   One axis at a time, and after each little move anything we have ended
+   up inside pushes us straight back along THAT axis only.
+
+   Doing it one axis at a time, and remembering where we were BEFORE the
+   move, is the whole reason this is reliable. Move all three at once
+   and shove yourself out whichever way is shortest, and walking under a
+   low doorway squeezes you down through the floor, because downwards
+   was the short way out.
+   --------------------------------------------------------------------- */
+function insideBox(P, b) {
+  return P.pos.x + BODY_R > b.minX && P.pos.x - BODY_R < b.maxX
+      && P.pos.y + BODY_H > b.minY && P.pos.y          < b.maxY
+      && P.pos.z + BODY_R > b.minZ && P.pos.z - BODY_R < b.maxZ;
+}
+
+function moveAxis(P, axis, amount) {
+  if (amount === 0) return;
+  const before = P.pos[axis];
+  P.pos[axis] += amount;
+  for (const b of SOLIDS) {
+    if (b.off || !insideBox(P, b)) continue;
+    if (axis === "y") {
+      if (amount > 0) {
+        if (before + BODY_H <= b.minY + 0.01) { P.pos.y = b.minY - BODY_H; P.vel.y = 0; }
+      } else if (before >= b.maxY - 0.01) {
+        P.pos.y = b.maxY; P.vel.y = 0; P.onGround = true;
+      }
+    } else if (axis === "x") {
+      if (amount > 0) {
+        if (before + BODY_R <= b.minX + 0.01) { P.pos.x = b.minX - BODY_R; P.vel.x = 0; }
+      } else if (before - BODY_R >= b.maxX - 0.01) {
+        P.pos.x = b.maxX + BODY_R; P.vel.x = 0;
+      }
+    } else {
+      if (amount > 0) {
+        if (before + BODY_R <= b.minZ + 0.01) { P.pos.z = b.minZ - BODY_R; P.vel.z = 0; }
+      } else if (before - BODY_R >= b.maxZ - 0.01) {
+        P.pos.z = b.maxZ + BODY_R; P.vel.z = 0;
+      }
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------
+   ONE STEP OF THE WORLD
+   --------------------------------------------------------------------- */
+const _aim = new THREE.Vector3();
+let climbing = false;
+
+function step(dt) {
+  if (!playing) return;
+  const input = readMove();
+
+  /* Which way is forward? A three.js camera with no rotation looks down
+     MINUS z, so "the way I am looking" is -(sin yaw, cos yaw) and not
+     +(sin yaw, cos yaw). Getting that backwards makes W walk away from
+     whatever you are looking at, and because it is exactly reversed it
+     still passes any test that only checks where you ended up. */
+  const fx = -Math.sin(me.yaw), fz = -Math.cos(me.yaw);
+  const rx = -fz, rz = fx;
+
+  _aim.set(fx * -input.z + rx * input.x, 0, fz * -input.z + rz * input.x);
+  if (_aim.lengthSq() > 1) _aim.normalize();
+
+  /* Have you got something to push against? Your feet on the ground, or
+     your hands on the ladder - both count. Leaving the ladder out of
+     this was a quiet little disaster: you climbed to the top, stepped
+     forward at feeble mid-air speed, and sank back down through the
+     hole you had just come up, because you were still over it. */
+  climbing = onLadder(me.pos);
+  const footing = me.onGround || climbing;
+
+  /* You can shove yourself along much harder with footing than
+     without. Without that, stepping off the bell tower and holding
+     forwards accelerates you for the whole way down - a nine metre
+     drop turned into sixty-five metres of travel the first time. */
+  const push = WALK_SPEED * (footing ? 36 : 9) * dt;
+  me.vel.x += _aim.x * push;
+  me.vel.z += _aim.z * push;
+
+  /* Slowing down by TIME, not by frames, so a fast computer and a slow
+     one walk at the same speed. */
+  const drag = Math.exp(-(footing ? 12 : 1.2) * dt);
+  me.vel.x *= drag;
+  me.vel.z *= drag;
+  /* And a ceiling on how fast you can ever be going sideways. A touch
+     higher in the air, so a running jump still feels like one. */
+  const top = footing ? WALK_SPEED : WALK_SPEED * 1.35;
+  const flat = Math.hypot(me.vel.x, me.vel.z);
+  if (flat > top) {
+    me.vel.x = me.vel.x / flat * top;
+    me.vel.z = me.vel.z / flat * top;
+  }
+
+  /* The ladder up the bell tower. Standing in it, up is simply up:
+     hold the button to go up, let go and you stay put, look down and
+     walk off the top onto the platform. A ladder you can fall off
+     while learning where the tower even is would be miserable. */
+  if (climbing) {
+    /* Climbing stops a little above the platform. You cannot overshoot
+       the top of the ladder, so you can hold the button as long as you
+       like and then just walk off onto the boards. */
+    const wantUp = (keys.Space || touchUp) && me.pos.y < LADDER_TOP;
+    const wantDown = keys.ShiftLeft || keys.ShiftRight;
+    me.vel.y = wantUp ? CLIMB_SPEED : wantDown ? -CLIMB_SPEED : 0;
+  } else {
+    me.vel.y -= GRAVITY * dt;
+    if ((keys.Space || touchUp) && me.onGround) { me.vel.y = JUMP_UP; me.onGround = false; }
+  }
+
+  me.onGround = false;
+  moveAxis(me, "y", me.vel.y * dt);
+  moveAxis(me, "x", me.vel.x * dt);
+  moveAxis(me, "z", me.vel.z * dt);
+
+  // never wander off the edge of the world
+  me.pos.x = Math.max(-100, Math.min(100, me.pos.x));
+  me.pos.z = Math.max(-100, Math.min(100, me.pos.z));
+  if (me.pos.y < -4) { me.pos.set(0, 0.4, 14); me.vel.set(0, 0, 0); }
+
+  stepFolk(dt);
+  if (sayFor > 0) { sayFor -= dt; if (sayFor <= 0) msgEl.classList.remove("show"); }
+}
+
+/* ---------------------------------------------------------------------
+   PUTTING IT ON THE SCREEN
+   --------------------------------------------------------------------- */
+function draw() {
+  camera.position.set(me.pos.x, me.pos.y + EYE, me.pos.z);
+  camera.rotation.set(0, 0, 0);
+  camera.rotateY(me.yaw);
+  camera.rotateX(me.pitch);
+  renderer.render(scene, camera);
+}
+
+/* ---------------------------------------------------------------------
+   TELLING YOU THINGS
+   --------------------------------------------------------------------- */
+const el = id => document.getElementById(id);
+const msgEl = el("message");
+let sayFor = 0;
+
+function say(text, seconds) {
+  msgEl.textContent = text;
+  msgEl.classList.add("show");
+  sayFor = seconds === undefined ? 1.6 : seconds;
+}
+
+function refreshStuff() {
+  el("wood").textContent = wood;
+  el("coins").textContent = coins;
+}
+
+/* ---------------------------------------------------------------------
+   CONTROLS
+   --------------------------------------------------------------------- */
+const keys = {};
+addEventListener("keydown", e => {
+  if (e.repeat) return;
+  keys[e.code] = true;
+  if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].indexOf(e.code) >= 0) {
+    e.preventDefault();
+  }
+});
+addEventListener("keyup", e => { keys[e.code] = false; });
+addEventListener("blur", () => { for (const k in keys) keys[k] = false; });
+
+const touchMove = { x: 0, z: 0 };
+let touchUp = false;
+
+function readMove() {
+  let x = 0, z = 0;
+  if (keys.KeyA || keys.ArrowLeft) x -= 1;
+  if (keys.KeyD || keys.ArrowRight) x += 1;
+  if (keys.KeyW || keys.ArrowUp) z -= 1;
+  if (keys.KeyS || keys.ArrowDown) z += 1;
+  if (touchMove.x || touchMove.z) { x = touchMove.x; z = touchMove.z; }
+  return { x, z };
+}
+
+/* ---- looking round ---- */
+const LOOK = 0.0022;
+const PITCH_LIMIT = Math.PI / 2 - 0.05;
+let pointerLocked = false;
+
+document.addEventListener("pointerlockchange", () => {
+  pointerLocked = document.pointerLockElement === canvas;
+});
+canvas.addEventListener("click", () => {
+  if (playing && !HAS_TOUCH && !pointerLocked) canvas.requestPointerLock();
+});
+addEventListener("mousemove", e => {
+  if (!pointerLocked) return;
+  me.yaw -= e.movementX * LOOK;
+  me.pitch -= e.movementY * LOOK;
+  me.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, me.pitch));
+});
+
+/* ---- looking round with a finger ---- */
+let lookId = null, lookX = 0, lookY = 0;
+addEventListener("touchstart", e => {
+  for (const t of e.changedTouches) {
+    if (t.target.closest &&
+        t.target.closest("#stick-move, .trim, #ready, #home, .panel, #oa-btn, #oa-panel, #oa-bar")) continue;
+    if (lookId === null) { lookId = t.identifier; lookX = t.clientX; lookY = t.clientY; }
+  }
+}, { passive: true });
+addEventListener("touchmove", e => {
+  for (const t of e.changedTouches) {
+    if (t.identifier !== lookId) continue;
+    me.yaw -= (t.clientX - lookX) * 0.005;
+    me.pitch -= (t.clientY - lookY) * 0.005;
+    me.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, me.pitch));
+    lookX = t.clientX; lookY = t.clientY;
+  }
+}, { passive: true });
+function dropLook(e) {
+  for (const t of e.changedTouches) if (t.identifier === lookId) lookId = null;
+}
+addEventListener("touchend", dropLook);
+addEventListener("touchcancel", dropLook);
+
+/* ---- the stick ---- */
+const stick = el("stick-move"), knob = el("knob");
+let stickId = null;
+function stickAt(touch) {
+  const r = stick.getBoundingClientRect();
+  let dx = (touch.clientX - (r.left + r.width / 2)) / (r.width / 2);
+  let dy = (touch.clientY - (r.top + r.height / 2)) / (r.height / 2);
+  const len = Math.hypot(dx, dy);
+  if (len > 1) { dx /= len; dy /= len; }
+  touchMove.x = Math.abs(dx) > 0.18 ? dx : 0;
+  touchMove.z = Math.abs(dy) > 0.18 ? dy : 0;
+  knob.style.transform = "translate(" + (dx * 32) + "px," + (dy * 32) + "px)";
+}
+stick.addEventListener("touchstart", e => {
+  e.preventDefault();
+  if (stickId === null) { stickId = e.changedTouches[0].identifier; stickAt(e.changedTouches[0]); }
+}, { passive: false });
+stick.addEventListener("touchmove", e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) if (t.identifier === stickId) stickAt(t);
+}, { passive: false });
+function dropStick(e) {
+  for (const t of e.changedTouches) {
+    if (t.identifier !== stickId) continue;
+    stickId = null; touchMove.x = 0; touchMove.z = 0;
+    knob.style.transform = "";
+  }
+}
+stick.addEventListener("touchend", dropStick);
+stick.addEventListener("touchcancel", dropStick);
+
+function trimButton(id, set) {
+  const b = el(id);
+  for (const ev of ["touchstart", "mousedown"]) {
+    b.addEventListener(ev, e => { e.preventDefault(); set(true); }, { passive: false });
+  }
+  for (const ev of ["touchend", "touchcancel"]) {
+    b.addEventListener(ev, e => { e.preventDefault(); set(false); }, { passive: false });
+  }
+  addEventListener("mouseup", () => set(false));
+}
+trimButton("btn-up", on => { touchUp = on; });
+
+const HAS_TOUCH = matchMedia("(pointer: coarse)").matches;
+if (HAS_TOUCH) {
+  el("touch").hidden = false;
+  el("how-touch").hidden = false;
+  el("how-desktop").hidden = true;
+  document.body.classList.add("thumbs");
+}
+
+/* ---------------------------------------------------------------------
+   GO!
+   --------------------------------------------------------------------- */
+function fitScreen() {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+}
+addEventListener("resize", fitScreen);
+fitScreen();
+buildTown();
+placeFolk();
+refreshStuff();
+
+function startGame() {
+  el("start").hidden = true;
+  playing = true;
+  me.pos.set(0, 0.4, 14);
+  me.yaw = 0; me.pitch = -0.04;
+  el("helppill").textContent =
+    "Five people live here. Climb the bell tower for a look at the whole town.";
+  say("Have a wander. The ladder up the tower is on the south side.", 3.4);
+  if (!HAS_TOUCH) canvas.requestPointerLock();
+}
+el("btn-play").addEventListener("click", startGame);
+
+let last = performance.now();
+let clock = 0;
+function frame(now) {
+  /* A safety catch on the clock: if the browser gets busy and a frame
+     takes half a second, pretend it took a twentieth. Otherwise one
+     stutter moves you so far in a single go that you go through a wall. */
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+  clock += dt;
+  step(dt);
+  draw();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ---------------------------------------------------------------------
+   ADMIN
+   --------------------------------------------------------------------- */
+const ADMIN_COMMANDS = [
+  { name: "put", args: "<x> <y> <z>",
+    help: "Stand yourself somewhere exactly",
+    run: words => {
+      const x = Number(words[0]), y = Number(words[1]), z = Number(words[2]);
+      if (!isFinite(x) || !isFinite(y) || !isFinite(z)) return { bad: "Needs an x, y and z" };
+      if (!playing) startGame();
+      me.pos.set(x, y, z);
+      me.vel.set(0, 0, 0);
+      return "At " + x + ", " + y + ", " + z;
+    } },
+
+  { name: "look", args: "<yaw> <pitch>",
+    help: "Point your eyes exactly where you say",
+    run: words => {
+      const y = Number(words[0]), p = Number(words[1]);
+      if (!isFinite(y) || !isFinite(p)) return { bad: "Needs a yaw and a pitch, in radians" };
+      me.yaw = y;
+      me.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, p));
+      return "Looking " + y.toFixed(2) + ", " + p.toFixed(2);
+    } },
+
+  { name: "where", args: "",
+    help: "Say where you are and which way you're facing",
+    run: () => "At " + me.pos.x.toFixed(1) + "," + me.pos.y.toFixed(1) + "," + me.pos.z.toFixed(1) +
+               " · looking " + me.yaw.toFixed(2) + "," + me.pitch.toFixed(2) +
+               (climbing ? " · on the ladder" : "") },
+
+  { name: "town", args: "",
+    help: "How the town is laid out",
+    run: () => {
+      let gateCells = 0;
+      for (let i = -TOWN; i <= TOWN; i += CELL) {
+        for (const g of GATES) {
+          const x = g.along === "x" ? i : g.at[0];
+          const z = g.along === "x" ? g.at[1] : i;
+          if (gateCellAt(x, z)) gateCells++;
+        }
+      }
+      return "the ring is " + (TOWN * 2) + "m across on a " + CELL + "m grid · " +
+             GATES.length + " gates · " + gateCells + " gate cells · " +
+             "tower " + TOWER.top + "m high at " + TOWER.x + "," + TOWER.z;
+    } },
+
+  { name: "gates", args: "",
+    help: "Where the four ways in are",
+    run: () => GATES.map(g => g.label + " " + g.id + " at " +
+                              g.at[0] + "," + g.at[1]).join(" · ") },
+
+  { name: "people", args: "",
+    help: "Who is in the town and how they are",
+    state: () => FOLK.filter(f => f.up).length + "/" + FOLK.length,
+    run: () => {
+      const up = FOLK.filter(f => f.up).length;
+      return up + " up, " + (FOLK.length - up) + " down · " +
+             FOLK.map(f => f.name + " at " + f.x.toFixed(0) + "," + f.z.toFixed(0) +
+                           (f.up ? "" : " (out)")).join(" · ");
+    } },
+
+  { name: "tower", args: "",
+    help: "How far up the bell tower am I?",
+    run: () => {
+      const r = Math.hypot(me.pos.x - TOWER.x, me.pos.z - TOWER.z);
+      return "you are " + me.pos.y.toFixed(1) + "m up and " + r.toFixed(1) +
+             "m from the tower · the platform is at " + TOWER.top + "m" +
+             (climbing ? " · you are on the ladder" : "");
+    } }
+];
+
+if (window.OllieAdmin) OllieAdmin.start({ commands: ADMIN_COMMANDS });
+</script>
+
+</body>
+</html>
