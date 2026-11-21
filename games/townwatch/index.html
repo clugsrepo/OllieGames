@@ -90,6 +90,9 @@
     pointer-events: auto; max-width: 100%;
   }
   #ready:active { transform: scale(0.95); }
+  #ready b { color: #6b4f00; margin-right: 4px; }
+  /* No keyboard on a phone, so no key to tell anybody about. */
+  body.thumbs #ready b { display: none; }
 
   #touch { position: fixed; inset: 0; z-index: 20; pointer-events: none; }
   #stick-move {
@@ -219,7 +222,7 @@
     <button class="tool" id="tool1"><b>2</b> 🔫 <span>Turret</span></button>
     <button class="tool" id="tool2"><b>3</b> 🔴 <span>Laser</span></button>
   </div>
-  <button id="ready" hidden>READY FOR THEM</button>
+  <button id="ready" hidden><b>R</b> READY FOR THEM</button>
 </div>
 
 <div id="touch" hidden>
@@ -264,10 +267,13 @@
 
     <p id="how-desktop"><b>W A S D</b> to walk · <b>mouse</b> to look ·
        <b>Space</b> to climb the bell tower · <b>1 2 3</b> to pick what to
-       build · <b>F</b> to build it · <b>right-click</b> to sell it back</p>
+       build · <b>F</b> or <b>click</b> to build it · <b>right-click</b> to
+       sell it back · <b>R</b> puts the hammer away and takes your gun out,
+       and then <b>click</b> shoots</p>
     <p id="how-touch" hidden>Left stick to walk · drag anywhere to look ·
        <b>⬆</b> to climb · tap a tool, then <b>🔨</b> to build ·
-       hold <b>🔨</b> on a thing to sell it back</p>
+       hold <b>🔨</b> on a thing to sell it back · <b>READY</b> swaps the
+       hammer for your gun, and then <b>💥</b> shoots</p>
   </div>
 </div>
 
@@ -885,6 +891,9 @@ function putUp(kindId, x, z, turn) {
   const thing = { kind: kind.id, x: sx, z: sz, turn: sideways,
                   mesh: made.mesh, box: made.box };
   BUILT.set(cellKey(sx, sz), thing);
+  /* A turret or a laser gets its moving parts and joins the guns. A
+     wall is just a wall. */
+  armGun(thing);
 
   if (kind.costs === "wood") kit.wood -= PRICE.wall;
   else kit[kind.costs] -= 1;
@@ -898,6 +907,7 @@ function putUp(kindId, x, z, turn) {
    nobody anything. */
 function takeDown(thing) {
   if (!thing) return false;
+  disarmGun(thing);
   scene.remove(thing.mesh);
   let i = SHOOTABLE.indexOf(thing.mesh);
   if (i >= 0) SHOOTABLE.splice(i, 1);
@@ -994,6 +1004,478 @@ function gateState() {
     if (here === GATE_CELLS.length) shut++;
   }
   return { filled, shut, open: GATES.length - shut };
+}
+
+/* ---------------------------------------------------------------------
+   THINGS TO SHOOT AT
+
+   One list, one way in, and one place where health ever goes down. The
+   only thing that goes in it today is a straw target you put up with
+   ;dummy - but zombies and slimes will go in the same list, with the
+   same fields, so the guns below never have to learn about them.
+
+   Every target keeps its own little history: when it went up, when it
+   was first hit, how much it has taken altogether and when it went
+   down, all stamped from the game's own clock. That is not bookkeeping
+   for its own sake. It means "how long did one turret take over one
+   zombie?" is a question with an exact answer the game already knows,
+   instead of something you have to sit and watch with a stopwatch.
+   --------------------------------------------------------------------- */
+const TARGETS = [];
+let targetNo = 0;
+
+function addTarget(spec) {
+  const h = spec.h === undefined ? 1.85 : spec.h;
+  const t = {
+    no: ++targetNo,
+    kind: spec.kind,
+    pos: new THREE.Vector3(spec.x, 0, spec.z),
+    h: h,
+    midY: h / 2,             // where a gun aims: the middle of it
+    r: spec.r === undefined ? 0.62 : spec.r,
+    hp: spec.hp, maxHp: spec.hp,
+    pay: spec.pay === undefined ? 0 : spec.pay,
+    down: false,
+    group: spec.group || null,
+    skin: spec.skin || null,  // the material that darkens as it is hurt
+    by: null,
+    upAt: clock, hurtFirst: null, taken: 0, downAt: null
+  };
+  TARGETS.push(t);
+  return t;
+}
+
+/* Where to aim at one. Writes into a vector you pass in, so a hundred
+   of these in a night do not make a hundred new ones every frame. */
+function aimAt(t, out) {
+  return out.set(t.pos.x, t.midY, t.pos.z);
+}
+
+/* The only door health goes down through. Everything - bolts, beams,
+   your own gun - comes through here, so there is exactly one place that
+   knows what being hurt means. */
+function hurt(t, damage, by) {
+  if (!t || t.down || !(damage > 0)) return 0;
+  if (t.hurtFirst === null) t.hurtFirst = clock;
+  const gave = Math.min(damage, t.hp);
+  t.hp -= gave;
+  t.taken += gave;
+  t.by = by || "?";
+  if (t.skin) {
+    /* It goes darker as it takes more, so you can see from across the
+       square which one is nearly finished. */
+    const f = 0.3 + 0.7 * Math.max(0, t.hp / t.maxHp);
+    t.skin.color.setRGB(0.85 * f, 0.75 * f, 0.48 * f);
+  }
+  if (t.hp <= 0) knockOut(t);
+  return gave;
+}
+
+/* Nobody in this collection dies. It is KNOCKED OUT: it tips over, the
+   guns stop paying it any attention, and it stays lying there until you
+   clear the field. Star Arena has used the same word since the start. */
+function knockOut(t) {
+  t.down = true;
+  t.hp = 0;
+  t.downAt = clock;
+  if (t.group) {
+    t.group.rotation.z = Math.PI / 2 - 0.1;
+    t.group.position.y = 0.3;
+  }
+  /* His rule: the money comes from the turrets. Your own little gun
+     pays one coin, so it never looks broken, and never makes you rich.
+     The shop that spends these is step five. */
+  const paid = t.by === "me" ? 1 : t.pay;
+  coins += paid;
+  refreshStuff();
+  say(t.kind === "straw" ? "Straw target knocked out. +" + paid + " 🪙"
+                         : "Knocked out. +" + paid + " 🪙", 1.2);
+}
+
+function sweepTargets() {
+  const had = TARGETS.length;
+  for (const t of TARGETS) if (t.group) scene.remove(t.group);
+  TARGETS.length = 0;
+  while (bolts.length) dropBolt(bolts.length - 1);
+  return had;
+}
+
+/* ---- the straw target ---- */
+const STRAW_HP = 60;          // a zombie's health, on purpose, so that
+                              // timing a gun against one means something
+
+function makeDummy(x, z, hp) {
+  const g = new THREE.Group();
+  const post = new THREE.Mesh(BOX, mat(0x6b4f2a));
+  post.scale.set(0.2, 1.5, 0.2); post.position.y = 0.75;
+  const arms = new THREE.Mesh(BOX, mat(0x6b4f2a));
+  arms.scale.set(1.3, 0.15, 0.15); arms.position.y = 1.2;
+  const sack = new THREE.Mesh(BOX, mat(0xd9c07a));
+  sack.scale.set(0.55, 0.6, 0.45); sack.position.y = 1.5;
+  g.add(post); g.add(arms); g.add(sack);
+  g.position.set(x, 0, z);
+  scene.add(g);
+  return addTarget({ kind: "straw", x: x, z: z,
+                     hp: hp === undefined ? STRAW_HP : hp, pay: 5,
+                     group: g, skin: sack.material });
+}
+
+/* ---------------------------------------------------------------------
+   BOLTS AND SPARKS
+
+   Lifted from Star Arena, with two changes.
+
+   One: every bolt of the same colour shares one material and one ball
+   shape, made once. Arena builds a new material for every bolt and
+   throws it away again, which is fine for a duel and not fine for four
+   turrets firing all night on a phone.
+
+   Two, and this one is a real bug in Arena: it asks whether a bolt has
+   ENDED UP inside something. At thirty-six metres a second a bolt moves
+   two thirds of a metre between one frame and the next, so something
+   standing right next to a turret can sit in the gap between where the
+   bolt was and where it got to, and never be hit at all. So we ask how
+   near it came to the LINE the bolt just travelled along instead.
+   --------------------------------------------------------------------- */
+const BOLT_SPEED = 36;
+const BOLT_LIFE = 2.2;
+const MAX_BOLTS = 200;
+const bolts = [];
+const boltGeo = new THREE.SphereGeometry(0.15, 8, 8);
+const sparkGeo = new THREE.SphereGeometry(0.08, 5, 5);
+const sparks = [];
+const glowMats = {};
+
+function glow(colour) {
+  if (!glowMats[colour]) {
+    glowMats[colour] = new THREE.MeshBasicMaterial({ color: colour });
+  }
+  return glowMats[colour];
+}
+
+function shoot(from, dir, damage, by, colour) {
+  if (bolts.length >= MAX_BOLTS) return null;
+  const mesh = new THREE.Mesh(boltGeo, glow(colour));
+  mesh.position.copy(from);
+  scene.add(mesh);
+  const b = { mesh, dir: dir.clone().normalize(), damage: damage, by: by,
+              life: BOLT_LIFE, was: from.clone() };
+  bolts.push(b);
+  return b;
+}
+
+function dropBolt(i) {
+  scene.remove(bolts[i].mesh);
+  bolts.splice(i, 1);
+}
+
+/* How near did the line from a to b come to the point p? Squashed
+   upwards by `squash`, so that a thing which is tall and thin is a tall
+   thin shape to hit and not a ball. */
+const _segA = new THREE.Vector3(), _segB = new THREE.Vector3();
+const _segP = new THREE.Vector3(), _seg = new THREE.Vector3();
+function missedBy(a, b, p, squash) {
+  _segA.set(a.x, a.y * squash, a.z);
+  _segB.set(b.x, b.y * squash, b.z);
+  _segP.set(p.x, p.y * squash, p.z);
+  _seg.copy(_segB).sub(_segA);
+  const len2 = _seg.lengthSq();
+  _segP.sub(_segA);
+  let s = len2 > 0 ? _segP.dot(_seg) / len2 : 0;
+  s = Math.max(0, Math.min(1, s));
+  return _segP.addScaledVector(_seg, -s).length();
+}
+
+const _boltAim = new THREE.Vector3();
+function stepBolts(dt) {
+  for (let i = bolts.length - 1; i >= 0; i--) {
+    const b = bolts[i];
+    b.was.copy(b.mesh.position);
+    b.mesh.position.addScaledVector(b.dir, BOLT_SPEED * dt);
+    b.life -= dt;
+
+    let hit = null;
+    for (const t of TARGETS) {
+      if (t.down) continue;
+      aimAt(t, _boltAim);
+      if (missedBy(b.was, b.mesh.position, _boltAim, t.r / t.midY) <= t.r) {
+        hit = t; break;
+      }
+    }
+    if (hit) {
+      hurt(hit, b.damage, b.by);
+      sparkle(b.mesh.position, 0xffe680);
+      dropBolt(i);
+      continue;
+    }
+    const p = b.mesh.position;
+    if (b.life <= 0 || p.y < -2 || Math.abs(p.x) > 120 || Math.abs(p.z) > 120) {
+      dropBolt(i);
+    }
+  }
+}
+
+function sparkle(at, colour) {
+  if (sparks.length > 150) return;
+  for (let i = 0; i < 8; i++) {
+    const m = new THREE.Mesh(sparkGeo, glow(colour));
+    m.position.copy(at);
+    scene.add(m);
+    sparks.push({
+      mesh: m,
+      vel: new THREE.Vector3((Math.random() - 0.5) * 6, Math.random() * 5,
+                             (Math.random() - 0.5) * 6),
+      life: 0.5
+    });
+  }
+}
+
+function stepSparks(dt) {
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const s = sparks[i];
+    s.vel.y -= 14 * dt;
+    s.mesh.position.addScaledVector(s.vel, dt);
+    s.life -= dt;
+    if (s.life <= 0) { scene.remove(s.mesh); sparks.splice(i, 1); }
+  }
+}
+
+/* ---------------------------------------------------------------------
+   THE GUNS
+
+   Two guns, and they have to FEEL like two different things, because he
+   asked for them as two different things.
+
+   A turret is reliable: a bolt every eight tenths of a second, twelve
+   each, which is fifteen a second for as long as the night lasts.
+
+   A laser cannon is a burst: nothing at all for the first one and a
+   fifth seconds while it locks on, then twenty-two a second in a beam
+   that goes THROUGH everything on its line - and after four seconds of
+   that it has had enough and has to cool all the way down again. So it
+   is twenty-two a second in the moment and eleven across a whole night.
+
+   Which means that against ONE zombie a turret finishes in about three
+   and a third seconds and the laser takes nearly four. The laser is the
+   worse gun against one thing and much the better one against a queue
+   of them at a gateway. That is the whole difference, and it is
+   arithmetic rather than opinion.
+
+   Both guns shoot WHATEVER IS NEAREST THE TOWN CENTRE, not whatever is
+   nearest themselves. The one getting away with it is the one that
+   matters, and it is a rule you can say in one line.
+
+   And: BOLTS AND BEAMS GO THROUGH WALLS. Walls stop feet, not bullets.
+   That is not an accident and it is not laziness. The other way round,
+   the wall you just built across a gateway eats your own turret's
+   bolts, and anyone would reasonably conclude his turret was broken.
+   One rule, no exceptions.
+   --------------------------------------------------------------------- */
+const GUNS = [];
+const TURRET = { range: 14, every: 0.8, damage: 12 };
+const LASER  = { range: 20, lock: 1.2, dps: 22, hot: 4, half: 0.5 };
+
+function armGun(thing) {
+  if (thing.kind === "turret") {
+    /* A head that turns, because a gun that tracks something is the
+       only way you can see from here that it has noticed. */
+    const head = new THREE.Mesh(BOX, mat(0x5c6680));
+    head.scale.set(0.45, 0.4, 1.5);
+    head.position.set(thing.x, 1.45, thing.z);
+    scene.add(head);
+    thing.head = head;
+    thing.gun = { kind: "turret", thing: thing, head: head,
+                  at: new THREE.Vector3(thing.x, 1.45, thing.z),
+                  on: null, cool: 0 };
+  } else if (thing.kind === "laser") {
+    const lamp = new THREE.Mesh(BOX, glow(0x8c2a32));
+    lamp.scale.set(0.5, 0.26, 0.5);
+    lamp.position.set(thing.x, 2.0, thing.z);
+    scene.add(lamp);
+    const beam = new THREE.Mesh(BOX, new THREE.MeshBasicMaterial({
+      color: 0xff6677, transparent: true, opacity: 0.5 }));
+    beam.visible = false;
+    scene.add(beam);
+    thing.lamp = lamp; thing.beam = beam;
+    thing.gun = { kind: "laser", thing: thing, lamp: lamp, beam: beam,
+                  at: new THREE.Vector3(thing.x, 2.0, thing.z),
+                  on: null, lock: 0, heat: 0, hot: false, firing: false };
+  }
+  if (thing.gun) GUNS.push(thing.gun);
+  return thing.gun || null;
+}
+
+function disarmGun(thing) {
+  if (thing.head) scene.remove(thing.head);
+  if (thing.lamp) scene.remove(thing.lamp);
+  if (thing.beam) scene.remove(thing.beam);
+  if (thing.gun) {
+    const i = GUNS.indexOf(thing.gun);
+    if (i >= 0) GUNS.splice(i, 1);
+  }
+  thing.head = thing.lamp = thing.beam = thing.gun = null;
+}
+
+/* Whatever is nearest the middle of town, of everything this gun can
+   reach. Ties go to whichever went up first, so there is nothing
+   random anywhere in here. */
+function pickTarget(g, range) {
+  let best = null, bestMid = Infinity;
+  for (const t of TARGETS) {
+    if (t.down) continue;
+    if (Math.hypot(t.pos.x - g.at.x, t.pos.z - g.at.z) > range) continue;
+    const mid = Math.hypot(t.pos.x, t.pos.z);
+    if (mid < bestMid) { bestMid = mid; best = t; }
+  }
+  return best;
+}
+
+const _gunAim = new THREE.Vector3(), _gunDir = new THREE.Vector3();
+const _beamDir = new THREE.Vector3(), _beamTo = new THREE.Vector3();
+const _other = new THREE.Vector3();
+
+function stepTurret(g, dt) {
+  if (g.cool > 0) g.cool = Math.max(0, g.cool - dt);
+  g.on = pickTarget(g, TURRET.range);
+
+  if (g.on) {
+    aimAt(g.on, _gunAim);
+    /* A box looks along its own +z, which is the long way up this one,
+       so pointing the head at something points the barrel at it. */
+    g.head.lookAt(_gunAim);
+    if (g.cool <= 0) {
+      _gunDir.copy(_gunAim).sub(g.at);
+      if (_gunDir.lengthSq() > 0.0001) {
+        shoot(g.at, _gunDir, TURRET.damage, "turret", 0xffe680);
+        g.cool = TURRET.every;
+      }
+    }
+  } else {
+    /* Nothing about: look out of town, away from the middle. */
+    g.head.lookAt(g.at.x * 3 + 0.001, g.at.y, g.at.z * 3);
+  }
+}
+
+function stepLaser(g, dt) {
+  const was = g.on;
+  g.on = pickTarget(g, LASER.range);
+  /* A different one has to be locked on to from scratch. Swapping
+     targets costs you the lock, which is exactly why a laser is a gun
+     for a queue and not for a scattered handful. */
+  if (g.on !== was) g.lock = 0;
+
+  /* Three states, and it cools in two of them. Cooling while it is
+     still locking on matters: without it, a laser that swaps targets
+     carries its old heat into the new one and overheats almost at
+     once, for no reason you could see. */
+  g.firing = false;
+  if (g.hot) {
+    /* Had enough. All the way down before it will fire again. */
+    g.heat = Math.max(0, g.heat - dt);
+    if (g.heat <= 0) g.hot = false;
+  } else if (g.on && g.lock >= LASER.lock) {
+    g.firing = true;
+    g.heat += dt;
+    if (g.heat >= LASER.hot) { g.heat = LASER.hot; g.hot = true; }
+  } else {
+    if (g.on) g.lock += dt;
+    g.heat = Math.max(0, g.heat - dt);
+  }
+
+  if (g.firing) beamAlong(g, dt);
+  else g.beam.visible = false;
+  g.lamp.material = glow(g.hot ? 0x3a1216 : (g.firing ? 0xff9aa6 : 0x8c2a32));
+}
+
+function beamAlong(g, dt) {
+  aimAt(g.on, _gunAim);
+  _beamDir.copy(_gunAim).sub(g.at);
+  if (_beamDir.lengthSq() < 0.0001) return;
+  _beamDir.normalize();
+
+  /* It pierces. Everything whose middle is within half a metre or so of
+     the line takes the lot - which is the laser's moment, and the
+     reason a gateway full of them is the place to point it. */
+  const give = LASER.dps * dt;
+  for (const t of TARGETS) {
+    if (t.down) continue;
+    aimAt(t, _other);
+    _other.sub(g.at);
+    const along = _other.dot(_beamDir);
+    if (along < -0.5 || along > LASER.range) continue;
+    const off = Math.sqrt(Math.max(0, _other.lengthSq() - along * along));
+    if (off > LASER.half + t.r) continue;
+    hurt(t, give, "laser");
+  }
+
+  /* Drawn all the way out to its full reach, because that is honestly
+     how far it goes - it does not stop at the first thing. */
+  g.beam.scale.set(0.13, 0.13, LASER.range);
+  g.beam.position.copy(g.at).addScaledVector(_beamDir, LASER.range / 2);
+  _beamTo.copy(g.at).addScaledVector(_beamDir, LASER.range);
+  g.beam.lookAt(_beamTo);
+  g.beam.visible = true;
+}
+
+function stepGuns(dt) {
+  for (const g of GUNS) {
+    if (g.kind === "turret") stepTurret(g, dt);
+    else stepLaser(g, dt);
+  }
+}
+
+/* ---------------------------------------------------------------------
+   YOUR OWN LITTLE GUN
+
+   Five a shot, twice a second: ten a second, and the feeblest thing on
+   the field on purpose. He said the money comes from the turrets, so
+   your gun is for finishing something off and for a nasty surprise at a
+   gateway - never the way to hold a night or to get rich.
+
+   It is also the reason to be on your feet during a night instead of
+   watching your turrets work.
+   --------------------------------------------------------------------- */
+const MINE = { damage: 5, every: 0.5 };
+let mineCool = 0;
+let mineHeld = false;
+
+const _mineFrom = new THREE.Vector3(), _mineDir = new THREE.Vector3();
+function fireMine() {
+  if (!playing || mineCool > 0) return false;
+  /* Worked out from where you are LOOKING, not from the camera. The
+     camera is only moved when a frame is drawn, so a shot fired in
+     between would go wherever you were looking last time. */
+  const flat = Math.cos(me.pitch);
+  _mineDir.set(-Math.sin(me.yaw) * flat, Math.sin(me.pitch),
+               -Math.cos(me.yaw) * flat);
+  _mineFrom.set(me.pos.x, me.pos.y + EYE - 0.15, me.pos.z)
+           .addScaledVector(_mineDir, 0.5);
+  shoot(_mineFrom, _mineDir, MINE.damage, "me", 0x9af0ff);
+  mineCool = MINE.every;
+  return true;
+}
+
+/* ---------------------------------------------------------------------
+   HAMMER, OR GUN
+
+   Two halves to a night. In the quiet half you have the hammer out, the
+   ghost shows you where things would go, and you can take anything down
+   again. Press READY and the hammer goes away and your gun comes out.
+
+   Today that is all READY does, because there is nothing coming yet.
+   Giving it the job of starting the wave is the next step.
+   --------------------------------------------------------------------- */
+function setPhase(watching) {
+  building = !watching;
+  mineHeld = false;
+  el("tools").hidden = watching;
+  el("ready").hidden = watching || !playing;
+  el("nightname").textContent = watching ? "WATCHING" : "GETTING READY";
+  if (hammer) hammer.textContent = watching ? "💥" : "🔨";
+  el("helppill").textContent = watching
+    ? "Hammer away, gun out. Your guns fire by themselves - yours is for finishing off."
+    : "Pick a tool, point at the ground and build. Press READY when you've had enough.";
+  say(watching ? "Eyes open." : "Build away.", 1.4);
 }
 
 /* ---------------------------------------------------------------------
@@ -1144,6 +1626,13 @@ function step(dt) {
   if (me.pos.y < -4) { me.pos.set(0, 0.4, 14); me.vel.set(0, 0, 0); }
 
   stepFolk(dt);
+
+  if (mineCool > 0) mineCool = Math.max(0, mineCool - dt);
+  if (mineHeld) fireMine();
+  stepGuns(dt);
+  stepBolts(dt);
+  stepSparks(dt);
+
   if (sayFor > 0) { sayFor -= dt; if (sayFor <= 0) msgEl.classList.remove("show"); }
 }
 
@@ -1173,6 +1662,10 @@ function say(text, seconds) {
   sayFor = seconds === undefined ? 1.6 : seconds;
 }
 
+/* Health goes down by whole numbers from a bolt and by fractions from
+   a beam, so reports round it off rather than showing 47.299999999. */
+function round1(n) { return Math.round(n * 10) / 10; }
+
 function refreshStuff() {
   el("wood").textContent = kit.wood;
   el("coins").textContent = coins;
@@ -1186,7 +1679,12 @@ addEventListener("keydown", e => {
   if (e.repeat) return;
   keys[e.code] = true;
   if (/^Digit[1-3]$/.test(e.code) && playing) pickTool(Number(e.code.slice(5)) - 1);
-  if (e.code === "KeyF" && playing) buildHere();
+  if (e.code === "KeyF" && playing && building) buildHere();
+  /* R for ready. It needs a key and not just the button: while you are
+     playing, the mouse pointer is held by the game so that looking
+     around works, and a held pointer cannot click a button on top of
+     it. Every other thing down there has a key for the same reason. */
+  if (e.code === "KeyR" && playing && building) setPhase(true);
   if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].indexOf(e.code) >= 0) {
     e.preventDefault();
   }
@@ -1221,9 +1719,12 @@ canvas.addEventListener("click", () => {
 canvas.addEventListener("mousedown", e => {
   if (!playing) return;
   if (!HAS_TOUCH && !pointerLocked) return;      // that click was to grab the mouse
-  if (e.button === 0) buildHere();
-  else if (e.button === 2) sellHere();
+  if (e.button === 0) {
+    if (building) buildHere();
+    else { mineHeld = true; fireMine(); }   // hold it down to keep firing
+  } else if (e.button === 2 && building) sellHere();
 });
+addEventListener("mouseup", e => { if (e.button === 0) mineHeld = false; });
 canvas.addEventListener("contextmenu", e => e.preventDefault());
 addEventListener("mousemove", e => {
   if (!pointerLocked) return;
@@ -1306,18 +1807,25 @@ const hammer = el("btn-build");
 for (const ev of ["touchstart", "mousedown"]) {
   hammer.addEventListener(ev, e => {
     e.preventDefault();
+    /* Once the hammer is away the same button is your gun, and holding
+       it keeps firing. */
+    if (!building) { mineHeld = true; fireMine(); return; }
     hammerAt = performance.now(); hammerSold = false;
   }, { passive: false });
 }
 for (const ev of ["touchend", "touchcancel"]) {
   hammer.addEventListener(ev, e => {
     e.preventDefault();
-    if (!hammerSold) buildHere();
+    mineHeld = false;
+    if (building && !hammerSold) buildHere();
   }, { passive: false });
 }
-addEventListener("mouseup", () => { if (hammerAt && !hammerSold) hammerAt = 0; });
+addEventListener("mouseup", () => {
+  mineHeld = false;
+  if (hammerAt && !hammerSold) hammerAt = 0;
+});
 setInterval(() => {
-  if (hammerAt && !hammerSold && performance.now() - hammerAt > 550) {
+  if (building && hammerAt && !hammerSold && performance.now() - hammerAt > 550) {
     hammerSold = true;
     sellHere();
   }
@@ -1350,8 +1858,10 @@ function startGame(which) {
   el("start").hidden = true;
   el("tools").hidden = false;
   el("btn-build").hidden = false;
+  el("ready").hidden = false;
   playing = true;
   building = true;
+  el("nightname").textContent = "GETTING READY";
   me.pos.set(0, 0.4, 14);
   me.yaw = 0; me.pitch = -0.04;
   pickTool(0);
@@ -1371,6 +1881,7 @@ for (let i = 0; i < KINDS.length; i++) {
   const b = el("tool" + i);
   if (b) b.addEventListener("click", () => pickTool(i));
 }
+el("ready").addEventListener("click", () => { if (playing) setPhase(true); });
 
 let last = performance.now();
 let clock = 0;
@@ -1543,6 +2054,113 @@ const ADMIN_COMMANDS = [
              FOLK.map(f => f.name + " at " + f.x.toFixed(0) + "," + f.z.toFixed(0) +
                            (f.up ? "" : " (out)")).join(" · ");
     } },
+
+  { name: "time", args: "",
+    help: "The game's own clock, which is what rates are measured against",
+    state: () => clock.toFixed(2) + "s",
+    run: () => clock.toFixed(2) + "s since the page opened" },
+
+  { name: "phase", args: "[build/watch]",
+    help: "Hammer out or gun out - say which, or ask",
+    state: () => building ? "build" : "watch",
+    run: words => {
+      const w = String(words[0] || "").toLowerCase();
+      if (w) {
+        if (w !== "build" && w !== "watch") return { bad: "build or watch" };
+        if (!playing) startGame();
+        setPhase(w === "watch");
+      }
+      return building ? "getting ready: hammer out, ghost showing"
+                      : "watching: hammer away, gun out";
+    } },
+
+  { name: "dummy", args: "[x] [z] [health]",
+    help: "Put up a straw target to shoot at, as tough as you like",
+    run: words => {
+      if (!playing) startGame();
+      let x, z;
+      if (words.length >= 2) {
+        x = Number(words[0]); z = Number(words[1]);
+        if (!isFinite(x) || !isFinite(z)) return { bad: "Needs an x and a z" };
+      } else {
+        const spot = aimedCell();
+        x = spot.x; z = spot.z;
+      }
+      /* A tougher one than a zombie is how you watch a gun do something
+         that takes longer than one zombie lasts - a laser overheating,
+         for instance. */
+      let hp = STRAW_HP;
+      if (words.length >= 3) {
+        hp = Number(words[2]);
+        if (!isFinite(hp) || hp < 1) return { bad: "Health has to be a number above nought" };
+      }
+      const t = makeDummy(x, z, hp);
+      return "straw target #" + t.no + " at " + x + "," + z +
+             " · " + t.hp + " health";
+    } },
+
+  { name: "targets", args: "",
+    help: "Everything there is to shoot at",
+    state: () => TARGETS.filter(t => !t.down).length + "/" + TARGETS.length,
+    run: () => {
+      const up = TARGETS.filter(t => !t.down).length;
+      if (!TARGETS.length) return "nothing to shoot at";
+      return up + " up, " + (TARGETS.length - up) + " out of " + TARGETS.length +
+             " · " + TARGETS.map(t => "#" + t.no + " " + t.kind + " " +
+               t.pos.x + "," + t.pos.z + " " + round1(t.hp) + "/" + t.maxHp +
+               (t.down ? " out" : "")).join(" · ");
+    } },
+
+  { name: "target", args: "<n>",
+    help: "One target's whole story, in seconds and health",
+    run: words => {
+      const n = Number(words[0]);
+      const t = TARGETS.find(x => x.no === n);
+      if (!t) return { bad: "No target #" + words[0] };
+      let out = "#" + t.no + " " + t.kind + " at " + t.pos.x + "," + t.pos.z +
+                " · " + round1(t.hp) + "/" + t.maxHp + " · " + (t.down ? "out" : "up");
+      /* Both measured from the moment it went up, so they say what you
+         actually want to know: how long before anything touched it, and
+         how long altogether. */
+      if (t.hurtFirst !== null) out += " · waited " + (t.hurtFirst - t.upAt).toFixed(2) + "s";
+      if (t.downAt !== null) out += " · took " + (t.downAt - t.upAt).toFixed(2) + "s";
+      out += " · " + round1(t.taken) + " taken";
+      if (t.by) out += ", last by " + t.by;
+      return out;
+    } },
+
+  { name: "guns", args: "",
+    help: "What every turret and laser is up to",
+    state: () => String(GUNS.length),
+    run: () => {
+      const head = GUNS.length + " gun" + (GUNS.length === 1 ? "" : "s") +
+                   " · " + bolts.length + " bolts in the air";
+      if (!GUNS.length) return head;
+      return head + " · " + GUNS.map(g => {
+        const where = g.thing.x + "," + g.thing.z;
+        const at = g.on ? "#" + g.on.no : "none";
+        if (g.kind === "turret") {
+          return "turret " + where + " -> " + at + " next in " + g.cool.toFixed(2) + "s";
+        }
+        return "laser " + where + " -> " + at +
+               " lock " + g.lock.toFixed(2) + "/" + LASER.lock.toFixed(2) + "s" +
+               " heat " + g.heat.toFixed(2) + "/" + LASER.hot.toFixed(2) + "s " +
+               (g.hot ? "hot" : g.firing ? "firing" : "cool");
+      }).join(" · ");
+    } },
+
+  { name: "shoot", args: "",
+    help: "Fire your own gun once, wherever you are looking",
+    run: () => {
+      if (!playing) return { bad: "You are not in the game yet" };
+      if (mineCool > 0) return { bad: "Still reloading: " + mineCool.toFixed(2) + "s" };
+      fireMine();
+      return "shot · " + MINE.damage + " damage · one every " + MINE.every + "s";
+    } },
+
+  { name: "sweep", args: "",
+    help: "Clear the field of targets and bolts",
+    run: () => "cleared " + sweepTargets() + " targets away" },
 
   { name: "tower", args: "",
     help: "How far up the bell tower am I?",

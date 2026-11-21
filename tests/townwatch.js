@@ -39,6 +39,13 @@ async function at() {
   return { x: n[0], y: n[1], z: n[2], yaw: n[3] };
 }
 
+/* The game's own clock. Anything given a time budget should be given
+   it in THESE seconds and not in this computer's: the browser draws
+   with software, so under load a second of real time can be a third of
+   a second of game time, and a budget measured with a stopwatch runs
+   out while the game is still halfway through doing the thing. */
+const gameSeconds = async () => Number((await say(';time')).match(/([\d.]+)s/)[1]);
+
 /* Hold the keys and keep looking, rather than holding them for a
    guessed number of milliseconds and hoping. A slow frame makes a timed
    walk flaky without the game being flaky at all. */
@@ -238,10 +245,18 @@ async function walkTill(keys, there, maxMs) {
 
   const top = await walkTill([], () => false, 1);   // settle
   await page.keyboard.down('Space');
+  /* Six seconds of GAME time. Four and a half metres a second over the
+     nine and a bit metres of ladder is two and a bit seconds, so six is
+     generous - but six seconds measured with a stopwatch was not, on a
+     busy machine, and this check went red for no reason at all. */
   const climbed = await (async () => {
-    const t0 = Date.now();
+    const t0 = await gameSeconds();
     let p = await at();
-    while (Date.now() - t0 < 6000) { await wait(200); p = await at(); if (p.y > 9.6) break; }
+    while ((await gameSeconds()) - t0 < 6) {
+      await wait(200);
+      p = await at();
+      if (p.y > 9.6) break;
+    }
     return p;
   })();
   await page.keyboard.up('Space');
@@ -307,6 +322,235 @@ async function walkTill(keys, there, maxMs) {
   check('walking off the top lands you near the tower (' + flung.toFixed(0) +
         'm away, not 65)', flung < 20);
 
+  /* ====================================================================
+     THE GUNS
+
+     Almost everything in here is asked as a number of SECONDS or a
+     number of HEALTH, and every one of those seconds is the game's own
+     clock rather than this computer's. That matters more than it
+     sounds: the browser these run in draws with software, so a second
+     of wall time is not a second of game time, and timing anything with
+     setTimeout would be measuring the test machine instead of the game.
+
+     The game keeps each target's own story - when it went up, when
+     something first touched it, when it went down - so the answers come
+     back exact.
+     ==================================================================== */
+  console.log('\n--- hammer out, or gun out ---');
+  await say(';loadout a');
+  await say(';put 0 0.4 8');
+  check('you start with the hammer out (' + (await say(';phase')) + ')',
+        /getting ready/.test(await say(';phase')));
+  /* R, not a click. While you are playing the game is holding the
+     mouse pointer so that looking around works, and a held pointer
+     cannot click a button sitting on top of the view - which is why
+     READY has a key at all. Found by this test trying to click it. */
+  await page.keyboard.press('KeyR');
+  await wait(300);
+  check('R puts it away and takes your gun out',
+        /watching/.test(await say(';phase')));
+  check('   ... and the tool row goes with it',
+        await page.$eval('#tools', e => e.hidden));
+  await say(';phase build');
+  check('and you can go back to building',
+        /getting ready/.test(await say(';phase')) &&
+        !(await page.$eval('#tools', e => e.hidden)));
+  /* And the button itself still works, for the phone, where there is
+     no keyboard and nothing holding the pointer. */
+  await page.evaluate(() => document.exitPointerLock());
+  await wait(200);
+  await page.click('#ready');
+  await wait(300);
+  check('   ... and the button does the same thing when it can be tapped',
+        /watching/.test(await say(';phase')));
+  await say(';phase build');
+
+  /* Put up a straw target and give back its number, so nothing in here
+     has to guess which one it is talking about. */
+  const dummy = async (x, z, hp) =>
+    Number((await say(';dummy ' + x + ' ' + z + (hp ? ' ' + hp : ''))).match(/#(\d+)/)[1]);
+  const story = n => say(';target ' + n);
+  const health = async n => Number((await story(n)).match(/· ([\d.]+)\/\d+ ·/)[1]);
+  async function finish(n, maxMs) {
+    const t0 = Date.now();
+    let line = await story(n);
+    while (Date.now() - t0 < maxMs && !/ · out · /.test(line)) {
+      await wait(150);
+      line = await story(n);
+    }
+    return line;
+  }
+
+  console.log('\n--- a turret, and the arithmetic it is built on ---');
+  /* Twelve a bolt every eight tenths of a second is fifteen a second,
+     so sixty health is five bolts: four gaps of eight tenths, which is
+     three and a fifth seconds, plus the time the last one spends in the
+     air. Call it three and a third. If anybody ever changes one of
+     those numbers without meaning to, this goes red. */
+  await say(';sweep');
+  await say(';place turret 0 -12');
+  const d1 = await dummy(0, -16);
+  const done1 = await finish(d1, 9000);
+  const took1 = Number((done1.match(/took ([\d.]+)s/) || [])[1]);
+  check('one turret sees off a sixty-health target in about 3.3s (' + took1 + 's)',
+        took1 > 2.7 && took1 < 4.1);
+  check('   ... and it was the turret that did it, all sixty of it',
+        /60 taken, last by turret/.test(done1));
+
+  console.log('\n--- how far a turret can reach ---');
+  await say(';sweep');
+  const far = await dummy(0, -27);       // fifteen metres from the turret
+  await wait(1800);
+  check('fifteen metres away is out of reach, and it is left alone (' +
+        (await health(far)) + '/60)', (await health(far)) === 60);
+  await say(';sweep');
+  const near = await dummy(0, -25);      // thirteen
+  await wait(1800);
+  check('thirteen metres away is well within it (' + (await health(near)) + '/60)',
+        (await health(near)) < 60);
+
+  console.log('\n--- a turret shoots whatever is nearest the town, not itself ---');
+  /* The one getting away with it is the one that matters. With the
+     turret out at the edge, the target BEHIND it is the closer one and
+     the target heading for the middle is the one that must be shot. */
+  await say(';loadout a');
+  await say(';sweep');
+  await say(';place turret 0 -20');
+  /* The one heading for the middle goes up FIRST and the nearer one
+     second, because a turret with only one thing in range quite
+     rightly shoots it - and then this would be asking whether it ever
+     fired a single bolt at the wrong one, which is not the rule. The
+     rule is that a nearer target appearing does not tempt it away. */
+  const inner = await dummy(0, -12);     // eight metres off, but nearer the town
+  const outer = await dummy(0, -24);     // four metres off, and further out
+  await wait(1500);
+  const aiming = await say(';guns');
+  check('it is aiming at the one nearest the middle of town (' + aiming + ')',
+        aiming.indexOf('-> #' + inner) >= 0);
+  check('   ... and that is the one losing health, not the nearer one',
+        (await health(inner)) < 60 && (await health(outer)) === 60);
+
+  console.log('\n--- walls stop feet, not bullets ---');
+  await say(';loadout a');
+  await say(';sweep');
+  await say(';place turret 0 -12');
+  await say(';place wall 0 -16');
+  const behind = await dummy(0, -20);
+  await wait(1600);
+  check('a wall straight between gun and target changes nothing (' +
+        (await health(behind)) + '/60)', (await health(behind)) < 60);
+
+  console.log('\n--- and nothing slips through the gap between two frames ---');
+  /* A bolt covers two thirds of a metre between frames. Asking only
+     whether it ENDED UP inside something - which is what Star Arena
+     does - lets a target standing right next to a turret sit in that
+     gap and never be hit at all. */
+  await say(';loadout a');
+  await say(';sweep');
+  await say(';place turret 0 -12');
+  const touching = await dummy(0, -13);
+  await wait(1500);
+  check('a target one metre from the muzzle is hit anyway (' +
+        (await health(touching)) + '/60)', (await health(touching)) < 60);
+
+  console.log('\n--- a laser cannon is a different animal ---');
+  await say(';loadout c');
+  await say(';sweep');
+  await say(';place laser 0 -12');
+  const l1 = await dummy(0, -16);
+  await wait(900);
+  check('it does nothing at all while it locks on (' + (await health(l1)) + '/60)',
+        (await health(l1)) === 60);
+  const doneL = await finish(l1, 12000);
+  const tookL = Number((doneL.match(/took ([\d.]+)s/) || [])[1]);
+  const waited = Number((doneL.match(/waited ([\d.]+)s/) || [])[1]);
+  check('the lock-on really is a second and a fifth (' + waited + 's)',
+        waited > 1.1 && waited < 1.6);
+  check('so it takes about 3.9s over one target - SLOWER than a turret (' +
+        tookL + 's)', tookL > 3.2 && tookL < 4.8);
+  check('   ... which is the whole difference between the two guns',
+        tookL > took1);
+
+  console.log('\n--- but it goes through everything on the line ---');
+  await say(';sweep');
+  const p1 = await dummy(0, -16);
+  const p2 = await dummy(0, -20);
+  await wait(2600);
+  /* Both read in ONE answer, because reading them in two would put a
+     tenth of a second of beam between the numbers and make a perfectly
+     good pair look uneven. */
+  const both = (await say(';targets')).match(/([\d.]+)\/60/g).map(x => parseFloat(x));
+  check('two in a line both take it, and take the same (' + both.join(' and ') + ')',
+        both.length === 2 && both[0] < 60 && both[1] < 60 &&
+        Math.abs(both[0] - both[1]) < 6);
+
+  console.log('\n--- and it has to stop and cool down ---');
+  /* Four seconds of beam at twenty-two a second is eighty-eight, and
+     then it has had enough. A target too tough to finish off is the
+     only way to watch that happen. */
+  /* A FRESH laser. The one above has been beaming at two targets and
+     is still half hot, and half a tank of heat is only two seconds of
+     beam - which is the mechanism working, but it is not what this
+     check is asking about. */
+  await say(';loadout c');
+  await say(';sweep');
+  await say(';place laser 0 -12');
+  const tough = await dummy(0, -16, 600);
+  let wentHot = false;
+  for (let i = 0; i < 40; i++) {
+    await wait(200);
+    if (/hot/.test(await say(';guns'))) { wentHot = true; break; }
+  }
+  check('after four seconds of beam it overheats and stops', wentHot);
+  const burst = Number((await story(tough)).match(/([\d.]+) taken/)[1]);
+  check('   ... having given about eighty-eight in that burst (' + burst + ')',
+        burst > 70 && burst < 115);
+  await wait(2000);
+  const stillHot = Number((await story(tough)).match(/([\d.]+) taken/)[1]);
+  check('   ... and while it is hot it gives nothing at all',
+        stillHot - burst < 12);
+
+  console.log('\n--- your own little gun ---');
+  await say(';loadout a');      // clears the laser away with everything else
+  await say(';sweep');
+  await say(';phase watch');
+  await say(';put 0 0.4 -8');
+  await say(';look 0 -0.1');
+  const mine = await dummy(0, -16);
+  await say(';shoot');
+  /* Asked straight away. Half a second later it has reloaded and the
+     answer is quite rightly yes. */
+  check('   ... and you cannot get two off at once', !(await admin(';shoot')));
+  await wait(700);
+  check('your gun takes exactly five off (' + (await health(mine)) + '/60)',
+        (await health(mine)) === 55);
+  check('   ... which makes it the feeblest thing on the field, on purpose',
+        5 / 0.5 < 12 / 0.8);
+
+  console.log('\n--- a gun you take down stops being a gun ---');
+  await say(';phase build');
+  await say(';sweep');
+  await say(';place turret 0 -12');
+  const orphan = await dummy(0, -16);
+  await wait(1200);
+  await say(';sell 0 -12');
+  check('selling it leaves no guns at all (' + (await say(';guns')) + ')',
+        /^0 guns/.test(await say(';guns')));
+  await wait(500);
+  const hpThen = await health(orphan);
+  await wait(1500);
+  check('and the target stops losing health the moment it goes (' +
+        hpThen + ' then ' + (await health(orphan)) + ')',
+        (await health(orphan)) === hpThen);
+  await say(';sweep');
+
+  console.log('\n--- the words we use ---');
+  const src = await page.evaluate(() => document.documentElement.outerHTML);
+  check('nobody dies and nothing is killed anywhere in it',
+        !/\bdie\b|\bdead\b|\bkill/i.test(src));
+  check('   ... it is knocked out, the way it is in Star Arena',
+        /knocked out/i.test(src));
+
   // ---------------------------------------------------- phones
   console.log('\n--- the three phone sizes ---');
   const layoutTrouble = pg => pg.evaluate(() => {
@@ -343,6 +587,22 @@ async function walkTill(keys, there, maxMs) {
     check(name + ' (' + w + 'x' + h + '): nothing off screen or overlapping' +
           (bad.length ? ' [' + bad.join(', ') + ']' : ''), bad.length === 0);
   }
+
+  /* And again with the gun out, because that swaps the hammer for a
+     different button and takes the whole tool row away. */
+  await say(';phase watch');
+  for (const [w, h, name] of [[320, 568, 'small'], [390, 844, 'tall']]) {
+    await page.setViewportSize({ width: w, height: h });
+    await wait(400);
+    const bad = await layoutTrouble(page);
+    check(name + ' with the gun out: nothing off screen or overlapping' +
+          (bad.length ? ' [' + bad.join(', ') + ']' : ''), bad.length === 0);
+  }
+  check('and the hammer button has become a gun',
+        /💥/.test(await page.$eval('#btn-build', e => e.textContent)));
+  await say(';phase build');
+  check('   ... and a hammer again when you go back',
+        /🔨/.test(await page.$eval('#btn-build', e => e.textContent)));
 
   await page.setViewportSize({ width: 1000, height: 680 });
   await say(';put 0 9.4 -2');
