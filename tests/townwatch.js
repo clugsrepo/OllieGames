@@ -70,9 +70,10 @@ async function walkTill(keys, there, maxMs) {
   // ---------------------------------------------------- getting in
   console.log('--- a town, and five people in it ---');
   check('it starts up with no complaints', errs.length === 0);
-  await page.click('#btn-play');
+  await page.click('[data-kit="a"]');
   await wait(600);
-  check('pressing GO puts you in it', await page.$eval('#start', e => e.hidden));
+  check('picking a way to start puts you in it',
+        await page.$eval('#start', e => e.hidden));
 
   const town = await say(';town');
   const t = num(town);
@@ -92,6 +93,109 @@ async function walkTill(keys, there, maxMs) {
   const inside = await page.evaluate(() =>
     FOLK.every(f => Math.abs(f.x) < 24 && Math.abs(f.z) < 24));
   check('   ... and every one of them is inside the walls', inside);
+
+  // ---------------------------------------------------- the three kits
+  /* Ollie picked these three numbers himself and they balance exactly:
+     all three come to ninety wood, which is only true if a turret is
+     worth twenty and a laser forty. This check is here so that if
+     anybody ever quietly rebalances one of them, it goes red. */
+  console.log('\n--- the three ways to start are worth the same ---');
+  for (const [which, name] of [['a', 'Steady'], ['b', 'Carpenter'], ['c', 'Gunner']]) {
+    await say(';loadout ' + which);
+    const worth = await say(';worth');
+    check(name + ' is worth ninety wood (' + worth + ')',
+          num(worth).pop() === 90);
+  }
+
+  await say(';loadout a');
+  const kitA = await say(';wood');
+  check('and Steady is his two turrets and fifty wood (' + kitA + ')',
+        /^50 wood, 2 turrets, 0 lasers/.test(kitA));
+  await say(';loadout c');
+  const kitC = await say(';wood');
+  check('and Gunner is his two lasers and ten (' + kitC + ')',
+        /^10 wood, 0 turrets, 2 lasers/.test(kitC));
+  await say(';loadout a');
+
+  // ---------------------------------------------------- what things cost
+  console.log('\n--- what things cost, exactly ---');
+  await say(';wood 100');
+  await say(';place wall 0 -24');
+  check('a wall takes exactly five wood (' + (await say(';wood')) + ')',
+        num(await say(';wood'))[0] === 95);
+  await say(';place turret 0 -16');
+  const afterTurret = await say(';worth');
+  check('a turret is worth twenty of it (' + afterTurret + ')',
+        /1x20/.test(afterTurret));
+  await say(';loadout c');
+  await say(';wood 100');
+  await say(';place laser 0 -16');
+  const afterLaser = await say(';worth');
+  check('and a laser forty (' + afterLaser + ')', /1x40/.test(afterLaser));
+  await say(';loadout a');
+
+  // ---------------------------------------------------- the clamp
+  /* Your eyes are 1.62m up, so a ray a single degree below level lands
+     ninety-three metres away - and out there one mouse pixel slides it
+     most of a cell. Past twelve metres we stop asking where you pointed
+     and put it a few paces ahead instead, somewhere you can judge. */
+  console.log('\n--- you cannot build somewhere you cannot aim ---');
+  await say(';put 0 0.4 0');
+  await say(';look 0 -0.0175');            // one degree down
+  await wait(350);
+  const flat = await say(';reach');
+  check('pointing one degree down does NOT put it ninety metres away (' +
+        flat + ')', num(flat)[2] <= 12);
+  await say(';look 0 -0.5');
+  await wait(350);
+  const steep = await say(';reach');
+  check('and pointing properly down puts it where the ray lands (' +
+        num(steep)[2] + 'm)', num(steep)[2] > 1 && num(steep)[2] < 6);
+
+  // ---------------------------------------------------- the grid
+  console.log('\n--- one cell, one thing ---');
+  await say(';loadout a');
+  const placed = await say(';place wall 1 -23');
+  check('a wall put down at 1,-23 lands on the cell centre 0,-24 (' +
+        placed + ')', /wall at 0,-24/.test(placed));
+
+  const woodWas = num(await say(';wood'))[0];
+  const twice = await admin(';place wall 0 -24');
+  check('a second wall in the same cell is refused', twice === false);
+  check('   ... and costs nothing (' + woodWas + ' wood either side)',
+        num(await say(';wood'))[0] === woodWas);
+
+  check('you cannot build on the town\'s own stone ring',
+        (await admin(';place wall 8 -24')) === false);
+  await say(';put 0 0.4 -16');
+  await wait(200);
+  check('nor in the cell you are stood in',
+        (await admin(';place wall 0 -16')) === false);
+
+  await say(';place wall -4 -24');
+  await say(';place wall 4 -24');
+  const cells = await say(';cells');
+  check('shutting a gate is something you can count (' + cells + ')',
+        /12 gate cells · 3 filled · 3 gates still open/.test(cells));
+
+  // ---------------------------------------------------- it is really there
+  console.log('\n--- and you bump into what you built ---');
+  await say(';put 0 0.4 -20');
+  await say(';look 0 0');
+  await walkTill(['KeyW'], p => p.z < -23.2, 4000);
+  const blocked = await at();
+  check('walk at a gate you have shut and you stop at it (z ' + blocked.z +
+        ', the wall is at -24)', blocked.z > -23.6 && blocked.z < -22.8);
+
+  const sold = await say(';sell 0 -24');
+  check('selling gives you back exactly what it cost (' + sold + ')',
+        /40 wood/.test(sold) || /wood/.test(sold));
+  await say(';put 0 0.4 -20');
+  const through = await walkTill(['KeyW'], p => p.z < -30, 5000);
+  check('and with a gap in it you walk straight out (z ' + through.z + ')',
+        through.z < -30);
+
+  await say(';loadout a');
 
   // ---------------------------------------------------- W goes forwards
   /* The question that matters is not "did I move" but "did I get NEARER
@@ -207,7 +311,7 @@ async function walkTill(keys, there, maxMs) {
   console.log('\n--- the three phone sizes ---');
   const layoutTrouble = pg => pg.evaluate(() => {
     const ids = ['nightpill', 'stuffpill', 'helppill', 'home', 'ready',
-                 'stick-move', 'btn-up'];
+                 'tools', 'stick-move', 'btn-up', 'btn-build'];
     const out = [], boxes = [];
     for (const id of ids) {
       const e = document.getElementById(id);

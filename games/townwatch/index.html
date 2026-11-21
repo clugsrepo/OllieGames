@@ -116,8 +116,44 @@
     border: 2px solid rgba(255,255,255,0.3);
     pointer-events: auto;
   }
-  #btn-up { bottom: max(24px, calc(env(safe-area-inset-bottom) + 18px)); }
+  #btn-up { bottom: max(104px, calc(env(safe-area-inset-bottom) + 98px)); }
+  #btn-build { bottom: max(24px, calc(env(safe-area-inset-bottom) + 18px)); }
   .trim:active { transform: scale(0.93); }
+
+  /* the row of things you can build, above the READY button */
+  #tools {
+    display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+    max-width: 100%; pointer-events: auto;
+  }
+  .tool {
+    font-family: inherit; font-size: 0.8rem; font-weight: bold;
+    padding: 8px 11px; border-radius: 11px; cursor: pointer;
+    color: #d8e2ff; background: rgba(8,11,22,0.8);
+    border: 2px solid rgba(255,255,255,0.18);
+    white-space: nowrap;
+  }
+  .tool b { color: #ffd93d; margin-right: 3px; }
+  .tool.on { color: #141018; background: #ffd93d; border-color: #fff3b0; }
+  .tool.on b { color: #141018; }
+
+  /* the three ways to start */
+  .three {
+    display: flex; gap: 12px; justify-content: center;
+    flex-wrap: wrap; margin: 16px 0;
+  }
+  .kit {
+    flex: 1 1 180px; max-width: 210px; text-align: center;
+    border-radius: 16px; padding: 14px 12px;
+    background: rgba(0,0,0,0.26);
+    border: 2px solid rgba(255,255,255,0.16);
+  }
+  .kit h3 { font-size: 1.05rem; margin-bottom: 8px; color: #ffd93d; }
+  .kit .got {
+    font-size: 1rem; font-weight: bold; color: #fff;
+    line-height: 1.45; margin-bottom: 8px;
+  }
+  .kit .plays { font-size: 0.82rem; margin-bottom: 10px; }
+  .kit .btn { font-size: 0.9rem; padding: 9px 12px; margin: 0; }
 
   @media (max-width: 620px) {
     #helppill { display: none; }
@@ -128,6 +164,11 @@
     #stuffpill { top: calc(max(12px, env(safe-area-inset-top)) + 40px); }
     #home { font-size: 0.8rem; padding: 6px 11px; }
     #ready { font-size: 0.88rem; padding: 11px 14px; }
+    /* words off the tool buttons on a narrow screen - the pictures and
+       the numbers do the talking, and tapping one says its name out
+       loud in the middle of the screen anyway. */
+    .tool span { display: none; }
+    .tool { padding: 8px 9px; font-size: 0.9rem; }
   }
   /* On a phone the bottom belongs to the thumbs, so everything else
      goes to the top. */
@@ -173,12 +214,18 @@
 <a id="home" href="../../index.html">← Home</a>
 
 <div id="bottom">
+  <div id="tools" hidden>
+    <button class="tool on" id="tool0"><b>1</b> 🧱 <span>Wall</span></button>
+    <button class="tool" id="tool1"><b>2</b> 🔫 <span>Turret</span></button>
+    <button class="tool" id="tool2"><b>3</b> 🔴 <span>Laser</span></button>
+  </div>
   <button id="ready" hidden>READY FOR THEM</button>
 </div>
 
 <div id="touch" hidden>
   <div id="stick-move"><div class="knob" id="knob"></div></div>
   <button class="trim" id="btn-up">⬆</button>
+  <button class="trim" id="btn-build" hidden>🔨</button>
 </div>
 
 <div class="panel" id="start">
@@ -189,11 +236,38 @@
     <p>You can't be everywhere at once — so you build. Walls to slow them
        down, turrets to see them off, and both only where you think
        they're coming.</p>
+    <p><b>Pick what you start with.</b> All three are worth exactly the
+       same — ninety wood's worth — they just spend it differently.</p>
+
+    <div class="three">
+      <div class="kit" id="kit-a">
+        <h3>🔫 Steady</h3>
+        <p class="got">2 turrets<br>50 wood</p>
+        <p class="plays">Ten walls and two guns. A bit of everything.</p>
+        <button class="btn" data-kit="a">START LIKE THIS</button>
+      </div>
+      <div class="kit" id="kit-b">
+        <h3>🪵 Carpenter</h3>
+        <p class="got">1 turret<br>70 wood</p>
+        <p class="plays">Fourteen walls and one gun. Shelter first, and
+           buy the guns later.</p>
+        <button class="btn" data-kit="b">START LIKE THIS</button>
+      </div>
+      <div class="kit" id="kit-c">
+        <h3>🔴 Gunner</h3>
+        <p class="got">2 laser cannons<br>10 wood</p>
+        <p class="plays">Two big guns and almost nowhere to hide. Strong
+           now, awkward later.</p>
+        <button class="btn" data-kit="c">START LIKE THIS</button>
+      </div>
+    </div>
+
     <p id="how-desktop"><b>W A S D</b> to walk · <b>mouse</b> to look ·
-       <b>Space</b> to climb the bell tower</p>
+       <b>Space</b> to climb the bell tower · <b>1 2 3</b> to pick what to
+       build · <b>F</b> to build it · <b>right-click</b> to sell it back</p>
     <p id="how-touch" hidden>Left stick to walk · drag anywhere to look ·
-       <b>⬆</b> to climb the bell tower</p>
-    <p><button class="btn" id="btn-play">GO AND HAVE A LOOK</button></p>
+       <b>⬆</b> to climb · tap a tool, then <b>🔨</b> to build ·
+       hold <b>🔨</b> on a thing to sell it back</p>
   </div>
 </div>
 
@@ -668,6 +742,261 @@ function stepFolk(dt) {
 }
 
 /* ---------------------------------------------------------------------
+   WHAT YOU START WITH
+
+   Ollie picked these three himself, and they turn out to balance
+   exactly. "2 turrets and 50 wood" and "1 turret and 70 wood" are only
+   worth the same if a turret is worth 20 wood - and then both come to
+   90. For "10 wood and 2 laser cannons" to match, a laser has to be
+   worth 40, which is exactly two turrets, and that comes to 90 as well.
+
+   So these are his numbers used as written, and everything in the game
+   is priced off them. If anybody ever changes one, ;worth stops saying
+   ninety and the test suite goes red.
+   --------------------------------------------------------------------- */
+const PRICE = { wall: 5, turret: 20, laser: 40 };
+
+const KITS = {
+  a: { name: "Steady",    wood: 50, turret: 2, laser: 0 },
+  b: { name: "Carpenter", wood: 70, turret: 1, laser: 0 },
+  c: { name: "Gunner",    wood: 10, turret: 0, laser: 2 }
+};
+
+const kit = { wood: 0, turret: 0, laser: 0 };
+
+/* What everything in your hands is worth, counted in wood. All three
+   kits answer 90. */
+function kitWorth() {
+  return kit.wood + kit.turret * PRICE.turret + kit.laser * PRICE.laser;
+}
+
+function takeKit(which) {
+  const k = KITS[which];
+  if (!k) return null;
+  kit.wood = k.wood; kit.turret = k.turret; kit.laser = k.laser;
+  refreshStuff();
+  return k;
+}
+
+/* ---------------------------------------------------------------------
+   BUILDING
+
+   One cell, one thing. Cells are four metres, and everything lines up
+   with them, so "is this gate shut?" is a question you can count rather
+   than squint at: three cells per gate, and shut means all three full.
+   --------------------------------------------------------------------- */
+const BUILT = new Map();          // "x,z" -> the thing standing there
+const BUILD_REACH = 12;           // see the note in aimedCell()
+const BUILD_AHEAD = 6;            // where it goes when you point at nothing
+
+const KINDS = [
+  { id: "wall",   name: "Wall",   emoji: "🧱", costs: "wood",
+    w: CELL, h: 2.5, d: 0.5, colour: 0xa9763f },
+  { id: "turret", name: "Turret", emoji: "🔫", costs: "turret",
+    w: 1.4, h: 1.6, d: 1.4, colour: 0x8f9bb8 },
+  { id: "laser",  name: "Laser",  emoji: "🔴", costs: "laser",
+    w: 1.5, h: 1.9, d: 1.5, colour: 0xc1454f }
+];
+let tool = 0;
+
+const _ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const _hit = new THREE.Vector3();
+const _fwd = new THREE.Vector3();
+const shooter = new THREE.Raycaster();
+const _mid = new THREE.Vector2(0, 0);
+
+/* WHERE THE GHOST GOES, and why it is not simply wherever you point.
+
+   Your eyes are 1.62m up, so a ray pitched a little below level lands
+   1.62/tan(angle) away - and how far that answer MOVES for a given
+   twitch of your hand grows with the square of the distance. At five
+   metres one mouse pixel slides it three centimetres. At twenty, half a
+   metre. At thirty, more than a metre, which is a third of a cell.
+
+   So pointing further than about twelve metres is not aiming, it is
+   wishing. Past that we stop asking where you pointed and simply put it
+   a few paces in front of you, which is somewhere you can judge. */
+function aimedCell() {
+  camera.getWorldDirection(_fwd);
+  shooter.setFromCamera(_mid, camera);
+  const landed = shooter.ray.intersectPlane(_ground, _hit);
+  let x, z, far = Infinity;
+  if (landed) {
+    far = Math.hypot(_hit.x - me.pos.x, _hit.z - me.pos.z);
+  }
+  if (landed && far <= BUILD_REACH) {
+    x = _hit.x; z = _hit.z;
+  } else {
+    x = me.pos.x + _fwd.x * BUILD_AHEAD;
+    z = me.pos.z + _fwd.z * BUILD_AHEAD;
+    far = BUILD_AHEAD;
+  }
+  return { x: snap(x), z: snap(z), reach: Math.min(far, BUILD_REACH) };
+}
+
+/* Is the stone ring itself sitting in this cell? You cannot build on
+   the town's own wall - only in the gaps it leaves. */
+function ringCellAt(x, z) {
+  const sx = snap(x), sz = snap(z);
+  const onEdge = Math.abs(sx) === TOWN || Math.abs(sz) === TOWN;
+  return onEdge && !gateCellAt(sx, sz);
+}
+
+function standingCell() {
+  return cellKey(me.pos.x, me.pos.z);
+}
+
+/* Can this go here, and if not, why not? One place that decides, so the
+   ghost turning red and the refusal you hear are never out of step. */
+function whyNot(kindId, x, z) {
+  const sx = snap(x), sz = snap(z);
+  if (Math.abs(sx) > TOWN || Math.abs(sz) > TOWN) return "Too far out of town.";
+  if (ringCellAt(sx, sz)) return "That's the town's own wall.";
+  if (BUILT.has(cellKey(sx, sz))) return "Something's there already.";
+  if (cellKey(sx, sz) === standingCell()) return "You're stood in the way.";
+  const kind = KINDS.find(k => k.id === kindId);
+  if (!kind) return "Never heard of that.";
+  if (kind.costs === "wood") {
+    if (kit.wood < PRICE.wall) return "Not enough wood.";
+  } else if (kit[kind.costs] < 1) {
+    return "You haven't got a " + kind.name.toLowerCase() + ".";
+  }
+  return null;
+}
+
+/* Which way round does a wall lie? In a gateway it lines up with the
+   gate, because that is the only way it is any use. Anywhere else it
+   follows whichever way you are facing, rounded to a quarter turn. */
+function wallTurn(x, z) {
+  const g = gateCellAt(x, z);
+  if (g) return g.along === "x" ? 0 : Math.PI / 2;
+  const facing = Math.abs(Math.sin(me.yaw)) > Math.abs(Math.cos(me.yaw));
+  return facing ? Math.PI / 2 : 0;
+}
+
+function putUp(kindId, x, z, turn) {
+  const kind = KINDS.find(k => k.id === kindId);
+  const sx = snap(x), sz = snap(z);
+  const sideways = turn === undefined ? wallTurn(sx, sz) : turn;
+  const acrossX = kind.id !== "wall" || sideways === 0;
+  const made = block(sx, 0, sz,
+                     acrossX ? kind.w : kind.d, kind.h,
+                     acrossX ? kind.d : kind.w, kind.colour);
+  const thing = { kind: kind.id, x: sx, z: sz, turn: sideways,
+                  mesh: made.mesh, box: made.box };
+  BUILT.set(cellKey(sx, sz), thing);
+
+  if (kind.costs === "wood") kit.wood -= PRICE.wall;
+  else kit[kind.costs] -= 1;
+  refreshStuff();
+  return thing;
+}
+
+/* Taking it down again gives you back exactly what it cost. Putting a
+   wall in the wrong cell is easy to do when you are stood in the middle
+   of it, and five wood in the bin for a slip of the hand would teach
+   nobody anything. */
+function takeDown(thing) {
+  if (!thing) return false;
+  scene.remove(thing.mesh);
+  let i = SHOOTABLE.indexOf(thing.mesh);
+  if (i >= 0) SHOOTABLE.splice(i, 1);
+  if (thing.box) { i = SOLIDS.indexOf(thing.box); if (i >= 0) SOLIDS.splice(i, 1); }
+  BUILT.delete(cellKey(thing.x, thing.z));
+
+  const kind = KINDS.find(k => k.id === thing.kind);
+  if (kind.costs === "wood") kit.wood += PRICE.wall;
+  else kit[kind.costs] += 1;
+  refreshStuff();
+  return true;
+}
+
+/* ---- the see-through thing that shows you where it would go ---- */
+const ghostOk = new THREE.MeshBasicMaterial({
+  color: 0x6bff9f, transparent: true, opacity: 0.38 });
+const ghostNo = new THREE.MeshBasicMaterial({
+  color: 0xff5d5d, transparent: true, opacity: 0.3 });
+const ghost = new THREE.Mesh(BOX, ghostOk);
+ghost.visible = false;
+scene.add(ghost);
+
+/* The cell underneath it, painted on the ground, because at four metres
+   a cell is wider than the thing standing in it and you want to know
+   WHICH SQUARE you are about to fill. */
+const ghostPad = new THREE.Mesh(new THREE.PlaneGeometry(CELL * 0.92, CELL * 0.92),
+  new THREE.MeshBasicMaterial({ color: 0x6bff9f, transparent: true, opacity: 0.16 }));
+ghostPad.rotation.x = -Math.PI / 2;
+ghostPad.visible = false;
+scene.add(ghostPad);
+
+let aimed = { x: 0, z: 0, reach: 0 }, aimedWhy = null;
+
+function refreshGhost() {
+  if (!playing || !building) { ghost.visible = false; ghostPad.visible = false; return; }
+  aimed = aimedCell();
+  const kind = KINDS[tool];
+  aimedWhy = whyNot(kind.id, aimed.x, aimed.z);
+
+  const sideways = wallTurn(aimed.x, aimed.z);
+  const acrossX = kind.id !== "wall" || sideways === 0;
+  ghost.scale.set(acrossX ? kind.w : kind.d, kind.h, acrossX ? kind.d : kind.w);
+  ghost.position.set(aimed.x, kind.h / 2, aimed.z);
+  ghost.material = aimedWhy ? ghostNo : ghostOk;
+  ghost.visible = true;
+
+  ghostPad.position.set(aimed.x, 0.04, aimed.z);
+  ghostPad.material.color.setHex(aimedWhy ? 0xff5d5d : 0x6bff9f);
+  ghostPad.visible = true;
+}
+
+function buildHere() {
+  if (!playing || !building) return;
+  const kind = KINDS[tool];
+  const why = whyNot(kind.id, aimed.x, aimed.z);
+  if (why) { say(why, 1.3); return; }
+  putUp(kind.id, aimed.x, aimed.z);
+  say(kind.emoji + " " + kind.name + " up.", 0.8);
+}
+
+/* Selling: whatever you are pointing at, if it is close enough to
+   reach. */
+function sellHere() {
+  if (!playing || !building) return;
+  const spot = aimedCell();
+  const thing = BUILT.get(cellKey(spot.x, spot.z));
+  if (!thing) { say("Nothing of yours there.", 1); return; }
+  const kind = KINDS.find(k => k.id === thing.kind);
+  takeDown(thing);
+  say("Took the " + kind.name.toLowerCase() + " back.", 1);
+}
+
+function pickTool(n) {
+  tool = Math.max(0, Math.min(KINDS.length - 1, n));
+  for (let i = 0; i < KINDS.length; i++) {
+    const b = el("tool" + i);
+    if (b) b.classList.toggle("on", i === tool);
+  }
+  say(KINDS[tool].emoji + " " + KINDS[tool].name, 0.8);
+}
+
+/* How many gates are shut? Three cells each, and shut means all three
+   are full of something. */
+function gateState() {
+  let filled = 0, shut = 0;
+  for (const g of GATES) {
+    let here = 0;
+    for (const o of GATE_CELLS) {
+      const x = g.along === "x" ? o : g.at[0];
+      const z = g.along === "x" ? g.at[1] : o;
+      if (BUILT.has(cellKey(x, z))) here++;
+    }
+    filled += here;
+    if (here === GATE_CELLS.length) shut++;
+  }
+  return { filled, shut, open: GATES.length - shut };
+}
+
+/* ---------------------------------------------------------------------
    YOU
    --------------------------------------------------------------------- */
 const BODY_R = 0.4;
@@ -686,7 +1015,10 @@ const me = {
   onGround: false
 };
 let playing = false;
-let wood = 0, coins = 0;
+let coins = 0;
+/* Which half of the night it is. Building is the quiet half, when the
+   ghost shows and you can put things up and take them down again. */
+let building = true;
 
 /* ---------------------------------------------------------------------
    BUMPING INTO THINGS
@@ -823,6 +1155,8 @@ function draw() {
   camera.rotation.set(0, 0, 0);
   camera.rotateY(me.yaw);
   camera.rotateX(me.pitch);
+  camera.updateMatrixWorld(true);     // the ghost is worked out from this
+  refreshGhost();
   renderer.render(scene, camera);
 }
 
@@ -840,7 +1174,7 @@ function say(text, seconds) {
 }
 
 function refreshStuff() {
-  el("wood").textContent = wood;
+  el("wood").textContent = kit.wood;
   el("coins").textContent = coins;
 }
 
@@ -851,6 +1185,8 @@ const keys = {};
 addEventListener("keydown", e => {
   if (e.repeat) return;
   keys[e.code] = true;
+  if (/^Digit[1-3]$/.test(e.code) && playing) pickTool(Number(e.code.slice(5)) - 1);
+  if (e.code === "KeyF" && playing) buildHere();
   if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].indexOf(e.code) >= 0) {
     e.preventDefault();
   }
@@ -882,6 +1218,13 @@ document.addEventListener("pointerlockchange", () => {
 canvas.addEventListener("click", () => {
   if (playing && !HAS_TOUCH && !pointerLocked) canvas.requestPointerLock();
 });
+canvas.addEventListener("mousedown", e => {
+  if (!playing) return;
+  if (!HAS_TOUCH && !pointerLocked) return;      // that click was to grab the mouse
+  if (e.button === 0) buildHere();
+  else if (e.button === 2) sellHere();
+});
+canvas.addEventListener("contextmenu", e => e.preventDefault());
 addEventListener("mousemove", e => {
   if (!pointerLocked) return;
   me.yaw -= e.movementX * LOOK;
@@ -956,6 +1299,30 @@ function trimButton(id, set) {
 }
 trimButton("btn-up", on => { touchUp = on; });
 
+/* Tap the hammer to build, hold it to sell back. One button for both,
+   because the right-hand side of a phone has not got room for two. */
+let hammerAt = 0, hammerSold = false;
+const hammer = el("btn-build");
+for (const ev of ["touchstart", "mousedown"]) {
+  hammer.addEventListener(ev, e => {
+    e.preventDefault();
+    hammerAt = performance.now(); hammerSold = false;
+  }, { passive: false });
+}
+for (const ev of ["touchend", "touchcancel"]) {
+  hammer.addEventListener(ev, e => {
+    e.preventDefault();
+    if (!hammerSold) buildHere();
+  }, { passive: false });
+}
+addEventListener("mouseup", () => { if (hammerAt && !hammerSold) hammerAt = 0; });
+setInterval(() => {
+  if (hammerAt && !hammerSold && performance.now() - hammerAt > 550) {
+    hammerSold = true;
+    sellHere();
+  }
+}, 100);
+
 const HAS_TOUCH = matchMedia("(pointer: coarse)").matches;
 if (HAS_TOUCH) {
   el("touch").hidden = false;
@@ -978,17 +1345,32 @@ buildTown();
 placeFolk();
 refreshStuff();
 
-function startGame() {
+function startGame(which) {
+  const k = takeKit(which || "a");
   el("start").hidden = true;
+  el("tools").hidden = false;
+  el("btn-build").hidden = false;
   playing = true;
+  building = true;
   me.pos.set(0, 0.4, 14);
   me.yaw = 0; me.pitch = -0.04;
+  pickTool(0);
   el("helppill").textContent =
-    "Five people live here. Climb the bell tower for a look at the whole town.";
-  say("Have a wander. The ladder up the tower is on the south side.", 3.4);
+    "Pick a tool, point at the ground and build. The gates are the way in — " +
+    "climb the bell tower to see all four.";
+  say("You're the " + k.name + ".\n" + k.wood + " wood" +
+      (k.turret ? ", " + k.turret + " turret" + (k.turret > 1 ? "s" : "") : "") +
+      (k.laser ? ", " + k.laser + " laser cannon" + (k.laser > 1 ? "s" : "") : "") +
+      ".", 3.6);
   if (!HAS_TOUCH) canvas.requestPointerLock();
 }
-el("btn-play").addEventListener("click", startGame);
+for (const b of document.querySelectorAll("[data-kit]")) {
+  b.addEventListener("click", () => startGame(b.getAttribute("data-kit")));
+}
+for (let i = 0; i < KINDS.length; i++) {
+  const b = el("tool" + i);
+  if (b) b.addEventListener("click", () => pickTool(i));
+}
 
 let last = performance.now();
 let clock = 0;
@@ -1028,6 +1410,101 @@ const ADMIN_COMMANDS = [
       me.yaw = y;
       me.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, p));
       return "Looking " + y.toFixed(2) + ", " + p.toFixed(2);
+    } },
+
+  { name: "loadout", args: "<a/b/c>",
+    help: "Start again with one of the three kits",
+    state: () => kit.wood + "w " + kit.turret + "t " + kit.laser + "l",
+    run: words => {
+      const w = String(words[0] || "").toLowerCase();
+      if (!KITS[w]) return { bad: "Say a, b or c" };
+      if (!playing) startGame(w);
+      else {
+        /* Starting over mid-game: clear what is up, then hand out the
+           new kit. */
+        for (const thing of Array.from(BUILT.values())) takeDown(thing);
+        takeKit(w);
+      }
+      return KITS[w].name + ": " + kit.wood + " wood, " + kit.turret +
+             " turret, " + kit.laser + " laser";
+    } },
+
+  { name: "worth", args: "",
+    help: "What everything in your hands is worth, in wood",
+    run: () => kit.wood + " wood + " + kit.turret + "x" + PRICE.turret +
+               " + " + kit.laser + "x" + PRICE.laser + " = " + kitWorth() + " wood" },
+
+  { name: "wood", args: "[n]",
+    help: "How much wood you have, or set it",
+    state: () => String(kit.wood),
+    run: words => {
+      if (words.length) {
+        const n = Number(words[0]);
+        if (!isFinite(n) || n < 0) return { bad: "Needs a number" };
+        kit.wood = Math.floor(n);
+        refreshStuff();
+      }
+      return kit.wood + " wood, " + kit.turret + " turrets, " + kit.laser + " lasers";
+    } },
+
+  { name: "tool", args: "[wall/turret/laser]",
+    help: "What you are about to build",
+    state: () => KINDS[tool].id,
+    run: words => {
+      const w = String(words[0] || "").toLowerCase();
+      if (w) {
+        const i = KINDS.findIndex(k => k.id === w);
+        if (i < 0) return { bad: "wall, turret or laser" };
+        pickTool(i);
+      }
+      return "holding a " + KINDS[tool].name.toLowerCase();
+    } },
+
+  { name: "reach", args: "",
+    help: "Where the ghost is, and how far off",
+    run: () => {
+      const spot = aimedCell();
+      const why = whyNot(KINDS[tool].id, spot.x, spot.z);
+      return "ghost at " + spot.x + "," + spot.z + " · " +
+             spot.reach.toFixed(1) + "m away · " + (why ? "no: " + why : "clear");
+    } },
+
+  { name: "place", args: "<kind> <x> <z>",
+    help: "Build one exactly there",
+    run: words => {
+      const w = String(words[0] || "").toLowerCase();
+      const x = Number(words[1]), z = Number(words[2]);
+      if (!KINDS.some(k => k.id === w)) return { bad: "wall, turret or laser" };
+      if (!isFinite(x) || !isFinite(z)) return { bad: "Needs an x and a z" };
+      const why = whyNot(w, x, z);
+      if (why) return { bad: why };
+      const thing = putUp(w, x, z);
+      return w + " at " + thing.x + "," + thing.z + " · " + kit.wood + " wood left";
+    } },
+
+  { name: "sell", args: "<x> <z>",
+    help: "Take one down again and get it back",
+    run: words => {
+      const x = Number(words[0]), z = Number(words[1]);
+      if (!isFinite(x) || !isFinite(z)) return { bad: "Needs an x and a z" };
+      const thing = BUILT.get(cellKey(x, z));
+      if (!thing) return { bad: "Nothing at " + snap(x) + "," + snap(z) };
+      const was = thing.kind;
+      takeDown(thing);
+      return "took the " + was + " back · " + kit.wood + " wood, " +
+             kit.turret + " turrets, " + kit.laser + " lasers";
+    } },
+
+  { name: "cells", args: "",
+    help: "What is built, and how shut the gates are",
+    state: () => String(BUILT.size),
+    run: () => {
+      const g = gateState();
+      const mine = Array.from(BUILT.values())
+        .map(t => t.kind + " " + t.x + "," + t.z).join(" · ");
+      return BUILT.size + " built · " + (GATES.length * GATE_CELLS.length) +
+             " gate cells · " + g.filled + " filled · " + g.open +
+             " gates still open" + (mine ? " · " + mine : "");
     } },
 
   { name: "where", args: "",
