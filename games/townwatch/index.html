@@ -1397,6 +1397,7 @@ function beamAlong(g, dt) {
      the line takes the lot - which is the laser's moment, and the
      reason a gateway full of them is the place to point it. */
   const give = LASER.dps * dt;
+  let reached = 0;
   for (const t of TARGETS) {
     if (t.down) continue;
     aimAt(t, _other);
@@ -1406,13 +1407,19 @@ function beamAlong(g, dt) {
     const off = Math.sqrt(Math.max(0, _other.lengthSq() - along * along));
     if (off > LASER.half + t.r) continue;
     hurt(t, give, "laser");
+    if (along > reached) reached = along;      // the last one on the line
   }
 
-  /* Drawn all the way out to its full reach, because that is honestly
-     how far it goes - it does not stop at the first thing. */
-  g.beam.scale.set(0.13, 0.13, LASER.range);
-  g.beam.position.copy(g.at).addScaledVector(_beamDir, LASER.range / 2);
-  _beamTo.copy(g.at).addScaledVector(_beamDir, LASER.range);
+  /* Drawn as far as the LAST thing it got, not out to its full twenty
+     metres. Drawing the lot looks wrong from anywhere above head
+     height, because a beam aimed slightly downwards carries on into
+     the ground and most of it is buried. Stopping at the far target
+     also shows you the thing worth knowing: that it went through the
+     near one and kept going. */
+  const len = Math.max(reached + 0.6, 1);
+  g.beam.scale.set(0.13, 0.13, len);
+  g.beam.position.copy(g.at).addScaledVector(_beamDir, len / 2);
+  _beamTo.copy(g.at).addScaledVector(_beamDir, len);
   g.beam.lookAt(_beamTo);
   g.beam.visible = true;
 }
